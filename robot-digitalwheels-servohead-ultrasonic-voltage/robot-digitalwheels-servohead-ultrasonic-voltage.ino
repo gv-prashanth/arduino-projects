@@ -19,7 +19,7 @@ const int minDiffForDecissionChange = 50;//cm
 const int minimumRange = 25;//cm
 const int baseMovementTime = 1000;//milli seconds
 const int robotWidth = 12;//cm
-const int headTurnPosition = 20;//angle in degrees
+const int headTurnAngle = 20;//angle in degrees
 const int talkFrequency = 2000;//frequency in Hz
 const int shoutFrequency = 5000;//frquency in Hz
 
@@ -37,24 +37,19 @@ void setup() {
 }
 
 void loop() {
-  boolean permittedToLive = true;
-  if(!permittedToLive){
-    base.stopAllMotion();
-    return;
-  }
   int centerReading = (int) scanAndGetReading(90);
   Serial.println (centerReading);
   if(centerReading>0 && centerReading<=minimumRange){
     obstacleTooCloseEmergencyStop();
     return;
   }
-  int leftReading = scanAndGetReading(180-headTurnPosition);
+  int leftReading = scanAndGetReading(180-headTurnAngle);
   Serial.println (leftReading);
   if(leftReading>0 && leftReading<=robotWidth){
     obstacleTooCloseEmergencyStop();
     return;
   }
-  int rightReading = scanAndGetReading(headTurnPosition);
+  int rightReading = scanAndGetReading(headTurnAngle);
   Serial.println (rightReading);
   Serial.println ("===============");
   if(rightReading>0 && rightReading<=robotWidth){
@@ -106,12 +101,7 @@ int scanAndGetReading(int angle){
 }
 
 void checkHeadPosition(){
-  microServo.attach(servoPin);
-  delay(5);
-  microServo.write(90);
-  delay(200);
-  microServo.detach();
-  delay(5);
+  scanAndGetReading(90);
 }
 
 void checkBatteryVoltage(){
@@ -127,7 +117,7 @@ void checkBaseHeadDirections(){
   delay(400);
   base.rotateRight(baseMovementTime);
   delay(400);
-  scanAndGetReading(180-headTurnPosition);
+  scanAndGetReading(180-headTurnAngle);
   delay(400);
   scanAndGetReading(90);
   delay(400);
@@ -135,7 +125,7 @@ void checkBaseHeadDirections(){
   delay(400);
   base.rotateLeft(baseMovementTime);
   delay(400);
-  scanAndGetReading(headTurnPosition);
+  scanAndGetReading(headTurnAngle);
   delay(400);  
   scanAndGetReading(90);
   delay(400);
