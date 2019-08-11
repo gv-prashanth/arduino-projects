@@ -4,6 +4,7 @@
 #include <UltrasonicSensor.h>
 #include <Wire.h>
 #include <HMC5883L.h>
+//You can download the driver from https://github.com/Seeed-Studio/Grove_3Axis_Digital_Compass_HMC5883L
 
 //Pin Configuration
 const int leftWheelForwardPin = 11;
@@ -178,11 +179,11 @@ float calculatePowerMultiplier(float lowerRange, float higherRange){
 void setupHMC5883L(){
  //Setup the HMC5883L, and check for errors
  int error; 
- error = compass.SetScale(1.3); //Set the scale of the compass.
- if(error != 0) Serial.println(compass.GetErrorText(error)); //check if there is an error, and print if so
+ error = compass.setScale(1.3); //Set the scale of the compass.
+ if(error != 0) Serial.println(compass.getErrorText(error)); //check if there is an error, and print if so
 
- error = compass.SetMeasurementMode(Measurement_Continuous); // Set the measurement mode to Continuous
- if(error != 0) Serial.println(compass.GetErrorText(error)); //check if there is an error, and print if so
+ error = compass.setMeasurementMode(MEASUREMENT_CONTINUOUS); // Set the measurement mode to Continuous
+ if(error != 0) Serial.println(compass.getErrorText(error)); //check if there is an error, and print if so
 }
 
 float getAvgHeading(){
@@ -198,7 +199,7 @@ float getAvgHeading(){
 
 float getHeading(){
  //Get the reading from the HMC5883L and calculate the heading
- MagnetometerScaled scaled = compass.ReadScaledAxis(); //scaled values from compass.
+ MagnetometerScaled scaled = compass.readScaledAxis(); //scaled values from compass.
  float heading = atan2(scaled.YAxis, scaled.XAxis);
 
  // Correct for when signs are reversed.
