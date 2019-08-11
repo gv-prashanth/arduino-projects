@@ -1,0 +1,2 @@
+VoltageSensor	KEYWORD1
+senseVoltage	KEYWORD2
