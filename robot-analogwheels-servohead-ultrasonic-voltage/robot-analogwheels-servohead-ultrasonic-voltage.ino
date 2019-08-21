@@ -70,19 +70,20 @@ void loop() {
   int leftDecissionValue = leftReading-centerReading;
   int rightDecissionValue = rightReading-centerReading2;
   
+  float powerMultiplier = calculatePowerMultiplier(lowestWorkingVoltageSpecificationOfBatteryPack, highestWorkingVoltageSpecificationOfBatteryPack, powerSuppresorFactorAtHighestVoltage);
   if((leftDecissionValue>minDiffForDecissionChange)&&(leftDecissionValue>=rightDecissionValue)){
     //take left turn
-    base.rotateLeft(1.0);
+    base.rotateLeft(powerMultiplier);
     delay(baseMovementTime);
-    tone(speakerPin, shoutFrequency, 100);
+    tone(speakerPin, talkFrequency, 200);
   }else if((rightDecissionValue>minDiffForDecissionChange)&&(rightDecissionValue>leftDecissionValue)){
     //take right turn
-    base.rotateRight(1.0);
+    base.rotateRight(powerMultiplier);
     delay(baseMovementTime);
-    tone(speakerPin, shoutFrequency, 100);
+    tone(speakerPin, talkFrequency, 200);
   }
+  
   //go forward
-  float powerMultiplier = calculatePowerMultiplier(lowestWorkingVoltageSpecificationOfBatteryPack, highestWorkingVoltageSpecificationOfBatteryPack, powerSuppresorFactorAtHighestVoltage);
   base.goForward(powerMultiplier,powerMultiplier);
 }
 
@@ -93,7 +94,7 @@ void checkHeadPosition(){
 void checkBatteryVoltage(){
   int intVoltage = voltageSensor.senseVoltage();
   for(int i=0;i<intVoltage; i++){
-    tone(speakerPin, shoutFrequency, 200);
+    tone(speakerPin, talkFrequency, 200);
     delay(400);
   }
 }
@@ -134,16 +135,17 @@ void checkBaseHeadDirections(){
 }
 
 void obstacleTooCloseEmergencyStop(){
-  tone(speakerPin, talkFrequency, 100);
-  base.goBackward(1.0,1.0);
+  float powerMultiplier = calculatePowerMultiplier(lowestWorkingVoltageSpecificationOfBatteryPack, highestWorkingVoltageSpecificationOfBatteryPack, powerSuppresorFactorAtHighestVoltage);
+  tone(speakerPin, shoutFrequency, 100);
+  base.goBackward(powerMultiplier,powerMultiplier);
   delay(baseMovementTime);
   base.stopAllMotion();
   if(decideOnRight()){
-    base.rotateRight(1.0);
+    base.rotateRight(powerMultiplier);
     delay(baseMovementTime);
     base.stopAllMotion();
   }else{
-    base.rotateLeft(1.0);
+    base.rotateLeft(powerMultiplier);
     delay(baseMovementTime);
     base.stopAllMotion();
   }
