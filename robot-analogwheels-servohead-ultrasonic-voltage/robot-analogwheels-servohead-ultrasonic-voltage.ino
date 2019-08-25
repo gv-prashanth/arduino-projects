@@ -73,14 +73,14 @@ void loop() {
   float powerMultiplier = calculatePowerMultiplier(lowestWorkingVoltageSpecificationOfBatteryPack, highestWorkingVoltageSpecificationOfBatteryPack, powerSuppresorFactorAtHighestVoltage);
   if((leftDecissionValue>minDiffForDecissionChange)&&(leftDecissionValue>=rightDecissionValue)){
     //take left turn
+    tone(speakerPin, talkFrequency, 200);
     base.rotateLeft(powerMultiplier);
     delay(baseMovementTime);
-    tone(speakerPin, talkFrequency, 200);
   }else if((rightDecissionValue>minDiffForDecissionChange)&&(rightDecissionValue>leftDecissionValue)){
     //take right turn
+    tone(speakerPin, talkFrequency, 200);
     base.rotateRight(powerMultiplier);
     delay(baseMovementTime);
-    tone(speakerPin, talkFrequency, 200);
   }
   
   //go forward
