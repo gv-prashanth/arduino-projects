@@ -42,6 +42,7 @@ void obstacleTooCloseEmergencyStop(){
 
 int scanAndGetReading(){
   int reading = (int) ultrasonicSensor.obstacleDistance();
+  Serial.println(reading);       // print as an ASCII-encoded decimal
   return reading;
 }
 

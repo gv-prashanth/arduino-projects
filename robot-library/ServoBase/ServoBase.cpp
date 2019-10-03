@@ -44,11 +44,11 @@ void ServoBase::rotateLeft(int duration){
 }
 
 void ServoBase::moveLeftWheelBackward(){
-  _leftWheelServo.write(180);
+  _leftWheelServo.write(0);
 }
 
 void ServoBase::moveLeftWheelForward(){
-  _leftWheelServo.write(0);
+  _leftWheelServo.write(180);
 }
 
 void ServoBase::moveRightWheelBackward(){
