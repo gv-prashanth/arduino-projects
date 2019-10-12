@@ -22,6 +22,8 @@ DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin
 
 void setup() {
   Serial.begin (9600);
+  tone(speakerPin, talkFrequency, 3000);
+  delay(3000);
   checkBaseHeadDirections();
 }
 
