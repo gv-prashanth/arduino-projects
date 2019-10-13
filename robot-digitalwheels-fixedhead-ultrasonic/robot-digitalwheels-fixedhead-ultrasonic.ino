@@ -15,10 +15,12 @@ const int minimumRange = 25;//cm
 const int baseMovementTime = 500;//milli seconds
 const int talkFrequency = 2000;//frequency in Hz
 const int shoutFrequency = 5000;//frquency in Hz
+const int robotJamCheckTime = 15000; //milli seconds
 
 //Dont touch below stuff
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
+unsigned long lastEmergencyTime = 0;
 
 void setup() {
   Serial.begin (9600);
@@ -34,12 +36,25 @@ void loop() {
     obstacleTooCloseEmergencyStop();
     return;
   }
+  if(checkForJam()){
+    obstacleTooCloseEmergencyStop();
+    return;
+  }
   //go forward
   base.goForward();
 }
 
+boolean checkForJam(){
+  if(abs(millis()-lastEmergencyTime) > robotJamCheckTime){
+    tone(speakerPin, talkFrequency, 500);
+    return true;
+  }
+  return false;
+}
+
 void obstacleTooCloseEmergencyStop(){
-  tone(speakerPin, talkFrequency, 100);
+  tone(speakerPin, shoutFrequency, 100);
+  lastEmergencyTime = millis();
   base.moveBackward(baseMovementTime);
   if(decideOnRight()){
     base.rotateRight(baseMovementTime);
