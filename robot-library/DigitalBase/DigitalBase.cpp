@@ -44,6 +44,7 @@ void DigitalBase::stopAllMotion(){
 void DigitalBase::rotateRight(int duration){
   stopAllMotion();
   moveLeftWheelForward();
+  moveRightWheelBackward();
   delay(duration);
   stopAllMotion();
 }
@@ -51,6 +52,7 @@ void DigitalBase::rotateRight(int duration){
 void DigitalBase::rotateLeft(int duration){
   stopAllMotion();
   moveRightWheelForward();
+  moveLeftWheelBackward();
   delay(duration);
   stopAllMotion();
 }
