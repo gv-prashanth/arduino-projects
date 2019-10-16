@@ -16,6 +16,7 @@ const int voltagePin = A2;
 const int minimumRange = 25;//cm
 const int calibratedMovementTime = 3500;//milli seconds
 const int robotWidth = 20;//cm
+const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int shoutFrequency = 5000;//frquency in Hz
 const int robotJamCheckTime = 15000; //milli seconds
@@ -31,7 +32,7 @@ void setup() {
   Serial.begin (9600);
   checkBatteryVoltage();
   checkBaseHeadDirections();
-  lastEmergencyTime = millis()-100;
+  lastEmergencyTime = millis()-100;//just subtracting a small time
 }
 
 void loop() {
@@ -60,13 +61,13 @@ boolean checkForJam(){
 void obstacleTooCloseEmergencyStop(){
   tone(speakerPin, shoutFrequency, 100);
   lastEmergencyTime = millis();
-  base.moveBackward(calibratedMovementTime/M_PI);
-  base.rotateLeft((calibratedMovementTime/360)*100);//should be mulitplied by 90 actually
+  base.moveBackward((calibratedMovementTime/(M_PI*robotWidth))*robotLength);
+  base.rotateLeft((calibratedMovementTime/360)*90);
   int surroundingReadings[semiCirclePrecission];
   for(int i=0;i<semiCirclePrecission; i++){
     surroundingReadings[i] = (int) getReading();
     base.rotateRight((calibratedMovementTime/360)*(180/semiCirclePrecission));
-    delay(100);
+    delay(50);
   }
   int maxIndex = 0;
   int maxValue = surroundingReadings[0];
@@ -76,7 +77,7 @@ void obstacleTooCloseEmergencyStop(){
       maxValue = surroundingReadings[i];
     }
   }
-  base.rotateLeft((calibratedMovementTime/360)*(180/semiCirclePrecission)*(semiCirclePrecission-maxIndex+1));
+  base.rotateLeft((calibratedMovementTime/360)*(180/semiCirclePrecission)*(semiCirclePrecission-maxIndex));
 }
 
 int getReading(){
@@ -98,18 +99,9 @@ void checkBaseHeadDirections(){
   base.rotateRight(calibratedMovementTime);
   delay(400);
   base.goForward();
-  delay(calibratedMovementTime/M_PI);
+  delay((calibratedMovementTime/(M_PI*robotWidth))*robotLength);
   base.stopAllMotion();
   delay(400);
-  base.moveBackward(calibratedMovementTime/M_PI);
+  base.moveBackward((calibratedMovementTime/(M_PI*robotWidth))*robotLength);
   delay(400);
-}
-
-boolean decideOnRight(){
-  int randNumber = random(0, 2);
-  if(randNumber <1){
-    return true;
-  }else{
-    return false;
-  }
 }

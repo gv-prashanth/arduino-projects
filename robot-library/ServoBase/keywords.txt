@@ -1,6 +1,0 @@
-ServoBase	KEYWORD1
-goForward	KEYWORD2
-stopAllMotion	KEYWORD2
-moveBackward	KEYWORD2
-rotateRight	KEYWORD2
-rotateLeft	KEYWORD2
