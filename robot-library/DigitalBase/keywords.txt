@@ -4,3 +4,5 @@ stopAllMotion	KEYWORD2
 moveBackward	KEYWORD2
 rotateRight	KEYWORD2
 rotateLeft	KEYWORD2
+turnRight	KEYWORD2
+turnLeft	KEYWORD2

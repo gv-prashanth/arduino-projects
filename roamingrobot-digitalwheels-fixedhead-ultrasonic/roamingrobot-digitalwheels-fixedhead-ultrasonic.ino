@@ -60,9 +60,9 @@ void obstacleTooCloseEmergencyStop(){
   lastEmergencyTime = millis();
   base.moveBackward((calibratedMovementTime/(M_PI*robotWidth))*robotLength);
   if(decideOnRight()){
-    base.rotateRight((calibratedMovementTime/360)*90);
+    base.turnRight((calibratedMovementTime/360)*90);
   }else{
-    base.rotateLeft((calibratedMovementTime/360)*90);
+    base.turnLeft((calibratedMovementTime/360)*90);
   }
 }
 
@@ -72,9 +72,9 @@ int getReading(){
 }
 
 void checkBaseHeadDirections(){
-  base.rotateLeft(calibratedMovementTime);
+  base.turnLeft(calibratedMovementTime);
   delay(400);
-  base.rotateRight(calibratedMovementTime);
+  base.turnRight(calibratedMovementTime);
   delay(400);
   base.goForward();
   delay((calibratedMovementTime/(M_PI*robotWidth))*robotLength);

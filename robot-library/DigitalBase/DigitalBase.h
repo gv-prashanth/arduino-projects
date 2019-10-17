@@ -18,6 +18,8 @@ class DigitalBase
 	void moveBackward(int duration);
 	void rotateRight(int duration);
 	void rotateLeft(int duration);
+	void turnRight(int duration);
+	void turnLeft(int duration);
   private:
     int _leftWheelForwardPin;
 	int _leftWheelBackwardPin;
