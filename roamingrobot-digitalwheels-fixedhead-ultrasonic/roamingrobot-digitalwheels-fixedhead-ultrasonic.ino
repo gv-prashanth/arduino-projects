@@ -18,6 +18,7 @@ const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int shoutFrequency = 5000;//frquency in Hz
 const int robotJamCheckTime = 15000; //milli seconds
+const boolean rotateMode = false;
 
 //Dont touch below stuff
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
@@ -25,6 +26,10 @@ DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin
 unsigned long lastEmergencyTime = 0;
 
 void setup() {
+  //TODO: Quick hack to solve to support both rotate and turn modes
+  if(!rotateMode){
+    robotWidth = 2 * robotWidth;
+  }
   Serial.begin (9600);
   tone(speakerPin, talkFrequency, 3000);
   delay(3000);
@@ -60,9 +65,17 @@ void obstacleTooCloseEmergencyStop(){
   lastEmergencyTime = millis();
   base.moveBackward((calibratedMovementTime/(M_PI*robotWidth))*robotLength);
   if(decideOnRight()){
-    base.turnRight((calibratedMovementTime/360)*90);
+    if(rotateMode){
+      base.rotateRight((calibratedMovementTime/360)*90);
+    }else{
+      base.turnRight((calibratedMovementTime/360)*90);
+    }
   }else{
-    base.turnLeft((calibratedMovementTime/360)*90);
+    if(rotateMode){
+      base.rotateLeft((calibratedMovementTime/360)*90);
+    }else{
+      base.turnLeft((calibratedMovementTime/360)*90);
+    }
   }
 }
 
@@ -72,9 +85,17 @@ int getReading(){
 }
 
 void checkBaseHeadDirections(){
-  base.turnLeft(calibratedMovementTime);
+  if(rotateMode){
+    base.rotateLeft(calibratedMovementTime);
+  }else{
+    base.turnLeft(calibratedMovementTime);
+  }
   delay(400);
-  base.turnRight(calibratedMovementTime);
+  if(rotateMode){
+    base.rotateRight(calibratedMovementTime);
+  }else{
+    base.turnRight(calibratedMovementTime);
+  }
   delay(400);
   base.goForward();
   delay((calibratedMovementTime/(M_PI*robotWidth))*robotLength);
