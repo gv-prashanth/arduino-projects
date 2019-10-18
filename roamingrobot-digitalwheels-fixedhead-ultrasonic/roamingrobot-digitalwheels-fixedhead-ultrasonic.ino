@@ -13,7 +13,7 @@ const int ultraEchoPin = 8;
 //functional Configuration
 const int minimumRange = 25;//cm
 const int calibratedMovementTime = 3500;//milli seconds
-const int robotWidth = 20;//cm
+int robotWidth = 20;//cm
 const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int shoutFrequency = 5000;//frquency in Hz
