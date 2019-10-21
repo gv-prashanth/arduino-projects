@@ -41,11 +41,11 @@ void loop() {
   int centerReading = (int) getReading();
   Serial.println (centerReading);
   if(centerReading>0 && centerReading<=minimumRange){
-    obstacleTooCloseEmergencyStop();
+    obstacleTooCloseEmergencyStop(90);
     return;
   }
   if(checkForJam()){
-    obstacleTooCloseEmergencyStop();
+    obstacleTooCloseEmergencyStop(10*random(0, 36));
     return;
   }
   //go forward
@@ -60,21 +60,21 @@ boolean checkForJam(){
   return false;
 }
 
-void obstacleTooCloseEmergencyStop(){
+void obstacleTooCloseEmergencyStop(int angle){
   tone(speakerPin, shoutFrequency, 100);
   lastEmergencyTime = millis();
   base.moveBackward((calibratedMovementTime/(M_PI*robotWidth))*robotLength);
   if(decideOnRight()){
     if(rotateMode){
-      base.rotateRight((calibratedMovementTime/360)*90);
+      base.rotateRight((calibratedMovementTime/360)*angle);
     }else{
-      base.turnRight((calibratedMovementTime/360)*90);
+      base.turnRight((calibratedMovementTime/360)*angle);
     }
   }else{
     if(rotateMode){
-      base.rotateLeft((calibratedMovementTime/360)*90);
+      base.rotateLeft((calibratedMovementTime/360)*angle);
     }else{
-      base.turnLeft((calibratedMovementTime/360)*90);
+      base.turnLeft((calibratedMovementTime/360)*angle);
     }
   }
 }
