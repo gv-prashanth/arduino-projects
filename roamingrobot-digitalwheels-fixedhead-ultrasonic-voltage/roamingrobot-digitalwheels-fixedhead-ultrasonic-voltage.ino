@@ -52,12 +52,15 @@ void setup() {
 void loop() {
   //check battery
   if (voltageSensor.senseVoltage() < sleepVoltage) {
+    tone(speakerPin, shoutFrequency, 100);
     sleepTillWakeVoltageIsReached();
+    tone(speakerPin, talkFrequency, 500);
     return;
   }
 
   //check jam
   if (checkForJam()) {
+    tone(speakerPin, talkFrequency, 500);
     obstacleTooCloseEmergencyStop(10 * random(0, 36));
     return;
   }
@@ -65,6 +68,7 @@ void loop() {
   //go left or right
   int centerReading = (int) getReading();
   if (centerReading > 0 && centerReading <= minimumRange) {
+    tone(speakerPin, shoutFrequency, 100);
     obstacleTooCloseEmergencyStop(90);
     return;
   }
@@ -88,14 +92,12 @@ void sleepTillWakeVoltageIsReached() {
 
 boolean checkForJam() {
   if (abs(millis() - lastEmergencyTime) > robotJamCheckTime) {
-    tone(speakerPin, talkFrequency, 500);
     return true;
   }
   return false;
 }
 
 void obstacleTooCloseEmergencyStop(int angle) {
-  tone(speakerPin, shoutFrequency, 100);
   lastEmergencyTime = millis();
   base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
   if (decideOnRight()) {
@@ -151,7 +153,7 @@ boolean decideOnRight() {
 void checkBatteryVoltage() {
   int intVoltage = voltageSensor.senseVoltage();
   for (int i = 0; i < intVoltage; i++) {
-    tone(speakerPin, shoutFrequency, 200);
+    tone(speakerPin, talkFrequency, 500);
     delay(400);
   }
 }
