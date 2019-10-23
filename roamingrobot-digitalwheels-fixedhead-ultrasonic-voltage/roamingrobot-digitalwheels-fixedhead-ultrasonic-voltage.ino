@@ -20,17 +20,17 @@ const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int shoutFrequency = 5000;//frquency in Hz
 const int robotJamCheckTime = 15000; //milli seconds
-const boolean rotateMode = false;
+const boolean rotateMode = true;
+const float sleepCutoffVoltage = 3.5;
 
 //Dont touch below stuff
 VoltageSensor voltageSensor(voltagePin);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 unsigned long lastEmergencyTime = 0;
-boolean inSleep = false;
 
 void setup() {
-  //TODO: Quick hack to solve to support both rotate and turn modes
+  //TODO: Quick hack to support both rotate and turn modes
   if (!rotateMode) {
     robotWidth = 2 * robotWidth;
   }
@@ -40,21 +40,32 @@ void setup() {
 }
 
 void loop() {
-  if (inSleep) {
-
-  } else {
-    int centerReading = (int) getReading();
-    if (centerReading > 0 && centerReading <= minimumRange) {
-      obstacleTooCloseEmergencyStop(90);
-      return;
-    }
-    if (checkForJam()) {
-      obstacleTooCloseEmergencyStop(10 * random(0, 36));
-      return;
-    }
-    //go forward
-    base.goForward();
+  //go left or right
+  int centerReading = (int) getReading();
+  if (centerReading > 0 && centerReading <= minimumRange) {
+    obstacleTooCloseEmergencyStop(90);
+    return;
   }
+  if (checkForJam()) {
+    obstacleTooCloseEmergencyStop(10 * random(0, 36));
+    return;
+  }
+
+  //go forward
+  base.goForward();
+
+  //go sleep
+  float floatVoltage = voltageSensor.senseVoltage();
+  if (floatVoltage < sleepCutoffVoltage) {
+    //go to sleep for 30 Minuntes or so
+    goToSleep();
+  }
+}
+
+void goToSleep() {
+  checkBatteryVoltage();
+  //Delay wont actually sleep arduino. It will just sleep the motors. Fine for now.
+  delay(60000);
 }
 
 boolean checkForJam() {
