@@ -1,3 +1,4 @@
+#include <VoltageSensor.h>
 #include <UltrasonicSensor.h>
 #include <DigitalBase.h>
 
@@ -9,6 +10,7 @@ const int rightWheelBackwardPin = 11;//11
 const int speakerPin = 4;
 const int ultraTriggerPin = 7;
 const int ultraEchoPin = 8;
+const int voltagePin = A2;
 
 //functional Configuration
 const int minimumRange = 25;//cm
@@ -21,95 +23,106 @@ const int robotJamCheckTime = 15000; //milli seconds
 const boolean rotateMode = false;
 
 //Dont touch below stuff
+VoltageSensor voltageSensor(voltagePin);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 unsigned long lastEmergencyTime = 0;
+boolean inSleep = false;
 
 void setup() {
   //TODO: Quick hack to solve to support both rotate and turn modes
-  if(!rotateMode){
+  if (!rotateMode) {
     robotWidth = 2 * robotWidth;
   }
-  Serial.begin (9600);
-  tone(speakerPin, talkFrequency, 3000);
-  delay(3000);
+  checkBatteryVoltage();
   checkBaseHeadDirections();
-  lastEmergencyTime = millis()-100;//just subtracting a small time
+  lastEmergencyTime = millis() - 100; //just subtracting a small time
 }
 
 void loop() {
-  int centerReading = (int) getReading();
-  Serial.println (centerReading);
-  if(centerReading>0 && centerReading<=minimumRange){
-    obstacleTooCloseEmergencyStop(90);
-    return;
+  if (inSleep) {
+
+  } else {
+    int centerReading = (int) getReading();
+    if (centerReading > 0 && centerReading <= minimumRange) {
+      obstacleTooCloseEmergencyStop(90);
+      return;
+    }
+    if (checkForJam()) {
+      obstacleTooCloseEmergencyStop(10 * random(0, 36));
+      return;
+    }
+    //go forward
+    base.goForward();
   }
-  if(checkForJam()){
-    obstacleTooCloseEmergencyStop(10*random(0, 36));
-    return;
-  }
-  //go forward
-  base.goForward();
 }
 
-boolean checkForJam(){
-  if(abs(millis()-lastEmergencyTime) > robotJamCheckTime){
+boolean checkForJam() {
+  if (abs(millis() - lastEmergencyTime) > robotJamCheckTime) {
     tone(speakerPin, talkFrequency, 500);
     return true;
   }
   return false;
 }
 
-void obstacleTooCloseEmergencyStop(int angle){
+void obstacleTooCloseEmergencyStop(int angle) {
   tone(speakerPin, shoutFrequency, 100);
   lastEmergencyTime = millis();
-  base.moveBackward((calibratedMovementTime/(M_PI*robotWidth))*robotLength);
-  if(decideOnRight()){
-    if(rotateMode){
-      base.rotateRight((calibratedMovementTime/360)*angle);
-    }else{
-      base.turnRight((calibratedMovementTime/360)*angle);
+  base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
+  if (decideOnRight()) {
+    if (rotateMode) {
+      base.rotateRight((calibratedMovementTime / 360)*angle);
+    } else {
+      base.turnRight((calibratedMovementTime / 360)*angle);
     }
-  }else{
-    if(rotateMode){
-      base.rotateLeft((calibratedMovementTime/360)*angle);
-    }else{
-      base.turnLeft((calibratedMovementTime/360)*angle);
+  } else {
+    if (rotateMode) {
+      base.rotateLeft((calibratedMovementTime / 360)*angle);
+    } else {
+      base.turnLeft((calibratedMovementTime / 360)*angle);
     }
   }
 }
 
-int getReading(){
+int getReading() {
   int reading = (int) ultrasonicSensor.obstacleDistance();
   return reading;
 }
 
-void checkBaseHeadDirections(){
-  if(rotateMode){
+void checkBaseHeadDirections() {
+  if (rotateMode) {
     base.rotateLeft(calibratedMovementTime);
-  }else{
+  } else {
     base.turnLeft(calibratedMovementTime);
   }
   delay(400);
-  if(rotateMode){
+  if (rotateMode) {
     base.rotateRight(calibratedMovementTime);
-  }else{
+  } else {
     base.turnRight(calibratedMovementTime);
   }
   delay(400);
   base.goForward();
-  delay((calibratedMovementTime/(M_PI*robotWidth))*robotLength);
+  delay((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
   base.stopAllMotion();
   delay(400);
-  base.moveBackward((calibratedMovementTime/(M_PI*robotWidth))*robotLength);
+  base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
   delay(400);
 }
 
-boolean decideOnRight(){
+boolean decideOnRight() {
   int randNumber = random(0, 2);
-  if(randNumber <1){
+  if (randNumber < 1) {
     return true;
-  }else{
+  } else {
     return false;
+  }
+}
+
+void checkBatteryVoltage() {
+  int intVoltage = voltageSensor.senseVoltage();
+  for (int i = 0; i < intVoltage; i++) {
+    tone(speakerPin, shoutFrequency, 200);
+    delay(400);
   }
 }
