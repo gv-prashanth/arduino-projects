@@ -73,6 +73,7 @@ void loop() {
 
 void goToSleep() {
   checkBatteryVoltage();
+  base.stopAllMotion();
   for (int i=0; i<sleepTime/8; i++) {
     //BOD DISABLE - this must be called right before the __asm__ sleep instruction
     MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
