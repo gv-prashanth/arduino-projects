@@ -35,6 +35,8 @@ DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin
 unsigned long lastEmergencyTime = 0;
 
 void setup() {
+  Serial.begin (9600);
+
   //SETUP WATCHDOG TIMER
   WDTCSR = (24);//change enable and WDE - also resets
   WDTCSR = (33);//prescalers only - get rid of the WDE and WDCE bit
@@ -54,6 +56,7 @@ void setup() {
   delay(3000);
 
   //Tell the voltage of battery
+  Serial.println (voltageSensor.senseVoltage());
   int intVoltage = voltageSensor.senseVoltage();
   morseString(String(intVoltage));
   delay(3000);
