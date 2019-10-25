@@ -75,6 +75,7 @@ void loop() {
     morseString("SOS");
     sleepTillWakeVoltageIsReached();
     morseString("Battery charged");
+    lastEmergencyTime = millis() - 100;
     return;
   }
 
