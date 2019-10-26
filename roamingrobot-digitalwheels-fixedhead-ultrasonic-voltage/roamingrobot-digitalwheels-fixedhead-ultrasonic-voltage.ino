@@ -61,6 +61,14 @@ void setup() {
   morseString(String(intVoltage));
   delay(3000);
 
+  //TODO: I think i need to make a method, rather than copy paste everywhere
+  //check battery
+  if (voltageSensor.senseVoltage() < sleepVoltage) {
+    morseString("SOS");
+    sleepTillWakeVoltageIsReached();
+    morseString("Battery charged");
+  }
+
   //Body check
   checkBaseHeadDirections();
   delay(3000);
