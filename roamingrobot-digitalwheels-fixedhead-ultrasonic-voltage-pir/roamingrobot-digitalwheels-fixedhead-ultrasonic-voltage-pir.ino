@@ -186,6 +186,7 @@ void doMotionDetectManoeuvre() {
       break;
     } else {
       base.rotateRight((calibratedMovementTime / 360) * (360 / circlePrecissionForMotionDetection));
+      delay(3000);
     }
     currentTime = millis();
   }
