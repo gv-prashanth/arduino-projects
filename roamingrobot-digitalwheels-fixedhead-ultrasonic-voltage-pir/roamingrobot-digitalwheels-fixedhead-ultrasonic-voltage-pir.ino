@@ -172,6 +172,7 @@ boolean motionDetected() {
 
 void doMotionDetectManoeuvre() {
   base.stopAllMotion();
+  delay(3000);
   long currentTime = millis();
   boolean motionDetectedSoFar = false;
   for (int i = 0; i < circlePrecissionForMotionDetection; i++) {
