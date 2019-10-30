@@ -1,6 +1,7 @@
 #include <VoltageSensor.h>
 #include <UltrasonicSensor.h>
 #include <DigitalBase.h>
+#include <MorseCode.h>
 
 //Pin Configuration
 const int leftWheelForwardPin = 5;//5
@@ -20,11 +21,6 @@ int robotWidth = 20;//cm
 const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 300; //unit of morse
-const int morseSymbolGapLen = morseUnit; //gap between symbols within a letter
-const int morseDotLen = morseUnit; // length of the morse code 'dot'
-const int morseDashLen = morseUnit * 3; // length of the morse code 'dash'
-const int morseLetterGapLen = morseUnit * 3; //length of gap betwen letters
-const int morseWordsGapLen = morseUnit * 7; //length of gap betwen letters
 const int robotJamCheckTime = 30000; //milli seconds
 const int robotMotionCheckTime = 60000; //milli seconds
 const boolean rotateMode = true;
@@ -37,6 +33,7 @@ const int sleepCheckupTime = 300;//sec
 VoltageSensor voltageSensor(voltagePin);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
+MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastEmergencyTime = 0;
 volatile boolean isMotionDetected = false;
 boolean isSleeping = false;
@@ -73,7 +70,7 @@ void setup() {
 void loop() {
   // check if battery is low and go to sleep
   if (!isSleeping && isBatteryLow()) {
-    morseString("SOS");
+    morseCode.play("SOS");
     goToSleep();
     return;
   }
@@ -125,7 +122,7 @@ void goToSleep() {
 }
 
 void wakeUp() {
-  morseString("Awake");
+  morseCode.play("Awake");
   isSleeping = false;
   lastEmergencyTime = millis() - 100; //just subtracting a small time
 }
@@ -174,7 +171,7 @@ void stabilizePIR() {
 
 void doMotionDetectManoeuvre() {
   base.rotateRight((calibratedMovementTime / 360) * (180));
-  morseString("Danger");
+  morseCode.play("Danger");
   isMotionDetected = false;
 }
 
@@ -204,7 +201,7 @@ int getReading() {
 void doBIOSManoeuvre() {
   //Tell the voltage of battery
   int intVoltage = voltageSensor.senseVoltage();
-  morseString(String(intVoltage));
+  morseCode.play(String(intVoltage));
 
   //left
   if (rotateMode) {
@@ -212,7 +209,7 @@ void doBIOSManoeuvre() {
   } else {
     base.turnLeft(calibratedMovementTime);
   }
-  morseString("Left");
+  morseCode.play("Left");
 
   //right
   if (rotateMode) {
@@ -220,17 +217,17 @@ void doBIOSManoeuvre() {
   } else {
     base.turnRight(calibratedMovementTime);
   }
-  morseString("Right");
+  morseCode.play("Right");
 
   //forward
   base.goForward();
   delay((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
   base.stopAllMotion();
-  morseString("Forward");
+  morseCode.play("Forward");
 
   //backward
   base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
-  morseString("Backward");
+  morseCode.play("Backward");
 }
 
 boolean decideOnRight() {
@@ -245,109 +242,3 @@ boolean decideOnRight() {
 ISR(WDT_vect) {
   //DON'T FORGET THIS!  Needed for the watch dog timer.  This is called after a watch dog timer timeout - this is the interrupt function called after waking up
 }// watchdog interrupt
-
-void morseString(String stringToMorseCode)
-{
-  for (int i = 0; i < sizeof(stringToMorseCode) - 1; i++)
-  {
-    char tmpChar = stringToMorseCode[i];
-    tmpChar = toLowerCase(tmpChar);
-    if (tmpChar == ' ') {
-      delay(morseWordsGapLen - morseLetterGapLen);
-    }
-    morseChar(tmpChar);
-    delay(morseLetterGapLen);
-  }
-}
-
-void morseDot()
-{
-  tone(speakerPin, talkFrequency, morseDotLen); // start playing
-  delay(morseDotLen);  // hold in this position
-}
-
-void morseDash()
-{
-  tone(speakerPin, talkFrequency, morseDashLen);  // start playing
-  delay(morseDashLen);   // hold in this position
-}
-
-void morseChar(char tmpChar)
-{
-  switch (tmpChar) {
-    case 'a':
-      morseDot(); delay(morseSymbolGapLen); morseDash(); break;
-    case 'b':
-      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
-    case 'c':
-      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
-    case 'd':
-      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
-    case 'e':
-      morseDot(); break;
-    case 'f':
-      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
-    case 'g':
-      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
-    case 'h':
-      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
-    case 'i':
-      morseDot(); delay(morseSymbolGapLen); morseDot(); break;
-    case 'j':
-      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
-    case 'k':
-      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
-    case 'l':
-      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
-    case 'm':
-      morseDash(); delay(morseSymbolGapLen); morseDash(); break;
-    case 'n':
-      morseDash(); delay(morseSymbolGapLen); morseDot(); break;
-    case 'o':
-      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
-    case 'p':
-      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
-    case 'q':
-      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
-    case 'r':
-      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
-    case 's':
-      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
-    case 't':
-      morseDash(); break;
-    case 'u':
-      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
-    case 'v':
-      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
-    case 'w':
-      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
-    case 'x':
-      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
-    case 'y':
-      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
-    case 'z':
-      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
-    case '1':
-      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
-    case '2':
-      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
-    case '3':
-      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
-    case '4':
-      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
-    case '5':
-      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
-    case '6':
-      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
-    case '7':
-      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
-    case '8':
-      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
-    case '9':
-      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
-    case '0':
-      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
-    default:
-      break;
-  }
-}
