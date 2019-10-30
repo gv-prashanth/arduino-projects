@@ -11,7 +11,7 @@ const int speakerPin = 4;
 const int ultraTriggerPin = 7;
 const int ultraEchoPin = 8;
 const int voltagePin = A2;
-const int pirPin = 2; // the pin that the sensor is atteched to
+const int pirInterruptPin = 2; // the pin that the sensor is atteched to
 
 //functional Configuration
 const int minimumRange = 25;//cm
@@ -24,7 +24,7 @@ const int morseDotLen = morseUnit; // length of the morse code 'dot'
 const int morseDashLen = morseUnit * 3; // length of the morse code 'dash'
 const int morseLetterGapLen = morseUnit * 3; //length of gap betwen letters
 const int morseWordsGapLen = morseUnit * 7; //length of gap betwen letters
-const int robotJamCheckTime = 15000; //milli seconds
+const int robotJamCheckTime = 30000; //milli seconds
 const int robotMotionCheckTime = 60000; //milli seconds
 const boolean rotateMode = true;
 const float sleepVoltage = 3.5;//volts
@@ -37,15 +37,13 @@ VoltageSensor voltageSensor(voltagePin);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 unsigned long lastEmergencyTime = 0;
-unsigned long lastMotionCheckTime = 0;
-int pirState = LOW;             // by default, no motion detected
-boolean markForSleep = false;
-int sleptTime = 0;
+volatile boolean isMotionDetected = false;
+boolean isSleeping = false;
+unsigned long sleptTime = 0;
 
 void setup() {
   Serial.begin (9600);
-
-  pinMode(pirPin, INPUT);    // initialize sensor as an input
+  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), motionDetectedRoutine, RISING);
 
   //SETUP WATCHDOG TIMER
   WDTCSR = (24);//change enable and WDE - also resets
@@ -61,43 +59,50 @@ void setup() {
     robotWidth = 2 * robotWidth;
   }
 
-  //Body check
-  doBIOSManoeuvre();
+  // Wake the robot
+  wakeUp();
 
-  //Load time parameters
-  resetAllTimers();
-}
+  // check if battery is low and skip bios dance
+  if (!isBatteryLow()) {
+    doBIOSManoeuvre();
+  }
 
-void resetAllTimers() {
-  lastEmergencyTime = millis() - 100; //just subtracting a small time
-  lastMotionCheckTime = millis() - 100; //just subtracting a small time
 }
 
 void loop() {
-  //instantiate sleep OR continue sleep OR wake up
-  if (markForSleep) {
-    goToSleepOrcontinueToSleepOrWakeup();
-    return;
-  } else {
-    if (isBatteryLow())
-      markForSleepMode();
+  // check if battery is low and go to sleep
+  if (!isSleeping && isBatteryLow()) {
+    goToSleep();
     return;
   }
 
-  //check jam
-  if (isJamDetectTime()) {
-    Serial.println (voltageSensor.senseVoltage());
+  // check if battery is low and continue sleep
+  if (isSleeping && !isMotionDetected && isFurtherSleepNeeded()) {
+    SleepForEightSeconds();
+    return;
+  }
+
+  // check if battery is charged and wake up
+  if (isSleeping && !isMotionDetected && !isFurtherSleepNeeded()) {
+    wakeUp();
+    return;
+  }
+
+  // check if there is motion while sleeping
+  if (isSleeping && isMotionDetected) {
+    wakeUp();
+    doMotionDetectManoeuvre();
+    goToSleep();
+    return;
+  }
+
+  // check if there is a robot jam
+  if (isJamDetected()) {
     doEmergencyManoeuvre(10 * random(0, 36));
     return;
   }
 
-  //check motion detection
-  if (isMotionDetectTime()) {
-    doMotionDetectManoeuvre();
-    return;
-  }
-
-  //check obstacle
+  //check if there is an obstacle
   if (isObstaclePresent()) {
     tone(speakerPin, talkFrequency, 100);
     doEmergencyManoeuvre(90);
@@ -108,29 +113,27 @@ void loop() {
   base.goForward();
 }
 
-void markForSleepMode() {
+void goToSleep() {
   base.stopAllMotion();
   morseString("SOS");
-  markForSleep = true;
+  stabilizePIR();
+  isSleeping = true;
   sleptTime = 0;
+  SleepForEightSeconds();
 }
 
-void goToSleepOrcontinueToSleepOrWakeup() {
+void wakeUp() {
+  morseString("Awake");
+  isSleeping = false;
+  lastEmergencyTime = millis() - 100; //just subtracting a small time
+}
+
+boolean isFurtherSleepNeeded() {
   //check battery every sleepCheckupTime seconds
   if (sleptTime > sleepCheckupTime && isWakeVoltageReached()) {
-    //wake up
-    morseString("Battery charged");
-    resetAllTimers();
-    markForSleep = false;
+    return false;
   } else {
-    //continue sleeping
-    SleepForEightSeconds();
-    sleptTime += 8;
-  }
-
-  //Dont want the sleptTime to go outOfBound
-  if (sleptTime > sleepCheckupTime) {
-    sleptTime = 0;
+    return true;
   }
 }
 
@@ -139,18 +142,15 @@ void SleepForEightSeconds() {
   MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
   MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
   __asm__  __volatile__("sleep");//in line assembler to go to sleep
+  sleptTime += 8;
 }
 
 boolean isWakeVoltageReached() {
   return voltageSensor.senseVoltage() > wakeVoltage;
 }
 
-boolean isJamDetectTime() {
+boolean isJamDetected() {
   return abs(millis() - lastEmergencyTime) > robotJamCheckTime;
-}
-
-boolean isMotionDetectTime() {
-  return abs(millis() - lastMotionCheckTime) > robotMotionCheckTime;
 }
 
 boolean isBatteryLow() {
@@ -162,55 +162,19 @@ boolean isObstaclePresent() {
   return (centerReading > 0 && centerReading <= minimumRange);
 }
 
-boolean motionDetected() {
-  if (digitalRead(pirPin) == HIGH) {           // check if the sensor is HIGH
-    delay(100);                // delay 100 milliseconds
+void motionDetectedRoutine() {
+  isMotionDetected = true;
+}
 
-    if (pirState == LOW) {
-      Serial.println("Motion detected!");
-      pirState = HIGH;       // update variable state to HIGH
-      return true;
-    }
-  }
-  else {
-    delay(100);             // delay 200 milliseconds
-
-    if (pirState == HIGH) {
-      Serial.println("Motion stopped!");
-      pirState = LOW;       // update variable state to LOW
-    }
-  }
-  return false;
+void stabilizePIR() {
+  delay(30000);
 }
 
 void doMotionDetectManoeuvre() {
-  base.stopAllMotion();
-  delay(3000);
-  long currentTime = millis();
-  boolean motionDetectedSoFar = false;
-  for (int i = 0; i < circlePrecissionForMotionDetection; i++) {
-    while (millis() - currentTime < 60000) {
-      if (motionDetected()) {
-        motionDetectedSoFar = true;
-        break;
-      }
-    }
-    if (motionDetectedSoFar) {
-      break;
-    } else {
-      base.rotateRight((calibratedMovementTime / 360) * (360 / circlePrecissionForMotionDetection));
-      delay(3000);
-    }
-    currentTime = millis();
-  }
-  if (motionDetectedSoFar) {
-    morseString("Alarm");
-    base.rotateRight((calibratedMovementTime / 360) * (180));
-    tone(speakerPin, talkFrequency, 1000);
-  }
-  resetAllTimers();
+  base.rotateRight((calibratedMovementTime / 360) * (180));
+  morseString("Alarm");
+  isMotionDetected = false;
 }
-
 
 void doEmergencyManoeuvre(int angle) {
   base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
@@ -227,7 +191,7 @@ void doEmergencyManoeuvre(int angle) {
       base.turnLeft((calibratedMovementTime / 360)*angle);
     }
   }
-  lastEmergencyTime = millis();
+  lastEmergencyTime = millis() - 100;
 }
 
 int getReading() {
