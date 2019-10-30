@@ -12,7 +12,7 @@ const int speakerPin = 4;
 const int ultraTriggerPin = 7;
 const int ultraEchoPin = 8;
 const int voltagePin = A2;
-const int pirInterruptPin = 2; // the pin that the sensor is atteched to
+const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
 const int minimumRange = 25;//cm
@@ -22,11 +22,9 @@ const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 300; //unit of morse
 const int robotJamCheckTime = 30000; //milli seconds
-const int robotMotionCheckTime = 60000; //milli seconds
 const boolean rotateMode = true;
 const float sleepVoltage = 3.5;//volts
 const float wakeVoltage = 5.5;//volts. Must be greater than sleepVoltage.
-const int circlePrecissionForMotionDetection = 4;
 const int sleepCheckupTime = 300;//sec
 
 //Dont touch below stuff
@@ -114,7 +112,8 @@ void loop() {
 
 void goToSleep() {
   base.stopAllMotion();
-  stabilizePIR();
+  //stabilizePIR
+  delay(30000);
   isSleeping = true;
   isMotionDetected = false;
   sleptTime = 0;
@@ -163,10 +162,6 @@ boolean isObstaclePresent() {
 
 void motionDetectedRoutine() {
   isMotionDetected = true;
-}
-
-void stabilizePIR() {
-  delay(30000);
 }
 
 void doMotionDetectManoeuvre() {
