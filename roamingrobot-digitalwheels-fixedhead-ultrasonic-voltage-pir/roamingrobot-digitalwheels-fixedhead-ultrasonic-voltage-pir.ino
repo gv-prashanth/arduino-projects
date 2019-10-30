@@ -19,7 +19,8 @@ const int calibratedMovementTime = 3500;//milli seconds
 int robotWidth = 20;//cm
 const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
-const int morseUnit = 100; //unit of morse
+const int morseUnit = 300; //unit of morse
+const int morseSymbolGapLen = morseUnit; //gap between symbols within a letter
 const int morseDotLen = morseUnit; // length of the morse code 'dot'
 const int morseDashLen = morseUnit * 3; // length of the morse code 'dash'
 const int morseLetterGapLen = morseUnit * 3; //length of gap betwen letters
@@ -72,6 +73,7 @@ void setup() {
 void loop() {
   // check if battery is low and go to sleep
   if (!isSleeping && isBatteryLow()) {
+    morseString("SOS");
     goToSleep();
     return;
   }
@@ -115,9 +117,9 @@ void loop() {
 
 void goToSleep() {
   base.stopAllMotion();
-  morseString("SOS");
   stabilizePIR();
   isSleeping = true;
+  isMotionDetected = false;
   sleptTime = 0;
   SleepForEightSeconds();
 }
@@ -172,7 +174,7 @@ void stabilizePIR() {
 
 void doMotionDetectManoeuvre() {
   base.rotateRight((calibratedMovementTime / 360) * (180));
-  morseString("Alarm");
+  morseString("Danger");
   isMotionDetected = false;
 }
 
@@ -210,7 +212,7 @@ void doBIOSManoeuvre() {
   } else {
     base.turnLeft(calibratedMovementTime);
   }
-  morseString("Turned left");
+  morseString("Left");
 
   //right
   if (rotateMode) {
@@ -218,17 +220,17 @@ void doBIOSManoeuvre() {
   } else {
     base.turnRight(calibratedMovementTime);
   }
-  morseString("Turned right");
+  morseString("Right");
 
   //forward
   base.goForward();
   delay((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
   base.stopAllMotion();
-  morseString("Went forward");
+  morseString("Forward");
 
   //backward
   base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
-  morseString("Went backward");
+  morseString("Backward");
 }
 
 boolean decideOnRight() {
@@ -274,77 +276,77 @@ void morseChar(char tmpChar)
 {
   switch (tmpChar) {
     case 'a':
-      morseDot(); delay(morseUnit); morseDash(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDash(); break;
     case 'b':
-      morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
     case 'c':
-      morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDash(); delay(morseUnit); morseDot(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
     case 'd':
-      morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
     case 'e':
       morseDot(); break;
     case 'f':
-      morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDash(); delay(morseUnit); morseDot(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
     case 'g':
-      morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDot(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
     case 'h':
-      morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
     case 'i':
-      morseDot(); delay(morseUnit); morseDot(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDot(); break;
     case 'j':
-      morseDot(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
     case 'k':
-      morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDash(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
     case 'l':
-      morseDot(); delay(morseUnit); morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
     case 'm':
-      morseDash(); delay(morseUnit); morseDash(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDash(); break;
     case 'n':
-      morseDash(); delay(morseUnit); morseDot(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDot(); break;
     case 'o':
-      morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
     case 'p':
-      morseDot(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDot(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
     case 'q':
-      morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDash(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
     case 'r':
-      morseDot(); delay(morseUnit); morseDash(); delay(morseUnit); morseDot(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
     case 's':
-      morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
     case 't':
       morseDash(); break;
     case 'u':
-      morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDash(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
     case 'v':
-      morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDash(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
     case 'w':
-      morseDot(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
     case 'x':
-      morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDash(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
     case 'y':
-      morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
     case 'z':
-      morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
     case '1':
-      morseDot(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
     case '2':
-      morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
     case '3':
-      morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
     case '4':
-      morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDash(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDash(); break;
     case '5':
-      morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); break;
+      morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
     case '6':
-      morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
     case '7':
-      morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
     case '8':
-      morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDot(); delay(morseUnit); morseDot(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); delay(morseSymbolGapLen); morseDot(); break;
     case '9':
-      morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDot(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDot(); break;
     case '0':
-      morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); delay(morseUnit); morseDash(); break;
+      morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); delay(morseSymbolGapLen); morseDash(); break;
     default:
       break;
   }
