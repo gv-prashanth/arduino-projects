@@ -156,7 +156,7 @@ boolean isBatteryLow() {
 }
 
 boolean isObstaclePresent() {
-  int centerReading = (int) getReading();
+  int centerReading = (int) ultrasonicSensor.obstacleDistance();
   return (centerReading > 0 && centerReading <= minimumRange);
 }
 
@@ -186,11 +186,6 @@ void doEmergencyManoeuvre(int angle) {
     }
   }
   lastEmergencyTime = millis() - 100;
-}
-
-int getReading() {
-  int reading = (int) ultrasonicSensor.obstacleDistance();
-  return reading;
 }
 
 void doBIOSManoeuvre() {
