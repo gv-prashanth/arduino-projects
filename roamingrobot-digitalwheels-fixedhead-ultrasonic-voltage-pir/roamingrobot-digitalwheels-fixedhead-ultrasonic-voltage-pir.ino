@@ -30,6 +30,7 @@ const boolean rotateMode = true;
 const float sleepVoltage = 3.5;//volts
 const float wakeVoltage = 5.5;//volts. Must be greater than sleepVoltage.
 const int circlePrecissionForMotionDetection = 4;
+const int sleepCheckupTime = 300;//sec
 
 //Dont touch below stuff
 VoltageSensor voltageSensor(voltagePin);
@@ -38,6 +39,8 @@ DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin
 unsigned long lastEmergencyTime = 0;
 unsigned long lastMotionCheckTime = 0;
 int pirState = LOW;             // by default, no motion detected
+boolean markForSleep = false;
+int sleptTime = 0;
 
 void setup() {
   Serial.begin (9600);
@@ -58,23 +61,8 @@ void setup() {
     robotWidth = 2 * robotWidth;
   }
 
-  //Greet
-  morseString("Hello World");
-  delay(3000);
-
-  //Tell the voltage of battery
-  Serial.println (voltageSensor.senseVoltage());
-  int intVoltage = voltageSensor.senseVoltage();
-  morseString(String(intVoltage));
-  delay(3000);
-
-  if (isBatteryLow()) {
-    sleepTillWakeVoltageIsReached();
-  }
-
   //Body check
   doBIOSManoeuvre();
-  delay(3000);
 
   //Load time parameters
   resetAllTimers();
@@ -86,9 +74,13 @@ void resetAllTimers() {
 }
 
 void loop() {
-  //check battery
-  if (isBatteryLow()) {
-    sleepTillWakeVoltageIsReached();
+  //instantiate sleep OR continue sleep OR wake up
+  if (markForSleep) {
+    goToSleepOrcontinueToSleepOrWakeup();
+    return;
+  } else {
+    if (isBatteryLow())
+      markForSleepMode();
     return;
   }
 
@@ -116,20 +108,41 @@ void loop() {
   base.goForward();
 }
 
-void sleepTillWakeVoltageIsReached() {
+void markForSleepMode() {
   base.stopAllMotion();
   morseString("SOS");
-  while (voltageSensor.senseVoltage() < wakeVoltage) {
-    int sleepTime = 300; //seconds
-    for (int i = 0; i < sleepTime / 8; i++) {
-      //BOD DISABLE - this must be called right before the __asm__ sleep instruction
-      MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
-      MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
-      __asm__  __volatile__("sleep");//in line assembler to go to sleep
-    }
+  markForSleep = true;
+  sleptTime = 0;
+}
+
+void goToSleepOrcontinueToSleepOrWakeup() {
+  //check battery every sleepCheckupTime seconds
+  if (sleptTime > sleepCheckupTime && isWakeVoltageReached()) {
+    //wake up
+    morseString("Battery charged");
+    resetAllTimers();
+    markForSleep = false;
+  } else {
+    //continue sleeping
+    SleepForEightSeconds();
+    sleptTime += 8;
   }
-  morseString("Battery charged");
-  resetAllTimers();
+
+  //Dont want the sleptTime to go outOfBound
+  if (sleptTime > sleepCheckupTime) {
+    sleptTime = 0;
+  }
+}
+
+void SleepForEightSeconds() {
+  //BOD DISABLE - this must be called right before the __asm__ sleep instruction
+  MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
+  MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
+  __asm__  __volatile__("sleep");//in line assembler to go to sleep
+}
+
+boolean isWakeVoltageReached() {
+  return voltageSensor.senseVoltage() > wakeVoltage;
 }
 
 boolean isJamDetectTime() {
@@ -223,6 +236,10 @@ int getReading() {
 }
 
 void doBIOSManoeuvre() {
+  //Tell the voltage of battery
+  int intVoltage = voltageSensor.senseVoltage();
+  morseString(String(intVoltage));
+
   //left
   if (rotateMode) {
     base.rotateLeft(calibratedMovementTime);
