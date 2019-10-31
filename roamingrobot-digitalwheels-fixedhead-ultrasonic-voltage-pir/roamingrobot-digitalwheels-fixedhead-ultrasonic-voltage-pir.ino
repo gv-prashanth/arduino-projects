@@ -34,7 +34,7 @@ DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastEmergencyTime = 0;
 boolean isSleeping = false;
-unsigned long sleptCycle = 0;
+unsigned long sleptTime = 0;
 
 void setup() {
   Serial.begin (9600);
@@ -65,53 +65,48 @@ void setup() {
 }
 
 void loop() {
-  if (isSleeping) {
-
-    // check if battery is low and continue sleep
-    if (isFurtherSleepNeeded()) {
-      SleepForEightSeconds();
-      return;
-    }
-
-    // check if battery is charged and wake up
-    if (!isFurtherSleepNeeded()) {
-      wakeUp();
-      return;
-    }
-
-  } else {
-
-    // check if battery is low and go to sleep
-    if (isBatteryLow()) {
-      goToSleep();
-      return;
-    }
-
-    // check if there is a robot jam
-    if (isJamDetected()) {
-      doEmergencyManoeuvre(10 * random(0, 36));
-      return;
-    }
-
-    //check if there is an obstacle
-    if (isObstaclePresent()) {
-      tone(speakerPin, talkFrequency, 100);
-      doEmergencyManoeuvre(90);
-      return;
-    }
-
-    //go forward
-    base.goForward();
+  // check if battery is low and go to sleep
+  if (!isSleeping && isBatteryLow()) {
+    morseCode.play("SOS");
+    goToSleep();
+    return;
   }
+
+  // check if battery is low and continue sleep
+  if (isSleeping && isFurtherSleepNeeded()) {
+    SleepForEightSeconds();
+    return;
+  }
+
+  // check if battery is charged and wake up
+  if (isSleeping && !isFurtherSleepNeeded()) {
+    wakeUp();
+    return;
+  }
+
+  // check if there is a robot jam
+  if (isJamDetected()) {
+    doEmergencyManoeuvre(10 * random(0, 36));
+    return;
+  }
+
+  //check if there is an obstacle
+  if (isObstaclePresent()) {
+    tone(speakerPin, talkFrequency, 100);
+    doEmergencyManoeuvre(90);
+    return;
+  }
+
+  //go forward
+  base.goForward();
 }
 
 void goToSleep() {
   base.stopAllMotion();
-  morseCode.play("SOS");
   //stabilizePIR
   delay(30000);
   isSleeping = true;
-  sleptCycle = 0;
+  sleptTime = 0;
   SleepForEightSeconds();
 }
 
@@ -123,13 +118,16 @@ void wakeUp() {
 
 boolean isFurtherSleepNeeded() {
   //check battery every sleepCheckupTime seconds
-  if (sleptCycle > sleepCheckupTime) {
-    sleptCycle = 0;
+  if (sleptTime > sleepCheckupTime) {
+    sleptTime = sleptTime - sleepCheckupTime;
     if (isWakeVoltageReached()) {
       return false;
+    } else {
+      return true;
     }
+  } else {
+    return true;
   }
-  return true;
 }
 
 void SleepForEightSeconds() {
@@ -137,7 +135,7 @@ void SleepForEightSeconds() {
   MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
   MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
   __asm__  __volatile__("sleep");//in line assembler to go to sleep
-  sleptCycle += 8;
+  sleptTime += 8;
 }
 
 boolean isWakeVoltageReached() {
@@ -158,7 +156,8 @@ boolean isObstaclePresent() {
 }
 
 void motionDetectedRoutine() {
-  Serial.println("Motion Detected!");
+  if (isSleeping)
+    tone(speakerPin, talkFrequency, 3000);
 }
 
 void doEmergencyManoeuvre(int angle) {
@@ -180,7 +179,7 @@ void doEmergencyManoeuvre(int angle) {
 }
 
 void doBIOSManoeuvre() {
-  //TODO: Need to better think this approach
+  //Tell the voltage of battery
   int intVoltage = voltageSensor.senseVoltage();
   morseCode.play(String(intVoltage));
 
