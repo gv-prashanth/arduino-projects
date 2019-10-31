@@ -156,8 +156,6 @@ boolean isObstaclePresent() {
 }
 
 void motionDetectedRoutine() {
-  if (isSleeping)
-    tone(speakerPin, talkFrequency, 3000);
 }
 
 void doEmergencyManoeuvre(int angle) {
