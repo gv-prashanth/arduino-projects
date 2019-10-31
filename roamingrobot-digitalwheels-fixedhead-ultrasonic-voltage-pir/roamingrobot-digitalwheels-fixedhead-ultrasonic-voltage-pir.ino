@@ -128,8 +128,13 @@ void wakeUp() {
 
 boolean isFurtherSleepNeeded() {
   //check battery every sleepCheckupTime seconds
-  if (sleptTime > sleepCheckupTime && isWakeVoltageReached()) {
-    return false;
+  if (sleptTime > sleepCheckupTime) {
+    sleptTime = sleptTime - sleepCheckupTime;
+    if (isWakeVoltageReached()) {
+      return false;
+    } else {
+      return true;
+    }
   } else {
     return true;
   }
