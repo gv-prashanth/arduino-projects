@@ -33,7 +33,6 @@ UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastEmergencyTime = 0;
-volatile boolean isMotionDetected = false;
 boolean isSleeping = false;
 unsigned long sleptTime = 0;
 
@@ -74,22 +73,14 @@ void loop() {
   }
 
   // check if battery is low and continue sleep
-  if (isSleeping && !isMotionDetected && isFurtherSleepNeeded()) {
+  if (isSleeping && isFurtherSleepNeeded()) {
     SleepForEightSeconds();
     return;
   }
 
   // check if battery is charged and wake up
-  if (isSleeping && !isMotionDetected && !isFurtherSleepNeeded()) {
+  if (isSleeping && !isFurtherSleepNeeded()) {
     wakeUp();
-    return;
-  }
-
-  // check if there is motion while sleeping
-  if (isSleeping && isMotionDetected) {
-    wakeUp();
-    doMotionDetectManoeuvre();
-    goToSleep();
     return;
   }
 
@@ -115,7 +106,6 @@ void goToSleep() {
   //stabilizePIR
   delay(30000);
   isSleeping = true;
-  isMotionDetected = false;
   sleptTime = 0;
   SleepForEightSeconds();
 }
@@ -166,13 +156,8 @@ boolean isObstaclePresent() {
 }
 
 void motionDetectedRoutine() {
-  isMotionDetected = true;
-}
-
-void doMotionDetectManoeuvre() {
-  base.rotateRight((calibratedMovementTime / 360) * (180));
-  morseCode.play("Danger");
-  isMotionDetected = false;
+  if (isSleeping)
+    tone(speakerPin, talkFrequency, 3000);
 }
 
 void doEmergencyManoeuvre(int angle) {
