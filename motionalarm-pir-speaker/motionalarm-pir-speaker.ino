@@ -1,23 +1,16 @@
 const int pirInterruptPin = 2;//pin 2 only should be used
 const int speakerPin = 4;
 const int talkFrequency = 2000;//frequency in Hz
-volatile boolean isMarkedForMotionDetection = false;
 
 void setup() {
   Serial.begin (9600);
-  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), motionDetectedRoutine, RISING);
-  //attachInterrupt(digitalPinToInterrupt(pirInterruptPin), motionAbsentRoutine, FALLING);
+  pinMode(pirInterruptPin, INPUT);     // declare sensor as input
 }
 
 void loop() {
-  if (isMarkedForMotionDetection) {
-    Serial.println("Motion Detected");
-    tone(speakerPin, talkFrequency, 1000);
-    delay(1000);
-    isMarkedForMotionDetection = false;
+  int val = digitalRead(pirInterruptPin);  // read input value
+  if (val == HIGH) {            // check if the input is HIGH
+    tone(speakerPin, talkFrequency, 5000);
+    delay(5000);
   }
-}
-
-void motionDetectedRoutine() {
-  isMarkedForMotionDetection = true;
 }
