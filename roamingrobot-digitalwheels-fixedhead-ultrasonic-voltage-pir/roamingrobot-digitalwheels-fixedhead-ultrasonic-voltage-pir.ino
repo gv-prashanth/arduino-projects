@@ -35,11 +35,10 @@ MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastEmergencyTime = 0;
 boolean isMarkedForSleep = false;
 unsigned long sleepCounter = 0;
-boolean lastCalculatedWakeVoltageReachedValue = false;
+boolean isWakeVoltageReached_Cached = false;
 
 void setup() {
   Serial.begin (9600);
-  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), motionDetectedRoutine, RISING);
 
   //SETUP WATCHDOG TIMER
   WDTCSR = (24);//change enable and WDE - also resets
@@ -133,12 +132,9 @@ void SleepForEightSeconds() {
 }
 
 boolean isWakeVoltageReached() {
-  if (sleepCounter % 10 == 0) {
-    lastCalculatedWakeVoltageReachedValue = voltageSensor.senseVoltage() > wakeVoltage;
-    return lastCalculatedWakeVoltageReachedValue;
-  }
-  else
-    return lastCalculatedWakeVoltageReachedValue;
+  if (sleepCounter % (sleepCheckupTime / 8) == 0)
+    isWakeVoltageReached_Cached = voltageSensor.senseVoltage() > wakeVoltage;
+  return isWakeVoltageReached_Cached;
 }
 
 boolean isJamDetected() {
@@ -152,11 +148,6 @@ boolean isBatteryLow() {
 boolean isObstaclePresent() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
   return (centerReading > 0 && centerReading <= minimumRange);
-}
-
-void motionDetectedRoutine() {
-  Serial.println("Motion Detected");
-  tone(speakerPin, talkFrequency, 500);
 }
 
 void doEmergencyManoeuvre(int angle) {
