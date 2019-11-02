@@ -34,8 +34,6 @@ DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastEmergencyTime = 0;
 boolean isMarkedForSleep = false;
-unsigned long sleepCyclesCounter = 0;
-boolean IsWakeVoltageReached_Cached = false;
 
 void setup() {
   Serial.begin (9600);
@@ -69,10 +67,8 @@ void loop() {
 
   if (isMarkedForSleep) {
 
-    cacheWakeVoltageReachedVariable();
-
     //check if battery is charged and wake up
-    if (IsWakeVoltageReached_Cached) {
+    if (isWakeVoltageReached()) {
       markForWakeup();
       return;
     }
@@ -114,15 +110,6 @@ void loop() {
 
 }
 
-void cacheWakeVoltageReachedVariable() {
-  if (sleepCyclesCounter > 300/8) {
-    IsWakeVoltageReached_Cached = isWakeVoltageReached();
-    sleepCyclesCounter = 0;
-  } else {
-    IsWakeVoltageReached_Cached = IsWakeVoltageReached_Cached;
-  }
-}
-
 void markForSleep() {
   base.stopAllMotion();
   morseCode.play("SOS");
@@ -140,7 +127,6 @@ void SleepForEightSeconds() {
   MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
   MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
   __asm__  __volatile__("sleep");//in line assembler to go to sleep
-  sleepCyclesCounter++;
 }
 
 boolean isWakeVoltageReached() {
