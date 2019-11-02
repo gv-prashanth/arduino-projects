@@ -34,6 +34,8 @@ DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastEmergencyTime = 0;
 boolean isMarkedForSleep = false;
+unsigned long sleepCounter = 0;
+boolean lastCalculatedWakeVoltageReachedValue = false;
 
 void setup() {
   Serial.begin (9600);
@@ -127,10 +129,16 @@ void SleepForEightSeconds() {
   MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
   MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
   __asm__  __volatile__("sleep");//in line assembler to go to sleep
+  sleepCounter++;
 }
 
 boolean isWakeVoltageReached() {
-  return voltageSensor.senseVoltage() > wakeVoltage;
+  if (sleepCounter % 10 == 0) {
+    lastCalculatedWakeVoltageReachedValue = voltageSensor.senseVoltage() > wakeVoltage;
+    return lastCalculatedWakeVoltageReachedValue;
+  }
+  else
+    return lastCalculatedWakeVoltageReachedValue;
 }
 
 boolean isJamDetected() {
