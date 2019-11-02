@@ -33,8 +33,7 @@ UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastEmergencyTime = 0;
-boolean isSleeping = false;
-unsigned long sleptTime = 0;
+boolean isMarkedForSleep = false;
 
 void setup() {
   Serial.begin (9600);
@@ -54,10 +53,10 @@ void setup() {
     robotWidth = 2 * robotWidth;
   }
 
-  // Wake the robot
-  wakeUp();
+  //Wake the robot
+  markForWakeup();
 
-  // check if battery is low and skip bios dance
+  //check if battery is low and skip bios dance
   if (!isBatteryLow()) {
     doBIOSManoeuvre();
   }
@@ -65,69 +64,62 @@ void setup() {
 }
 
 void loop() {
-  // check if battery is low and go to sleep
-  if (!isSleeping && isBatteryLow()) {
-    morseCode.play("SOS");
-    goToSleep();
-    return;
-  }
 
-  // check if battery is low and continue sleep
-  if (isSleeping && isFurtherSleepNeeded()) {
-    SleepForEightSeconds();
-    return;
-  }
+  if (isMarkedForSleep) {
 
-  // check if battery is charged and wake up
-  if (isSleeping && !isFurtherSleepNeeded()) {
-    wakeUp();
-    return;
-  }
-
-  // check if there is a robot jam
-  if (isJamDetected()) {
-    doEmergencyManoeuvre(10 * random(0, 36));
-    return;
-  }
-
-  //check if there is an obstacle
-  if (isObstaclePresent()) {
-    tone(speakerPin, talkFrequency, 100);
-    doEmergencyManoeuvre(90);
-    return;
-  }
-
-  //go forward
-  base.goForward();
-}
-
-void goToSleep() {
-  base.stopAllMotion();
-  //stabilizePIR
-  delay(30000);
-  isSleeping = true;
-  sleptTime = 0;
-  SleepForEightSeconds();
-}
-
-void wakeUp() {
-  morseCode.play("Awake");
-  isSleeping = false;
-  lastEmergencyTime = millis() - 100; //just subtracting a small time
-}
-
-boolean isFurtherSleepNeeded() {
-  //check battery every sleepCheckupTime seconds
-  if (sleptTime > sleepCheckupTime) {
-    sleptTime = sleptTime - sleepCheckupTime;
+    //check if battery is charged and wake up
     if (isWakeVoltageReached()) {
-      return false;
-    } else {
-      return true;
+      markForWakeup();
+      return;
     }
+
+    //check if battery is low and continue sleep
+    else {
+      SleepForEightSeconds();
+      return;
+    }
+
   } else {
-    return true;
+
+    //check if battery is low and go to sleep
+    if (isBatteryLow()) {
+      markForSleep();
+      return;
+    }
+
+    //check if there is a robot jam
+    if (isJamDetected()) {
+      doEmergencyManoeuvre(10 * random(0, 36));
+      return;
+    }
+
+    //check if there is an obstacle
+    if (isObstaclePresent()) {
+      tone(speakerPin, talkFrequency, 100);
+      doEmergencyManoeuvre(90);
+      return;
+    }
+
+    //go forward
+    else {
+      base.goForward();
+      return;
+    }
+
   }
+
+}
+
+void markForSleep() {
+  base.stopAllMotion();
+  morseCode.play("SOS");
+  isMarkedForSleep = true;
+}
+
+void markForWakeup() {
+  morseCode.play("Awake");
+  isMarkedForSleep = false;
+  lastEmergencyTime = millis() - 100; //just subtracting a small time
 }
 
 void SleepForEightSeconds() {
@@ -135,7 +127,6 @@ void SleepForEightSeconds() {
   MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
   MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
   __asm__  __volatile__("sleep");//in line assembler to go to sleep
-  sleptTime += 8;
 }
 
 boolean isWakeVoltageReached() {
@@ -156,6 +147,7 @@ boolean isObstaclePresent() {
 }
 
 void motionDetectedRoutine() {
+
 }
 
 void doEmergencyManoeuvre(int angle) {
@@ -177,6 +169,7 @@ void doEmergencyManoeuvre(int angle) {
 }
 
 void doBIOSManoeuvre() {
+  //TODO: Need to improve this approach
   //Tell the voltage of battery
   int intVoltage = voltageSensor.senseVoltage();
   morseCode.play(String(intVoltage));
@@ -219,4 +212,4 @@ boolean decideOnRight() {
 
 ISR(WDT_vect) {
   //DON'T FORGET THIS!  Needed for the watch dog timer.  This is called after a watch dog timer timeout - this is the interrupt function called after waking up
-}// watchdog interrupt
+}//watchdog interrupt
