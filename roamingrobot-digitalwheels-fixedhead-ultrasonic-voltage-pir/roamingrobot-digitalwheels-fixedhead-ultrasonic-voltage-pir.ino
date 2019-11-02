@@ -155,7 +155,8 @@ boolean isObstaclePresent() {
 }
 
 void motionDetectedRoutine() {
-
+  Serial.println("Motion Detected");
+  tone(speakerPin, talkFrequency, 500);
 }
 
 void doEmergencyManoeuvre(int angle) {
