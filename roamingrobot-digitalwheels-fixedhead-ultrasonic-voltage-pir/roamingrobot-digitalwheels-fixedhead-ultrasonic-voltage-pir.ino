@@ -6,8 +6,8 @@
 //Pin Configuration
 const int leftWheelForwardPin = 5;//5
 const int leftWheelBackwardPin = 9;//9
-const int rightWheelForwardPin = 10;//10
-const int rightWheelBackwardPin = 11;//11
+const int rightWheelForwardPin = 11;//10
+const int rightWheelBackwardPin = 10;//11
 const int speakerPin = 4;
 const int ultraTriggerPin = 7;
 const int ultraEchoPin = 8;
@@ -20,11 +20,11 @@ const int calibratedMovementTime = 3500;//milli seconds
 int robotWidth = 20;//cm
 const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
-const int morseUnit = 300; //unit of morse
+const int morseUnit = 200; //unit of morse
 const int robotJamCheckTime = 30000; //milli seconds
 const boolean rotateMode = true;
-const float sleepVoltage = 3.5;//volts
-const float wakeVoltage = 5.5;//volts. Must be greater than sleepVoltage.
+const float sleepVoltage = 6.4;//volts
+const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 
 //Dont touch below stuff
