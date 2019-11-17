@@ -36,9 +36,11 @@ unsigned long lastEmergencyTime = 0;
 boolean isMarkedForSleep = false;
 unsigned long sleepCounter = 0;
 boolean isWakeVoltageReached_Cached = false;
+boolean isMarkedForMovement = false;
 
 void setup() {
   Serial.begin (9600);
+  pinMode(pirInterruptPin, INPUT);        // define interrupt pin D2 as input to read interrupt received by PIR sensor
 
   //SETUP WATCHDOG TIMER
   WDTCSR = (24);//change enable and WDE - also resets
@@ -72,6 +74,11 @@ void loop() {
     if (isWakeVoltageReached()) {
       markForWakeup();
       return;
+    }
+
+    //check if there was any movement recently
+    if (isMarkedForMovement) {
+      doMovementManoeuvre();
     }
 
     //check if battery is low and continue sleep
@@ -123,11 +130,25 @@ void markForWakeup() {
   lastEmergencyTime = millis() - 100; //just subtracting a small time
 }
 
+void markForMovement() {
+  isMarkedForMovement = true;
+}
+
 void SleepForEightSeconds() {
   //BOD DISABLE - this must be called right before the __asm__ sleep instruction
   MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
   MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
+
+  //Attach the PIR to activate movement detection
+  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), markForMovement, RISING);
+  isMarkedForMovement = false;
+
+  //Begin the actual sleep
   __asm__  __volatile__("sleep");//in line assembler to go to sleep
+
+  //Detach the PIR since we dont need movement detection anymore
+  detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
+
   sleepCounter++;
 }
 
@@ -168,11 +189,16 @@ void doEmergencyManoeuvre(int angle) {
   lastEmergencyTime = millis() - 100;
 }
 
+void doMovementManoeuvre() {
+  morseCode.play("ALARM");
+  isMarkedForMovement = false;
+}
+
 void doBIOSManoeuvre() {
   //TODO: Need to improve this approach
   //Tell the voltage of battery
-  int intVoltage = voltageSensor.senseVoltage();
-  morseCode.play(String(intVoltage));
+  float floatVoltage = voltageSensor.senseVoltage();
+  morseCode.play(String(floatVoltage));
 
   //left
   if (rotateMode) {
