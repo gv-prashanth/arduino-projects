@@ -79,7 +79,7 @@ void loop() {
     //check if there was any intruder recently
     if (isMarkedForIntruder) {
       doIntruderManoeuvre();
-      break;
+      return;
     }
 
     //check if battery is low and continue sleep
