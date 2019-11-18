@@ -24,7 +24,7 @@ const int morseUnit = 200; //unit of morse
 const int robotJamCheckTime = 30000; //milli seconds
 const boolean rotateMode = true;
 const float sleepVoltage = 6.4;//volts
-const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
+const float wakeVoltage = 6.8;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 
 //Dont touch below stuff
