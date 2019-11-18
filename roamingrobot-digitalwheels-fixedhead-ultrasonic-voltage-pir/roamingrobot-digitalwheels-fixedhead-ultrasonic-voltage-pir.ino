@@ -26,9 +26,12 @@ const boolean rotateMode = true;
 const float sleepVoltage = 6.4;//volts
 const float wakeVoltage = 6.8;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
+const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
+const float bigR = 20000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
+const float offsetV = 0.1;//volts. Voltage sensor offset. Usually due to a drop in sensor diode if any.
 
 //Dont touch below stuff
-VoltageSensor voltageSensor(voltagePin);
+VoltageSensor voltageSensor(voltagePin, smallR, bigR, offsetV);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
