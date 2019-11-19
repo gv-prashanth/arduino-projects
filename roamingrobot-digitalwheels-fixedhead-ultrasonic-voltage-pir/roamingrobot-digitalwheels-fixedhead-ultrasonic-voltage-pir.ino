@@ -92,7 +92,7 @@ void loop() {
     }
 
   } else {
-
+  Serial.println(voltageSensor.senseVoltage());
     //check if battery is low and go to sleep
     if (isBatteryLow()) {
       markForSleep();
