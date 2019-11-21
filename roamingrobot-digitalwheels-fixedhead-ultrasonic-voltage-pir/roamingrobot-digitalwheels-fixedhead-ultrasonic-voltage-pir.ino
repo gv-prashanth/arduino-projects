@@ -11,11 +11,12 @@ const int rightWheelBackwardPin = 10;//11
 const int speakerPin = 4;
 const int ultraTriggerPin = 7;
 const int ultraEchoPin = 8;
-const int voltagePin = A2;
+const int batteryVoltageSensePin = A2;
+const int solarVoltageSensePin = A1;
 const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
-const int minimumRange = 25;//cm
+const int minimumRange = 40;//cm
 const int calibratedMovementTime = 3500;//milli seconds
 int robotWidth = 20;//cm
 const int robotLength = 20;//cm
@@ -23,23 +24,24 @@ const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const int robotJamCheckTime = 30000; //milli seconds
 const boolean rotateMode = true;
-const float sleepVoltage = 6.4;//volts
-const float wakeVoltage = 6.8;//volts. Must be greater than sleepVoltage.
+const float sleepVoltage = 4.5;//volts
+const float wakeVoltage = 6.0;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
-const float bigR = 20000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-const float offsetV = 0.1;//volts. Voltage sensor offset. Usually due to a drop in sensor diode if any.
+const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
+const float offsetV = 0.0;//volts. Voltage sensor offset. Usually due to a drop in sensor diode if any.
 
 //Dont touch below stuff
-VoltageSensor voltageSensor(voltagePin, smallR, bigR, offsetV);
+VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR, offsetV);
+VoltageSensor solarVoltageSensor(solarVoltageSensePin, smallR, bigR, offsetV);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastEmergencyTime = 0;
 boolean isMarkedForSleep = false;
 unsigned long sleepCounter = 0;
-boolean isWakeVoltageReached_Cached = false;
-boolean isMarkedForIntruder = false;
+boolean isBatteryCharged_Cached = false;
+boolean isIntruderDetected = false;
 
 void setup() {
   Serial.begin (9600);
@@ -63,7 +65,7 @@ void setup() {
   markForWakeup();
 
   //check if battery is low and skip bios dance
-  if (!isBatteryLow()) {
+  if (!isBatteryDead()) {
     doBIOSManoeuvre();
   }
 
@@ -74,33 +76,35 @@ void loop() {
   if (isMarkedForSleep) {
 
     //check if battery is charged and wake up
-    if (isWakeVoltageReached()) {
+    if (isBatteryCharged()) {
       markForWakeup();
       return;
     }
 
     //check if there was any intruder recently
-    if (isMarkedForIntruder) {
+    if (isIntruderDetected) {
       doIntruderManoeuvre();
       return;
     }
 
     //check if battery is low and continue sleep
     else {
-      SleepForEightSeconds();
+      doSleepForEightSecondsManoeuvre();
       return;
     }
 
   } else {
-  Serial.println(voltageSensor.senseVoltage());
+    Serial.println(batteryVoltageSensor.senseVoltage());
+
     //check if battery is low and go to sleep
-    if (isBatteryLow()) {
+    if (isBatteryDead()) {
       markForSleep();
       return;
     }
 
     //check if there is a robot jam
     if (isJamDetected()) {
+      base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
       doEmergencyManoeuvre(10 * random(0, 36));
       return;
     }
@@ -110,6 +114,11 @@ void loop() {
       tone(speakerPin, talkFrequency, 100);
       doEmergencyManoeuvre(90);
       return;
+    }
+
+    //check if the battery is running low
+    if(isBatteryDying()){
+      Serial.println("Solar Voltage is: " + (String)solarVoltageSensor.senseVoltage());
     }
 
     //go forward
@@ -134,18 +143,42 @@ void markForWakeup() {
   lastEmergencyTime = millis() - 100; //just subtracting a small time
 }
 
-void markForIntruder() {
-  isMarkedForIntruder = true;
+void intruderDetected() {
+  isIntruderDetected = true;
 }
 
-void SleepForEightSeconds() {
+boolean isBatteryCharged() {
+  if (sleepCounter % (sleepCheckupTime / 8) == 0)
+    isBatteryCharged_Cached = batteryVoltageSensor.senseVoltage() > wakeVoltage;
+  return isBatteryCharged_Cached;
+}
+
+//TODO: Need to fix the fact that jam is detected when we first start the robot
+boolean isJamDetected() {
+  return abs(millis() - lastEmergencyTime) > robotJamCheckTime;
+}
+
+boolean isBatteryDead() {
+  return batteryVoltageSensor.senseVoltage() < sleepVoltage;
+}
+
+boolean isBatteryDying(){
+  return batteryVoltageSensor.senseVoltage() < wakeVoltage;
+}
+
+boolean isObstaclePresent() {
+  int centerReading = (int) ultrasonicSensor.obstacleDistance();
+  return (centerReading > 0 && centerReading <= minimumRange);
+}
+
+void doSleepForEightSecondsManoeuvre() {
   //BOD DISABLE - this must be called right before the __asm__ sleep instruction
   MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
   MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
 
   //Attach the PIR to activate intruder detection
-  isMarkedForIntruder = false;
-  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), markForIntruder, RISING);
+  isIntruderDetected = false;
+  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
 
   //Begin the actual sleep
   __asm__  __volatile__("sleep");//in line assembler to go to sleep
@@ -156,27 +189,7 @@ void SleepForEightSeconds() {
   sleepCounter++;
 }
 
-boolean isWakeVoltageReached() {
-  if (sleepCounter % (sleepCheckupTime / 8) == 0)
-    isWakeVoltageReached_Cached = voltageSensor.senseVoltage() > wakeVoltage;
-  return isWakeVoltageReached_Cached;
-}
-
-boolean isJamDetected() {
-  return abs(millis() - lastEmergencyTime) > robotJamCheckTime;
-}
-
-boolean isBatteryLow() {
-  return voltageSensor.senseVoltage() < sleepVoltage;
-}
-
-boolean isObstaclePresent() {
-  int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > 0 && centerReading <= minimumRange);
-}
-
 void doEmergencyManoeuvre(int angle) {
-  base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
   if (decideOnRight()) {
     if (rotateMode) {
       base.rotateRight((calibratedMovementTime / 360)*angle);
@@ -195,13 +208,13 @@ void doEmergencyManoeuvre(int angle) {
 
 void doIntruderManoeuvre() {
   morseCode.play("INTRUDER");
-  isMarkedForIntruder = false;
+  isIntruderDetected = false;
 }
 
 void doBIOSManoeuvre() {
   //TODO: Need to improve this approach
   //Tell the voltage of battery
-  float floatVoltage = voltageSensor.senseVoltage();
+  float floatVoltage = batteryVoltageSensor.senseVoltage();
   morseCode.play(String(floatVoltage));
 
   //left
