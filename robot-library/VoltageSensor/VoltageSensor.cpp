@@ -8,12 +8,11 @@
 #include "Arduino.h"
 #include "VoltageSensor.h"
 
-VoltageSensor::VoltageSensor(int pin, float smallR, float bigR, float offset)
+VoltageSensor::VoltageSensor(int pin, float smallR, float bigR)
 {
   _pin = pin;
   _smallR = smallR;
   _bigR = bigR;
-  _offset = offset;
 }
 
 float VoltageSensor::senseVoltage(){
@@ -34,9 +33,9 @@ float VoltageSensor::senseVoltage(){
   long result = (high<<8) | low;
   result = 1125300L / result; // Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
 
-  // Read the sense pin voltage
+  // Read the sense pin voltage using the previously calculated vcc voltage
   float avgValue = analogRead(_pin);
   float vOUT = (avgValue * (((float)result)/1000.0)) / 1024.0;
   float vIN = vOUT / (_smallR/(_bigR + _smallR));
-  return vIN + _offset;
+  return vIN;
 }

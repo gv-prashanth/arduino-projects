@@ -12,13 +12,12 @@
 class VoltageSensor
 {
   public:
-    VoltageSensor(int pin, float smallR, float bigR, float offset);
-    float senseVoltage();
+	VoltageSensor(int pin, float smallR, float bigR);
+	float senseVoltage();
   private:
-    int _pin;
+	int _pin;
 	float _smallR;
 	float _bigR;
-	float _offset;
 };
 
 #endif

@@ -12,7 +12,7 @@ const int speakerPin = 4;
 const int ultraTriggerPin = 7;
 const int ultraEchoPin = 8;
 const int batteryVoltageSensePin = A2;
-const int solarVoltageSensePin = A1;
+const int solarVoltageSensePin = A0;
 const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
@@ -29,11 +29,10 @@ const float wakeVoltage = 6.0;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-const float offsetV = 0.0;//volts. Voltage sensor offset. Usually due to a drop in sensor diode if any.
 
 //Dont touch below stuff
-VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR, offsetV);
-VoltageSensor solarVoltageSensor(solarVoltageSensePin, smallR, bigR, offsetV);
+VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
+VoltageSensor solarVoltageSensor(solarVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
@@ -214,7 +213,7 @@ void doIntruderManoeuvre() {
 }
 
 void doScavengeManoeuvre() {
-  Serial.println("Solar Voltage is: " + (String)solarVoltageSensor.senseVoltage());
+  Serial.println("Solar Voltage is: " + String(solarVoltageSensor.senseVoltage()));
 }
 
 void doBIOSManoeuvre() {
