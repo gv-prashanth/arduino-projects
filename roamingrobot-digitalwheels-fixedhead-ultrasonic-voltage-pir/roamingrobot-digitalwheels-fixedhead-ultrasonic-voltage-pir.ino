@@ -44,7 +44,7 @@ boolean isIntruderDetected = false;
 
 void setup() {
   Serial.begin (9600);
-  pinMode(pirInterruptPin, INPUT);        // define interrupt pin D2 as input to read interrupt received by PIR sensor
+  pinMode(pirInterruptPin, INPUT);// define interrupt pin D2 as input to read interrupt received by PIR sensor
 
   //SETUP WATCHDOG TIMER
   WDTCSR = (24);//change enable and WDE - also resets
@@ -141,10 +141,6 @@ void markForWakeup() {
   lastDirectionChangedTime = millis() - 100; //just subtracting a small time
 }
 
-void intruderDetected() {
-  isIntruderDetected = true;
-}
-
 boolean isBatteryCharged() {
   if (sleepCounter % (sleepCheckupTime / 8) == 0)
     isBatteryCharged_Cached = batteryVoltageSensor.senseVoltage() > wakeVoltage;
@@ -164,27 +160,13 @@ boolean isBatteryDying() {
   return batteryVoltageSensor.senseVoltage() < wakeVoltage;
 }
 
+void intruderDetected() {
+  isIntruderDetected = true;
+}
+
 boolean isObstaclePresent() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
   return (centerReading > 0 && centerReading <= minimumRange);
-}
-
-void doSleepForEightSeconds() {
-  //BOD DISABLE - this must be called right before the __asm__ sleep instruction
-  MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
-  MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
-
-  //Attach the PIR to activate intruder detection
-  isIntruderDetected = false;
-  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
-
-  //Begin the actual sleep
-  __asm__  __volatile__("sleep");//in line assembler to go to sleep
-
-  //Detach the PIR since we dont need intruder detection anymore
-  detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
-
-  sleepCounter++;
 }
 
 void doObstacleManoeuvre() {
@@ -214,6 +196,24 @@ void doIntruderManoeuvre() {
 
 void doScavengeManoeuvre() {
   Serial.println("Solar Voltage is: " + String(solarVoltageSensor.senseVoltage()));
+}
+
+void doSleepForEightSeconds() {
+  //BOD DISABLE - this must be called right before the __asm__ sleep instruction
+  MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
+  MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
+
+  //Attach the PIR to activate intruder detection
+  isIntruderDetected = false;
+  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
+
+  //Begin the actual sleep
+  __asm__  __volatile__("sleep");//in line assembler to go to sleep
+
+  //Detach the PIR since we dont need intruder detection anymore
+  detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
+
+  sleepCounter++;
 }
 
 void doBIOSManoeuvre() {
