@@ -37,7 +37,7 @@ VoltageSensor solarVoltageSensor(solarVoltageSensePin, smallR, bigR, offsetV);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
-unsigned long lastEmergencyTime = 0;
+unsigned long lastDirectionChangedTime = 0;
 boolean isMarkedForSleep = false;
 unsigned long sleepCounter = 0;
 boolean isBatteryCharged_Cached = false;
@@ -89,7 +89,7 @@ void loop() {
 
     //check if battery is low and continue sleep
     else {
-      doSleepForEightSecondsManoeuvre();
+      doSleepForEightSeconds();
       return;
     }
 
@@ -104,21 +104,20 @@ void loop() {
 
     //check if there is a robot jam
     if (isJamDetected()) {
-      base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
-      doEmergencyManoeuvre(10 * random(0, 36));
+      doJamManoeuvre();
       return;
     }
 
     //check if there is an obstacle
     if (isObstaclePresent()) {
-      tone(speakerPin, talkFrequency, 100);
-      doEmergencyManoeuvre(90);
+      doObstacleManoeuvre();
       return;
     }
 
     //check if the battery is running low
-    if(isBatteryDying()){
-      Serial.println("Solar Voltage is: " + (String)solarVoltageSensor.senseVoltage());
+    if (isBatteryDying()) {
+      doScavengeManoeuvre();
+      return;
     }
 
     //go forward
@@ -140,7 +139,7 @@ void markForSleep() {
 void markForWakeup() {
   morseCode.play("Awake");
   isMarkedForSleep = false;
-  lastEmergencyTime = millis() - 100; //just subtracting a small time
+  lastDirectionChangedTime = millis() - 100; //just subtracting a small time
 }
 
 void intruderDetected() {
@@ -155,14 +154,14 @@ boolean isBatteryCharged() {
 
 //TODO: Need to fix the fact that jam is detected when we first start the robot
 boolean isJamDetected() {
-  return abs(millis() - lastEmergencyTime) > robotJamCheckTime;
+  return abs(millis() - lastDirectionChangedTime) > robotJamCheckTime;
 }
 
 boolean isBatteryDead() {
   return batteryVoltageSensor.senseVoltage() < sleepVoltage;
 }
 
-boolean isBatteryDying(){
+boolean isBatteryDying() {
   return batteryVoltageSensor.senseVoltage() < wakeVoltage;
 }
 
@@ -171,7 +170,7 @@ boolean isObstaclePresent() {
   return (centerReading > 0 && centerReading <= minimumRange);
 }
 
-void doSleepForEightSecondsManoeuvre() {
+void doSleepForEightSeconds() {
   //BOD DISABLE - this must be called right before the __asm__ sleep instruction
   MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
   MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
@@ -189,26 +188,33 @@ void doSleepForEightSecondsManoeuvre() {
   sleepCounter++;
 }
 
-void doEmergencyManoeuvre(int angle) {
+void doObstacleManoeuvre() {
+  tone(speakerPin, talkFrequency, 100);
   if (decideOnRight()) {
-    if (rotateMode) {
-      base.rotateRight((calibratedMovementTime / 360)*angle);
-    } else {
-      base.turnRight((calibratedMovementTime / 360)*angle);
-    }
+    rotateRightByAngle(90);
   } else {
-    if (rotateMode) {
-      base.rotateLeft((calibratedMovementTime / 360)*angle);
-    } else {
-      base.turnLeft((calibratedMovementTime / 360)*angle);
-    }
+    rotateLeftByAngle(90);
   }
-  lastEmergencyTime = millis() - 100;
+  lastDirectionChangedTime = millis() - 100;
+}
+
+void doJamManoeuvre() {
+  base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
+  if (decideOnRight()) {
+    rotateRightByAngle(10 * random(0, 36));
+  } else {
+    rotateLeftByAngle(10 * random(0, 36));
+  }
+  lastDirectionChangedTime = millis() - 100;
 }
 
 void doIntruderManoeuvre() {
   morseCode.play("INTRUDER");
   isIntruderDetected = false;
+}
+
+void doScavengeManoeuvre() {
+  Serial.println("Solar Voltage is: " + (String)solarVoltageSensor.senseVoltage());
 }
 
 void doBIOSManoeuvre() {
@@ -218,19 +224,11 @@ void doBIOSManoeuvre() {
   morseCode.play(String(floatVoltage));
 
   //left
-  if (rotateMode) {
-    base.rotateLeft(calibratedMovementTime);
-  } else {
-    base.turnLeft(calibratedMovementTime);
-  }
+  rotateLeftByAngle(360);
   morseCode.play("Left");
 
   //right
-  if (rotateMode) {
-    base.rotateRight(calibratedMovementTime);
-  } else {
-    base.turnRight(calibratedMovementTime);
-  }
+  rotateRightByAngle(360);
   morseCode.play("Right");
 
   //forward
@@ -250,6 +248,22 @@ boolean decideOnRight() {
     return true;
   } else {
     return false;
+  }
+}
+
+void rotateRightByAngle(int angle) {
+  if (rotateMode) {
+    base.rotateRight((calibratedMovementTime / 360)*angle);
+  } else {
+    base.turnRight((calibratedMovementTime / 360)*angle);
+  }
+}
+
+void rotateLeftByAngle(int angle) {
+  if (rotateMode) {
+    base.rotateLeft((calibratedMovementTime / 360)*angle);
+  } else {
+    base.turnLeft((calibratedMovementTime / 360)*angle);
   }
 }
 
