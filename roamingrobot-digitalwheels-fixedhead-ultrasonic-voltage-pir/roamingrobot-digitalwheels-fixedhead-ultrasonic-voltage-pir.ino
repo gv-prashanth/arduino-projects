@@ -136,12 +136,17 @@ void markForSleep() {
   base.stopAllMotion();
   morseCode.play("SOS");
   isMarkedForSleep = true;
+  lastDirectionChangedTime = 0;
+  lastSolarVoltageCheckTime = 0;
+  lastSolarVoltage = 0;
 }
 
 void markForWakeup() {
   morseCode.play("Awake");
   isMarkedForSleep = false;
-  lastDirectionChangedTime = millis() - 100; //just subtracting a small time
+  lastDirectionChangedTime = millis();
+  lastSolarVoltageCheckTime = millis();
+  lastSolarVoltage = solarVoltageSensor.senseVoltage();
 }
 
 boolean isBatteryCharged() {
@@ -179,7 +184,6 @@ void doObstacleManoeuvre() {
   } else {
     rotateLeftByAngle(90);
   }
-  lastDirectionChangedTime = millis() - 100;
 }
 
 void doJamManoeuvre() {
@@ -189,7 +193,6 @@ void doJamManoeuvre() {
   } else {
     rotateLeftByAngle(10 * random(0, 36));
   }
-  lastDirectionChangedTime = millis() - 100;
 }
 
 void doIntruderManoeuvre() {
@@ -207,7 +210,6 @@ void doScavengeManoeuvre() {
       } else {
         rotateLeftByAngle(10 * random(9, 18));
       }
-      lastDirectionChangedTime = millis() - 100;
     }
     lastSolarVoltageCheckTime = millis();
     lastSolarVoltage = solarVoltageSensor.senseVoltage();
@@ -272,6 +274,7 @@ void rotateRightByAngle(int angle) {
   } else {
     base.turnRight((calibratedMovementTime / 360)*angle);
   }
+  lastDirectionChangedTime = millis();
 }
 
 void rotateLeftByAngle(int angle) {
@@ -280,6 +283,7 @@ void rotateLeftByAngle(int angle) {
   } else {
     base.turnLeft((calibratedMovementTime / 360)*angle);
   }
+  lastDirectionChangedTime = millis();
 }
 
 ISR(WDT_vect) {
