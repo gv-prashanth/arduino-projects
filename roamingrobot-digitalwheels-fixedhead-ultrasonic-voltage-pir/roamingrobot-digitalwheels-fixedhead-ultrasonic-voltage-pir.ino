@@ -196,6 +196,7 @@ void doIntruderManoeuvre() {
 
 void doScavengeManoeuvre() {
   Serial.println("Solar Voltage is: " + String(solarVoltageSensor.senseVoltage()));
+  base.goForward();
 }
 
 void doSleepForEightSeconds() {
