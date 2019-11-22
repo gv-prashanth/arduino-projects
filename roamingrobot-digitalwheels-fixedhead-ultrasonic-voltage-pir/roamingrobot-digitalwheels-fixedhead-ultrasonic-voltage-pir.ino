@@ -23,6 +23,7 @@ const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const int robotJamCheckTime = 30000; //milli seconds
+const int solarCheckTime = 3000; //milli seconds
 const boolean rotateMode = true;
 const float sleepVoltage = 4.5;//volts
 const float wakeVoltage = 6.0;//volts. Must be greater than sleepVoltage.
@@ -37,6 +38,8 @@ UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastDirectionChangedTime = 0;
+unsigned long lastSolarVoltageCheckTime = 0;
+float lastSolarVoltage = 0;
 boolean isMarkedForSleep = false;
 unsigned long sleepCounter = 0;
 boolean isBatteryCharged_Cached = false;
@@ -195,8 +198,20 @@ void doIntruderManoeuvre() {
 }
 
 void doScavengeManoeuvre() {
-  Serial.println("Solar Voltage is: " + String(solarVoltageSensor.senseVoltage()));
-  base.goForward();
+  if (millis() - lastSolarVoltageCheckTime > solarCheckTime) {
+    float currentSolarVoltage = solarVoltageSensor.senseVoltage();
+    Serial.println("Solar Voltage is: " + String(currentSolarVoltage));
+    if ((millis() - lastDirectionChangedTime > solarCheckTime) && lastSolarVoltage > currentSolarVoltage) {
+      if (decideOnRight()) {
+        rotateRightByAngle(10 * random(9, 18));
+      } else {
+        rotateLeftByAngle(10 * random(9, 18));
+      }
+      lastDirectionChangedTime = millis() - 100;
+    }
+    lastSolarVoltageCheckTime = millis();
+    lastSolarVoltage = solarVoltageSensor.senseVoltage();
+  }
 }
 
 void doSleepForEightSeconds() {
