@@ -16,18 +16,18 @@ const int solarVoltageSensePin = A0;
 const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
-const int minimumRange = 40;//cm
+const int minimumRange = 100;//cm
 const int emergencyMinimumRange = minimumRange/4;//cm
 const int calibratedMovementTime = 3500;//milli seconds
 int robotWidth = 20;//cm
 const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
-const int robotJamCheckTime = 30000; //milli seconds
-const int solarCheckTime = 3000; //milli seconds
+const int robotJamCheckTime = 5*60000; //milli seconds
+const int solarCheckTime = 1000; //milli seconds
 const boolean rotateMode = true;
-const float sleepVoltage = 4.5;//volts
-const float wakeVoltage = 6.0;//volts. Must be greater than sleepVoltage.
+const float sleepVoltage = 6.5;//volts
+const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
@@ -123,7 +123,7 @@ void loop() {
     }
 
     //check if the battery is running low
-    if (isBatteryDying()) {
+    if (false && isBatteryDying()) {
       doHarvestManoeuvre();
       return;
     }
@@ -200,13 +200,14 @@ void doEmergencyObstacleManoeuvre() {
   tone(speakerPin, talkFrequency, 100);
   base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
   if (decideOnRight()) {
-    rotateRightByAngle(90);
+    rotateRightByAngle(10 * random(9, 18));
   } else {
-    rotateLeftByAngle(90);
+    rotateLeftByAngle(10 * random(9, 18));
   }
 }
 
 void doJamManoeuvre() {
+  tone(speakerPin, talkFrequency, 1000);
   base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
   if (decideOnRight()) {
     rotateRightByAngle(10 * random(0, 36));
