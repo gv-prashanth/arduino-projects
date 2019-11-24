@@ -17,6 +17,7 @@ const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
 const int minimumRange = 40;//cm
+const int emergencyMinimumRange = minimumRange/4;//cm
 const int calibratedMovementTime = 3500;//milli seconds
 int robotWidth = 20;//cm
 const int robotLength = 20;//cm
@@ -96,7 +97,6 @@ void loop() {
     }
 
   } else {
-    Serial.println(batteryVoltageSensor.senseVoltage());
 
     //check if battery is low and go to sleep
     if (isBatteryDead()) {
@@ -110,6 +110,12 @@ void loop() {
       return;
     }
 
+    //check if there is an emergency
+    if (isEmergencyObstaclePresent()) {
+      doEmergencyObstacleManoeuvre();
+      return;
+    }
+
     //check if there is an obstacle
     if (isObstaclePresent()) {
       doObstacleManoeuvre();
@@ -118,7 +124,7 @@ void loop() {
 
     //check if the battery is running low
     if (isBatteryDying()) {
-      doScavengeManoeuvre();
+      doHarvestManoeuvre();
       return;
     }
 
@@ -177,8 +183,22 @@ boolean isObstaclePresent() {
   return (centerReading > 0 && centerReading <= minimumRange);
 }
 
+boolean isEmergencyObstaclePresent() {
+  int centerReading = (int) ultrasonicSensor.obstacleDistance();
+  return (centerReading > 0 && centerReading <= emergencyMinimumRange);
+}
+
 void doObstacleManoeuvre() {
+  if (decideOnRight()) {
+    rotateRightByAngle(10 * random(0, 9));
+  } else {
+    rotateLeftByAngle(10 * random(0, 9));
+  }
+}
+
+void doEmergencyObstacleManoeuvre() {
   tone(speakerPin, talkFrequency, 100);
+  base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
   if (decideOnRight()) {
     rotateRightByAngle(90);
   } else {
@@ -200,10 +220,10 @@ void doIntruderManoeuvre() {
   isIntruderDetected = false;
 }
 
-void doScavengeManoeuvre() {
+void doHarvestManoeuvre() {
   if (millis() - lastSolarVoltageCheckTime > solarCheckTime) {
     float currentSolarVoltage = solarVoltageSensor.senseVoltage();
-    Serial.println("Solar Voltage is: " + String(currentSolarVoltage));
+    Serial.println("Battery Voltage: "+ String(batteryVoltageSensor.senseVoltage()) + "| Solar Voltage: " + String(currentSolarVoltage));
     if ((millis() - lastDirectionChangedTime > solarCheckTime) && lastSolarVoltage > currentSolarVoltage) {
       if (decideOnRight()) {
         rotateRightByAngle(10 * random(9, 18));
