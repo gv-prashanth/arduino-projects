@@ -17,7 +17,7 @@ const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
 const int minimumRange = 60;//cm
-const int emergencyMinimumRange = minimumRange/3;//cm
+const int emergencyMinimumRange = minimumRange / 3; //cm
 const int calibratedMovementTime = 3500;//milli seconds
 int robotWidth = 20;//cm
 const int robotLength = 20;//cm
@@ -106,7 +106,6 @@ void loop() {
 
     //check if there is a robot jam
     if (isJamDetected()) {
-      Serial.println("Jam Detected!!!!!");
       doJamManoeuvre();
       return;
     }
@@ -143,11 +142,19 @@ void markForSleep() {
   base.stopAllMotion();
   morseCode.play("SOS");
   isMarkedForSleep = true;
+  //TODO: Need to get rid of below
+  lastDirectionChangedTime = 0;
+  lastSolarVoltageCheckTime = 0;
+  lastSolarVoltage = 0;
 }
 
 void markForWakeup() {
   morseCode.play("Awake");
   isMarkedForSleep = false;
+  //TODO: Need to get rid of below
+  lastDirectionChangedTime = millis();
+  lastSolarVoltageCheckTime = millis();
+  lastSolarVoltage = solarVoltageSensor.senseVoltage();
 }
 
 boolean isBatteryChargedWhileSleeping() {
@@ -157,9 +164,7 @@ boolean isBatteryChargedWhileSleeping() {
 }
 
 boolean isJamDetected() {
-  boolean toReturn = abs(millis() - lastDirectionChangedTime) > robotJamCheckTime;
-  Serial.println("Millis: "+ String(millis()) + "| last Millis: " + String(lastDirectionChangedTime) + " | " + toReturn);
-  return toReturn;
+  return abs(millis() - lastDirectionChangedTime) > robotJamCheckTime;
 }
 
 boolean isBatteryDead() {
@@ -203,7 +208,6 @@ void doEmergencyObstacleManoeuvre() {
 }
 
 void doJamManoeuvre() {
-  Serial.println("Jam Evasion Started......");
   base.stopAllMotion();
   morseCode.play("JAMMED");
   base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
@@ -212,7 +216,6 @@ void doJamManoeuvre() {
   } else {
     rotateLeftByAngle(10 * random(0, 36));
   }
-  Serial.println("Jam Evasion Finished......");
 }
 
 void doIntruderManoeuvre() {
@@ -223,7 +226,7 @@ void doIntruderManoeuvre() {
 void doHarvestManoeuvre() {
   if (millis() - lastSolarVoltageCheckTime > solarCheckTime) {
     float currentSolarVoltage = solarVoltageSensor.senseVoltage();
-    Serial.println("Battery Voltage: "+ String(batteryVoltageSensor.senseVoltage()) + "| Solar Voltage: " + String(currentSolarVoltage));
+    Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()) + "| Solar Voltage: " + String(currentSolarVoltage));
     if ((millis() - lastDirectionChangedTime > solarCheckTime) && lastSolarVoltage > currentSolarVoltage) {
       if (decideOnRight()) {
         rotateRightByAngle(10 * random(9, 18));
