@@ -16,14 +16,14 @@ const int solarVoltageSensePin = A0;
 const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
-const int minimumRange = 100;//cm
-const int emergencyMinimumRange = minimumRange/4;//cm
+const int minimumRange = 60;//cm
+const int emergencyMinimumRange = minimumRange/3;//cm
 const int calibratedMovementTime = 3500;//milli seconds
 int robotWidth = 20;//cm
 const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
-const int robotJamCheckTime = 5*60000; //milli seconds
+const int robotJamCheckTime = 1*60000; //milli seconds
 const int solarCheckTime = 1000; //milli seconds
 const boolean rotateMode = true;
 const float sleepVoltage = 6.5;//volts
@@ -43,7 +43,7 @@ unsigned long lastSolarVoltageCheckTime = 0;
 float lastSolarVoltage = 0;
 boolean isMarkedForSleep = false;
 unsigned long sleepCounter = 0;
-boolean isBatteryCharged_Cached = false;
+boolean isBatteryChargedWhileSleeping_Cached = false;
 boolean isIntruderDetected = false;
 
 void setup() {
@@ -79,7 +79,7 @@ void loop() {
   if (isMarkedForSleep) {
 
     //check if battery is charged and wake up
-    if (isBatteryCharged()) {
+    if (isBatteryChargedWhileSleeping()) {
       markForWakeup();
       return;
     }
@@ -155,13 +155,12 @@ void markForWakeup() {
   lastSolarVoltage = solarVoltageSensor.senseVoltage();
 }
 
-boolean isBatteryCharged() {
+boolean isBatteryChargedWhileSleeping() {
   if (sleepCounter % (sleepCheckupTime / 8) == 0)
-    isBatteryCharged_Cached = batteryVoltageSensor.senseVoltage() > wakeVoltage;
-  return isBatteryCharged_Cached;
+    isBatteryChargedWhileSleeping_Cached = batteryVoltageSensor.senseVoltage() > wakeVoltage;
+  return isBatteryChargedWhileSleeping_Cached;
 }
 
-//TODO: Need to fix the fact that jam is detected when we first start the robot
 boolean isJamDetected() {
   return abs(millis() - lastDirectionChangedTime) > robotJamCheckTime;
 }
@@ -207,7 +206,8 @@ void doEmergencyObstacleManoeuvre() {
 }
 
 void doJamManoeuvre() {
-  tone(speakerPin, talkFrequency, 1000);
+  base.stopAllMotion();
+  morseCode.play("JAMMED");
   base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
   if (decideOnRight()) {
     rotateRightByAngle(10 * random(0, 36));
