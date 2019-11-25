@@ -142,17 +142,11 @@ void markForSleep() {
   base.stopAllMotion();
   morseCode.play("SOS");
   isMarkedForSleep = true;
-  lastDirectionChangedTime = 0;
-  lastSolarVoltageCheckTime = 0;
-  lastSolarVoltage = 0;
 }
 
 void markForWakeup() {
   morseCode.play("Awake");
   isMarkedForSleep = false;
-  lastDirectionChangedTime = millis();
-  lastSolarVoltageCheckTime = millis();
-  lastSolarVoltage = solarVoltageSensor.senseVoltage();
 }
 
 boolean isBatteryChargedWhileSleeping() {
@@ -162,6 +156,7 @@ boolean isBatteryChargedWhileSleeping() {
 }
 
 boolean isJamDetected() {
+  Serial.println("Millis: "+ String(millis()) + "| last Millis: " + String(lastDirectionChangedTime));
   return abs(millis() - lastDirectionChangedTime) > robotJamCheckTime;
 }
 
