@@ -23,8 +23,8 @@ int robotWidth = 20;//cm
 const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
-const int robotJamCheckTime = 1*60000; //milli seconds
-const int solarCheckTime = 1000; //milli seconds
+const unsigned long robotJamCheckTime = 60000; //milli seconds
+const unsigned long solarCheckTime = 1000; //milli seconds
 const boolean rotateMode = true;
 const float sleepVoltage = 6.5;//volts
 const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
@@ -106,6 +106,7 @@ void loop() {
 
     //check if there is a robot jam
     if (isJamDetected()) {
+      Serial.println("Jam Detected!!!!!");
       doJamManoeuvre();
       return;
     }
@@ -156,8 +157,9 @@ boolean isBatteryChargedWhileSleeping() {
 }
 
 boolean isJamDetected() {
-  Serial.println("Millis: "+ String(millis()) + "| last Millis: " + String(lastDirectionChangedTime));
-  return abs(millis() - lastDirectionChangedTime) > robotJamCheckTime;
+  boolean toReturn = abs(millis() - lastDirectionChangedTime) > robotJamCheckTime;
+  Serial.println("Millis: "+ String(millis()) + "| last Millis: " + String(lastDirectionChangedTime) + " | " + toReturn);
+  return toReturn;
 }
 
 boolean isBatteryDead() {
@@ -201,6 +203,7 @@ void doEmergencyObstacleManoeuvre() {
 }
 
 void doJamManoeuvre() {
+  Serial.println("Jam Evasion Started......");
   base.stopAllMotion();
   morseCode.play("JAMMED");
   base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
@@ -209,6 +212,7 @@ void doJamManoeuvre() {
   } else {
     rotateLeftByAngle(10 * random(0, 36));
   }
+  Serial.println("Jam Evasion Finished......");
 }
 
 void doIntruderManoeuvre() {
