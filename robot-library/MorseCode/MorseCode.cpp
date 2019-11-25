@@ -21,7 +21,7 @@ MorseCode::MorseCode(int speakerPin, int talkFrequency, int morseUnit)
 
 void MorseCode::play(String stringToMorseCode){
   Serial.println(stringToMorseCode);
-  for (int i = 0; i < sizeof(stringToMorseCode) - 1; i++)
+  for (int i = 0; i < sizeof(stringToMorseCode); i++)
   {
     char tmpChar = stringToMorseCode[i];
     tmpChar = toLowerCase(tmpChar);
