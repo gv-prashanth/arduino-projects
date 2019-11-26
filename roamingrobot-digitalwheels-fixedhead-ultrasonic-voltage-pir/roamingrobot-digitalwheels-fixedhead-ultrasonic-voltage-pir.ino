@@ -229,7 +229,6 @@ void doHarvestManoeuvre() {
     float currentSolarVoltage = solarVoltageSensor.senseVoltage();
     Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()) + "| Solar Voltage: " + String(currentSolarVoltage));
     if ((millis() - lastDirectionChangedTime > solarCheckTime) && (lastSolarVoltage - currentSolarVoltage > solarCheckDifference)) {
-      base.stopAllMotion();
       morseCode.play("HARVEST");
       if (decideOnRight()) {
         rotateRightByAngle(10 * random(9, 18));
