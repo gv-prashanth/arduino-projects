@@ -24,14 +24,13 @@ const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 60000; //milli seconds
-const unsigned long solarCheckTime = 2000; //milli seconds
 const boolean rotateMode = true;
 const float sleepVoltage = 6.5;//volts
 const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-const float solarCheckDifference = 3.0;//volts
+const long solarPrecision = 30000;//cycles
 
 //Dont touch below stuff
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
@@ -40,8 +39,6 @@ UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastDirectionChangedTime = 0;
-unsigned long lastSolarVoltageCheckTime = 0;
-float lastSolarVoltage = 0;
 boolean isMarkedForSleep = false;
 unsigned long sleepCounter = 0;
 boolean isBatteryChargedWhileSleeping_Cached = false;
@@ -124,7 +121,7 @@ void loop() {
     }
 
     //check if the battery is running low
-    if (isTimeForSolarCheck() && isBatteryDying()) {
+    if (isBatteryDying()) {
       doHarvestManoeuvre();
       return;
     }
@@ -145,8 +142,6 @@ void markForSleep() {
   isMarkedForSleep = true;
   //TODO: Need to get rid of below
   lastDirectionChangedTime = 0;
-  lastSolarVoltageCheckTime = 0;
-  lastSolarVoltage = 0;
 }
 
 void markForWakeup() {
@@ -154,8 +149,6 @@ void markForWakeup() {
   isMarkedForSleep = false;
   //TODO: Need to get rid of below
   lastDirectionChangedTime = millis();
-  lastSolarVoltageCheckTime = millis();
-  lastSolarVoltage = solarVoltageSensor.senseVoltage();
 }
 
 boolean isBatteryChargedWhileSleeping() {
@@ -174,10 +167,6 @@ boolean isBatteryDead() {
 
 boolean isBatteryDying() {
   return batteryVoltageSensor.senseVoltage() < wakeVoltage;
-}
-
-boolean isTimeForSolarCheck() {
-  return millis() - lastSolarVoltageCheckTime > solarCheckTime;
 }
 
 void intruderDetected() {
@@ -229,11 +218,22 @@ void doIntruderManoeuvre() {
 }
 
 void doHarvestManoeuvre() {
-  float currentSolarVoltage = solarVoltageSensor.senseVoltage();
-  long currentTime = millis();
-  Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()) + "| Solar Voltage: " + String(currentSolarVoltage));
-  //TODO: (currentTime - lastDirectionChangedTime > solarCheckTime) && 
-  if ((lastSolarVoltage - currentSolarVoltage > solarCheckDifference)) {
+  base.goForward();
+
+  float firstSolarVoltage = 0;
+  for (long i = 0; i < solarPrecision; i++) {
+    firstSolarVoltage += solarVoltageSensor.senseVoltage();
+  }
+  firstSolarVoltage = firstSolarVoltage / solarPrecision;
+
+  float secondSolarVoltage = 0;
+  for (long i = 0; i < solarPrecision; i++) {
+    secondSolarVoltage += solarVoltageSensor.senseVoltage();
+  }
+  secondSolarVoltage = secondSolarVoltage / solarPrecision;
+
+  Serial.println("Back Voltage: " + String(firstSolarVoltage) + " | Front Voltage: " + String(secondSolarVoltage));
+  if (firstSolarVoltage > secondSolarVoltage) {
     base.stopAllMotion();
     morseCode.play("HARVEST");
     if (decideOnRight()) {
@@ -241,9 +241,10 @@ void doHarvestManoeuvre() {
     } else {
       rotateLeftByAngle(10 * random(9, 18));
     }
+  } else {
+    base.goForward();
   }
-  lastSolarVoltageCheckTime = currentTime;
-  lastSolarVoltage = currentSolarVoltage;
+
 }
 
 void doSleepForEightSeconds() {
