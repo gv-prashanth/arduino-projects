@@ -30,7 +30,7 @@ const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-const long solarPrecision = 30000;//cycles
+const unsigned long solarPrecision = 30000;//cycles
 
 //Dont touch below stuff
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
@@ -221,13 +221,13 @@ void doHarvestManoeuvre() {
   base.goForward();
 
   float firstSolarVoltage = 0;
-  for (long i = 0; i < solarPrecision; i++) {
+  for (unsigned long i = 0; i < solarPrecision; i++) {
     firstSolarVoltage += solarVoltageSensor.senseVoltage();
   }
   firstSolarVoltage = firstSolarVoltage / solarPrecision;
 
   float secondSolarVoltage = 0;
-  for (long i = 0; i < solarPrecision; i++) {
+  for (unsigned long i = 0; i < solarPrecision; i++) {
     secondSolarVoltage += solarVoltageSensor.senseVoltage();
   }
   secondSolarVoltage = secondSolarVoltage / solarPrecision;
