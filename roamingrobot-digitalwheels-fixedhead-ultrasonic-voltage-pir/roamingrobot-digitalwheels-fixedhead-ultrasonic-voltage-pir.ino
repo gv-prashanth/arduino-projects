@@ -24,14 +24,14 @@ const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 60000; //milli seconds
-const unsigned long solarCheckTime = 1000; //milli seconds
+const unsigned long solarCheckTime = 3000; //milli seconds
 const boolean rotateMode = true;
 const float sleepVoltage = 6.5;//volts
 const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-const float solarCheckDifference = 0.2;//volts
+const float solarCheckDifference = 3.0;//volts
 
 //Dont touch below stuff
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
@@ -232,7 +232,8 @@ void doHarvestManoeuvre() {
   float currentSolarVoltage = solarVoltageSensor.senseVoltage();
   long currentTime = millis();
   Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()) + "| Solar Voltage: " + String(currentSolarVoltage));
-  if ((currentTime - lastDirectionChangedTime > solarCheckTime) && (lastSolarVoltage - currentSolarVoltage > solarCheckDifference)) {
+  //TODO: (currentTime - lastDirectionChangedTime > solarCheckTime) && 
+  if ((lastSolarVoltage - currentSolarVoltage > solarCheckDifference)) {
     base.stopAllMotion();
     morseCode.play("HARVEST");
     if (decideOnRight()) {
