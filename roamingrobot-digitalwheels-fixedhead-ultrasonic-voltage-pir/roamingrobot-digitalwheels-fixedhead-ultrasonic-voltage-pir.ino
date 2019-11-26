@@ -124,7 +124,7 @@ void loop() {
     }
 
     //check if the battery is running low
-    if (isBatteryDying()) {
+    if (isBatteryDying() && isTimeForSolarCheck()) {
       doHarvestManoeuvre();
       return;
     }
@@ -176,6 +176,10 @@ boolean isBatteryDying() {
   return batteryVoltageSensor.senseVoltage() < wakeVoltage;
 }
 
+boolean isTimeForSolarCheck() {
+  return millis() - lastSolarVoltageCheckTime > solarCheckTime;
+}
+
 void intruderDetected() {
   isIntruderDetected = true;
 }
@@ -225,20 +229,19 @@ void doIntruderManoeuvre() {
 }
 
 void doHarvestManoeuvre() {
-  if (millis() - lastSolarVoltageCheckTime > solarCheckTime) {
-    float currentSolarVoltage = solarVoltageSensor.senseVoltage();
-    Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()) + "| Solar Voltage: " + String(currentSolarVoltage));
-    if ((millis() - lastDirectionChangedTime > solarCheckTime) && (lastSolarVoltage - currentSolarVoltage > solarCheckDifference)) {
-      morseCode.play("HARVEST");
-      if (decideOnRight()) {
-        rotateRightByAngle(10 * random(9, 18));
-      } else {
-        rotateLeftByAngle(10 * random(9, 18));
-      }
+  float currentSolarVoltage = solarVoltageSensor.senseVoltage();
+  Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()) + "| Solar Voltage: " + String(currentSolarVoltage));
+  if ((millis() - lastDirectionChangedTime > solarCheckTime) && (lastSolarVoltage - currentSolarVoltage > solarCheckDifference)) {
+    base.stopAllMotion();
+    morseCode.play("HARVEST");
+    if (decideOnRight()) {
+      rotateRightByAngle(10 * random(9, 18));
+    } else {
+      rotateLeftByAngle(10 * random(9, 18));
     }
-    lastSolarVoltageCheckTime = millis();
-    lastSolarVoltage = solarVoltageSensor.senseVoltage();
   }
+  lastSolarVoltageCheckTime = millis();
+  lastSolarVoltage = solarVoltageSensor.senseVoltage();
 }
 
 void doSleepForEightSeconds() {
