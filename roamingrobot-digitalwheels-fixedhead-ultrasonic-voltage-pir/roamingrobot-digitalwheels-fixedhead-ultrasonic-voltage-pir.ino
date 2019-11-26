@@ -121,7 +121,7 @@ void loop() {
     }
 
     //check if the battery is running low
-    if (isBatteryDying()) {
+    if (false && isBatteryDying()) {
       doHarvestManoeuvre();
       return;
     }
