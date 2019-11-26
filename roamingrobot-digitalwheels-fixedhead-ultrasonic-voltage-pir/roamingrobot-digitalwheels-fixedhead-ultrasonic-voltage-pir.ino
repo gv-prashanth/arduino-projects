@@ -31,6 +31,7 @@ const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
+const float solarCheckDifference = 0.2;//volts
 
 //Dont touch below stuff
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
@@ -123,7 +124,7 @@ void loop() {
     }
 
     //check if the battery is running low
-    if (false && isBatteryDying()) {
+    if (isBatteryDying()) {
       doHarvestManoeuvre();
       return;
     }
@@ -227,7 +228,9 @@ void doHarvestManoeuvre() {
   if (millis() - lastSolarVoltageCheckTime > solarCheckTime) {
     float currentSolarVoltage = solarVoltageSensor.senseVoltage();
     Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()) + "| Solar Voltage: " + String(currentSolarVoltage));
-    if ((millis() - lastDirectionChangedTime > solarCheckTime) && lastSolarVoltage > currentSolarVoltage) {
+    if ((millis() - lastDirectionChangedTime > solarCheckTime) && (lastSolarVoltage - currentSolarVoltage > solarCheckDifference)) {
+      base.stopAllMotion();
+      morseCode.play("HARVEST");
       if (decideOnRight()) {
         rotateRightByAngle(10 * random(9, 18));
       } else {
