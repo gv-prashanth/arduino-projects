@@ -256,8 +256,14 @@ void doSleepForEightSeconds() {
   isIntruderDetected = false;
   attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
 
+  //Disable ADC - don't forget to flip back after waking up if using ADC in your application
+  ADCSRA &= ~(1 << 7);
+
   //Begin the actual sleep
   __asm__  __volatile__("sleep");//in line assembler to go to sleep
+
+  //Enable ADC - don't forget to flip back after waking up if using ADC in your application
+  ADCSRA |= (1 << 7);
 
   //Detach the PIR since we dont need intruder detection anymore
   detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
