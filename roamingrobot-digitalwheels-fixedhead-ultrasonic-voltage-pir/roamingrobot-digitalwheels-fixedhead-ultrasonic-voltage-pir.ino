@@ -30,7 +30,6 @@ const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-const unsigned long solarPrecision = 30000;//cycles
 
 //Dont touch below stuff
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
@@ -120,12 +119,6 @@ void loop() {
       return;
     }
 
-    //check if the battery is running low
-    if (false && isBatteryDying()) {
-      doHarvestManoeuvre();
-      return;
-    }
-
     //go forward
     else {
       base.goForward();
@@ -163,10 +156,6 @@ boolean isJamDetected() {
 
 boolean isBatteryDead() {
   return batteryVoltageSensor.senseVoltage() < sleepVoltage;
-}
-
-boolean isBatteryDying() {
-  return batteryVoltageSensor.senseVoltage() < wakeVoltage;
 }
 
 void intruderDetected() {
@@ -215,36 +204,6 @@ void doJamManoeuvre() {
 void doIntruderManoeuvre() {
   morseCode.play("INTRUDER");
   isIntruderDetected = false;
-}
-
-void doHarvestManoeuvre() {
-  base.goForward();
-
-  float firstSolarVoltage = 0;
-  for (unsigned long i = 0; i < solarPrecision; i++) {
-    firstSolarVoltage += solarVoltageSensor.senseVoltage();
-  }
-  firstSolarVoltage = firstSolarVoltage / solarPrecision;
-
-  float secondSolarVoltage = 0;
-  for (unsigned long i = 0; i < solarPrecision; i++) {
-    secondSolarVoltage += solarVoltageSensor.senseVoltage();
-  }
-  secondSolarVoltage = secondSolarVoltage / solarPrecision;
-
-  Serial.println("Back Voltage: " + String(firstSolarVoltage) + " | Front Voltage: " + String(secondSolarVoltage));
-  if (firstSolarVoltage > secondSolarVoltage) {
-    base.stopAllMotion();
-    morseCode.play("HARVEST");
-    if (decideOnRight()) {
-      rotateRightByAngle(10 * random(9, 18));
-    } else {
-      rotateLeftByAngle(10 * random(9, 18));
-    }
-  } else {
-    base.goForward();
-  }
-
 }
 
 void doSleepForEightSeconds() {
