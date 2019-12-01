@@ -1,3 +1,14 @@
+/*
+  OV7670 Camera module on Arduino Uno.
+
+  Author: Prashanth G
+  NOTE: Much of the code is based on insights from the
+  work of the users
+
+  https://circuitdigest.com/microcontroller-projects/how-to-use-ov7670-camera-module-with-arduino
+
+*/
+
 #include <stdint.h>
 #include <avr/io.h>
 #include <util/twi.h>
