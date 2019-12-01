@@ -15,10 +15,11 @@ void setup() {
 }
 
 void loop() {
-  Serial.println("Loop started");
-  Serial.println("Going to sleep");
+  Serial.println("Going to sleep in 5 seconds");
+  delay(5000);
   Going_To_Sleep();
   Serial.println("Sleep Completed");
+  delay(5000);
 }
 
 void Going_To_Sleep(){

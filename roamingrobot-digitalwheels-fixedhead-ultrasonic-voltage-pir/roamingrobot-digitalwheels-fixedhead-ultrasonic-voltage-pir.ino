@@ -213,7 +213,7 @@ void doSleepForEightSeconds() {
 
   //Attach the PIR to activate intruder detection
   isIntruderDetected = false;
-  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
+  //attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
 
   //Disable ADC - don't forget to flip back after waking up if using ADC in your application
   ADCSRA &= ~(1 << 7);
@@ -225,7 +225,7 @@ void doSleepForEightSeconds() {
   ADCSRA |= (1 << 7);
 
   //Detach the PIR since we dont need intruder detection anymore
-  detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
+  //detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
 
   sleepCounter++;
 }
