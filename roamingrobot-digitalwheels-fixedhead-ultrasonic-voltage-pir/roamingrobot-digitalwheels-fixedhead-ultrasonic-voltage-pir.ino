@@ -45,7 +45,7 @@ boolean isIntruderDetected = false;
 
 void setup() {
   Serial.begin (9600);
-  pinMode(pirInterruptPin, INPUT);// define interrupt pin D2 as input to read interrupt received by PIR sensor
+  //pinMode(pirInterruptPin, INPUT);// define interrupt pin D2 as input to read interrupt received by PIR sensor
 
   //SETUP WATCHDOG TIMER
   WDTCSR = (24);//change enable and WDE - also resets
