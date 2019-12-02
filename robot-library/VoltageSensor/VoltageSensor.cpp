@@ -21,7 +21,7 @@ float VoltageSensor::senseVoltage(){
   #if defined(__AVR_ATmega32U4__) || defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
     ADMUX = _BV(REFS0) | _BV(MUX4) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
   #elif defined (__AVR_ATtiny24__) || defined(__AVR_ATtiny44__) || defined(__AVR_ATtiny84__)
-     ADMUX = _BV(MUX5) | _BV(MUX0) ;
+    ADMUX = _BV(MUX5) | _BV(MUX0) ;
   #else
     ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
   #endif  
@@ -32,10 +32,14 @@ float VoltageSensor::senseVoltage(){
   uint8_t high = ADCH; // unlocks both
   long result = (high<<8) | low;
   result = 1125300L / result; // Calculate Vcc (in mV); 1125300 = 1.1*1023*1000
-
-  // Read the sense pin voltage using the previously calculated vcc voltage
-  float avgValue = analogRead(_pin);
-  float vOUT = (avgValue * (((float)result)/1000.0)) / 1024.0;
-  float vIN = vOUT / (_smallR/(_bigR + _smallR));
-  return vIN;
+  if(_pin==-1)
+	//Means there is no dedicated sensor pin connected, so return vcc voltage
+	return (((float)result)/1000.0);
+  else {
+	// Read the sense pin voltage using the previously calculated vcc voltage
+	float avgValue = analogRead(_pin);
+	float vOUT = (avgValue * (((float)result)/1000.0)) / 1024.0;
+	float vIN = vOUT / (_smallR/(_bigR + _smallR));
+	return vIN;
+  }
 }

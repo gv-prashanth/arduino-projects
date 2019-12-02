@@ -11,8 +11,7 @@ const int rightWheelBackwardPin = 10;//11
 const int speakerPin = 4;
 const int ultraTriggerPin = 7;
 const int ultraEchoPin = 8;
-const int batteryVoltageSensePin = A2;
-const int solarVoltageSensePin = A0;
+const int batteryVoltageSensePin = -1;//A2 incase you want to detect from dedicated pin. -1 incase you want to detect from vcc.
 const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
@@ -33,7 +32,6 @@ const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value.
 
 //Dont touch below stuff
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
-VoltageSensor solarVoltageSensor(solarVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
