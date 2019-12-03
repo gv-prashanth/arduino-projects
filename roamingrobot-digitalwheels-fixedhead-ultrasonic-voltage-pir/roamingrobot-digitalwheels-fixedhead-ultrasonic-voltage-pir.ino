@@ -8,6 +8,7 @@ const int leftWheelForwardPin = 5;//5
 const int leftWheelBackwardPin = 9;//9
 const int rightWheelForwardPin = 11;//10
 const int rightWheelBackwardPin = 10;//11
+const int baseEnablePin = 6;
 const int speakerPin = 4;
 const int ultraTriggerPin = 7;
 const int ultraEchoPin = 8;
@@ -33,7 +34,7 @@ const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value.
 //Dont touch below stuff
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
-DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
+DigitalBase base(baseEnablePin, leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastDirectionChangedTime = 0;
 boolean isMarkedForSleep = false;

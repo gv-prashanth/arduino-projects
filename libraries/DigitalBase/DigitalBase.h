@@ -12,7 +12,7 @@
 class DigitalBase
 {
   public:
-    DigitalBase(int leftWheelForwardPin, int leftWheelBackwardPin, int rightWheelForwardPin, int rightWheelBackwardPin);
+    DigitalBase(int baseEnablePin, int leftWheelForwardPin, int leftWheelBackwardPin, int rightWheelForwardPin, int rightWheelBackwardPin);
     void goForward();
 	void stopAllMotion();
 	void moveBackward(int duration);
@@ -21,6 +21,7 @@ class DigitalBase
 	void turnRight(int duration);
 	void turnLeft(int duration);
   private:
+    int _baseEnablePin;
     int _leftWheelForwardPin;
 	int _leftWheelBackwardPin;
     int _rightWheelForwardPin;
