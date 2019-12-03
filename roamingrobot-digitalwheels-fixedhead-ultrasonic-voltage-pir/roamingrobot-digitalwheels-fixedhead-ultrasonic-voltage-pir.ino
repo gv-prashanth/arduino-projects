@@ -19,12 +19,9 @@ const int pirInterruptPin = 2;//pin 2 only should be used
 const int minimumRange = 60;//cm
 const int emergencyMinimumRange = minimumRange / 3; //cm
 const int calibratedMovementTime = 3500;//milli seconds
-int robotWidth = 20;//cm
-const int robotLength = 20;//cm
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 60000; //milli seconds
-const boolean rotateMode = true;
 const float sleepVoltage = 6.5;//volts
 const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
@@ -55,13 +52,13 @@ void setup() {
   SMCR |= (1 << 2); //power down mode
   SMCR |= 1;//enable sleep
 
-  //TODO: Quick hack to support both rotate and turn modes
-  if (!rotateMode) {
-    robotWidth = 2 * robotWidth;
-  }
-
   //Wake the robot
   markForWakeup();
+
+  //TODO: Need to improve this approach
+  //Tell the voltage of battery
+  float floatVoltage = batteryVoltageSensor.senseVoltage();
+  morseCode.play(String(floatVoltage));
 
   //check if battery is low and skip bios dance
   if (!isBatteryDead()) {
@@ -129,7 +126,7 @@ void loop() {
 }
 
 void markForSleep() {
-  base.stopAllMotion();
+  base.stop();
   morseCode.play("SOS");
   isMarkedForSleep = true;
   //TODO: Need to get rid of below
@@ -173,30 +170,35 @@ boolean isEmergencyObstaclePresent() {
 
 void doObstacleManoeuvre() {
   if (decideOnRight()) {
-    rotateRightByAngle(10 * random(0, 9));
+    rotateRightByRandomAngle(0, 90);
   } else {
-    rotateLeftByAngle(10 * random(0, 9));
+    rotateLeftByRandomAngle(0, 90);
   }
 }
 
 void doEmergencyObstacleManoeuvre() {
+  base.stop();
   tone(speakerPin, talkFrequency, 100);
-  base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
+  base.goBackward();
+  delay(calibratedMovementTime / PI);
+  base.stop();
   if (decideOnRight()) {
-    rotateRightByAngle(10 * random(9, 18));
+    rotateRightByRandomAngle(90, 180);
   } else {
-    rotateLeftByAngle(10 * random(9, 18));
+    rotateLeftByRandomAngle(90, 180);
   }
 }
 
 void doJamManoeuvre() {
-  base.stopAllMotion();
+  base.stop();
   morseCode.play("JAMMED");
-  base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
+  base.goBackward();
+  delay(calibratedMovementTime / PI);
+  base.stop();
   if (decideOnRight()) {
-    rotateRightByAngle(10 * random(0, 36));
+    rotateRightByRandomAngle(0, 360);
   } else {
-    rotateLeftByAngle(10 * random(0, 36));
+    rotateLeftByRandomAngle(0, 360);
   }
 }
 
@@ -230,27 +232,24 @@ void doSleepForEightSeconds() {
 }
 
 void doBIOSManoeuvre() {
-  //TODO: Need to improve this approach
-  //Tell the voltage of battery
-  float floatVoltage = batteryVoltageSensor.senseVoltage();
-  morseCode.play(String(floatVoltage));
-
   //left
-  rotateLeftByAngle(360);
+  rotateLeftByRandomAngle(0, 360);
   morseCode.play("Left");
 
   //right
-  rotateRightByAngle(360);
+  rotateRightByRandomAngle(0, 360);
   morseCode.play("Right");
 
   //forward
   base.goForward();
-  delay((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
-  base.stopAllMotion();
+  delay(calibratedMovementTime / PI);
+  base.stop();
   morseCode.play("Forward");
 
   //backward
-  base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
+  base.goBackward();
+  delay(calibratedMovementTime / PI);
+  base.stop();
   morseCode.play("Backward");
 }
 
@@ -263,21 +262,21 @@ boolean decideOnRight() {
   }
 }
 
-void rotateRightByAngle(int angle) {
-  if (rotateMode) {
-    base.rotateRight((calibratedMovementTime / 360)*angle);
-  } else {
-    base.turnRight((calibratedMovementTime / 360)*angle);
-  }
+void rotateRightByRandomAngle(int from, int to) {
+  int randAngle = random(from/10, to/10)*10;
+  int t = randAngle * (calibratedMovementTime/360);
+  base.rotateRight();
+  delay(t);
+  base.stop();
   lastDirectionChangedTime = millis();
 }
 
-void rotateLeftByAngle(int angle) {
-  if (rotateMode) {
-    base.rotateLeft((calibratedMovementTime / 360)*angle);
-  } else {
-    base.turnLeft((calibratedMovementTime / 360)*angle);
-  }
+void rotateLeftByRandomAngle(int from, int to) {
+  int randAngle = random(from/10, to/10)*10;
+  int t = randAngle * (calibratedMovementTime/360);
+  base.rotateLeft();
+  delay(t);
+  base.stop();
   lastDirectionChangedTime = millis();
 }
 
