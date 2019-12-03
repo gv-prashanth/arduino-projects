@@ -70,7 +70,7 @@ void setup() {
 }
 
 void loop() {
-
+  Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()));
   if (isMarkedForSleep) {
 
     //check if battery is charged and wake up
