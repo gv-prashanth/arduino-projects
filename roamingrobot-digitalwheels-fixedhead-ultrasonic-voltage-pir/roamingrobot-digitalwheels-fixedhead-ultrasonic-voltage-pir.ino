@@ -182,7 +182,7 @@ void doEmergencyObstacleManoeuvre() {
     base.rotateRight();
   else
     base.rotateLeft();
-  delay(random(0, 36) * 10 * (calibratedMovementTime / 360));
+  delay(random(9, 18) * 10 * (calibratedMovementTime / 360));
   base.stop();
   lastDirectionChangedTime = millis();
 }
