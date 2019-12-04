@@ -127,7 +127,6 @@ void loop() {
 }
 
 void markForSleep() {
-  base.stop();
   morseCode.play("SOS");
   isMarkedForSleep = true;
   //TODO: Need to get rid of below
@@ -249,23 +248,27 @@ void doSleepForEightSeconds() {
 void doBIOSManoeuvre() {
   //left
   base.rotateLeft();
-  morseCode.play("Left");
+  delay(calibratedMovementTime);
   base.stop();
+  morseCode.play("Left");
 
   //right
   base.rotateRight();
-  morseCode.play("Right");
+  delay(calibratedMovementTime);
   base.stop();
+  morseCode.play("Right");
 
   //forward
   base.goForward();
-  morseCode.play("Forward");
+  delay(calibratedMovementTime / M_PI);
   base.stop();
+  morseCode.play("Forward");
 
   //backward
   base.goBackward();
-  morseCode.play("Backward");
+  delay(calibratedMovementTime / M_PI);
   base.stop();
+  morseCode.play("Backward");
 
   lastDirectionChangedTime = millis();
 }
