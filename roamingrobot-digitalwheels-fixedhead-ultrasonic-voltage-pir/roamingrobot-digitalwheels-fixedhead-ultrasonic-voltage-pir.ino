@@ -16,8 +16,8 @@ const int batteryVoltageSensePin = -1;//A2 incase you want to detect from dedica
 const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
-const int ObstacleRange = 60;//cm
-const int emergencyObstacleRange = ObstacleRange / 3; //cm
+const int avoidableObstacleRange = 60;//cm
+const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
 const int calibratedMovementTime = 3500;//milli seconds
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
@@ -38,7 +38,7 @@ boolean isMarkedForSleep = false;
 unsigned long sleepCounter = 0;
 boolean isBatteryChargedWhileSleeping_Cached = false;
 boolean isIntruderDetected = false;
-int ObstacleManoeuvreDirection = 0;//0 means straight, -1 means left, 1 means right
+int avoidableObstacleManoeuvreDirection = 0;//0 means straight, -1 means left, 1 means right
 
 void setup() {
   Serial.begin (9600);
@@ -104,9 +104,15 @@ void loop() {
       return;
     }
 
+    //incase of emergency stop
+    if (isEmergencyObstaclePresent()) {
+      doEmergencyObstacleManoeuvre();
+      return;
+    }
+
     //rotate left or right
-    if (isObstaclePresent()) {
-      doObstacleManoeuvre();
+    if (isAvoidableObstaclePresent()) {
+      doAvoidableObstacleManoeuvre();
       return;
     }
 
@@ -153,9 +159,9 @@ void intruderDetected() {
   isIntruderDetected = true;
 }
 
-boolean isObstaclePresent() {
+boolean isAvoidableObstaclePresent() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > 0 && centerReading <= ObstacleRange);
+  return (centerReading > 0 && centerReading <= avoidableObstacleRange);
 }
 
 boolean isEmergencyObstaclePresent() {
@@ -164,24 +170,33 @@ boolean isEmergencyObstaclePresent() {
 }
 
 void doStraightManoeuvre() {
-  ObstacleManoeuvreDirection == 0;
+  avoidableObstacleManoeuvreDirection == 0;
   base.goForward();
 }
 
-void doObstacleManoeuvre() {
-  //incase of emergency stop
-  if (isEmergencyObstaclePresent()) {
-    doJamManoeuvre();
-  }
-  //set ObstacleManoeuvreDirection
-  if (ObstacleManoeuvreDirection == 0) {
+void doEmergencyObstacleManoeuvre() {
+  tone(speakerPin, talkFrequency, 100);
+  base.goBackward();
+  delay(calibratedMovementTime / M_PI);
+  if (decideOnRight())
+    base.rotateRight();
+  else
+    base.rotateLeft();
+  delay(random(0, 36) * 10 * (calibratedMovementTime / 360));
+  base.stop();
+  lastDirectionChangedTime = millis();
+}
+
+void doAvoidableObstacleManoeuvre() {
+  //set avoidableObstacleManoeuvreDirection
+  if (avoidableObstacleManoeuvreDirection == 0) {
     if (decideOnRight())
-      ObstacleManoeuvreDirection = 1;
+      avoidableObstacleManoeuvreDirection = 1;
     else
-      ObstacleManoeuvreDirection = -1;
+      avoidableObstacleManoeuvreDirection = -1;
   }
   //based on what is set above, do one of below
-  if (ObstacleManoeuvreDirection == 1)
+  if (avoidableObstacleManoeuvreDirection == 1)
     base.rotateRight();
   else
     base.rotateLeft();
@@ -192,7 +207,7 @@ void doJamManoeuvre() {
   base.stop();
   morseCode.play("JAMMED");
   base.goBackward();
-  delay(calibratedMovementTime / PI);
+  delay(calibratedMovementTime / M_PI);
   if (decideOnRight())
     base.rotateRight();
   else
@@ -246,13 +261,13 @@ void doBIOSManoeuvre() {
 
   //forward
   base.goForward();
-  delay(calibratedMovementTime / PI);
+  delay(calibratedMovementTime / M_PI);
   base.stop();
   morseCode.play("Forward");
 
   //backward
   base.goBackward();
-  delay(calibratedMovementTime / PI);
+  delay(calibratedMovementTime / M_PI);
   base.stop();
   morseCode.play("Backward");
 
