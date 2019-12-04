@@ -16,14 +16,14 @@ const int batteryVoltageSensePin = -1;//A2 incase you want to detect from dedica
 const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
-const int minimumRange = 60;//cm
-const int emergencyMinimumRange = minimumRange / 3; //cm
+const int avoidableObstacleRange = 60;//cm
+const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
 const int calibratedMovementTime = 3500;//milli seconds
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 60000; //milli seconds
-const float sleepVoltage = 6.5;//volts
-const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
+const float sleepVoltage = 3.0;//volts
+const float wakeVoltage = 3.5;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
@@ -38,6 +38,7 @@ boolean isMarkedForSleep = false;
 unsigned long sleepCounter = 0;
 boolean isBatteryChargedWhileSleeping_Cached = false;
 boolean isIntruderDetected = false;
+int avoidableObstacleManoeuvreDirection = 0;//0 means straight, -1 means left, 1 means right
 
 void setup() {
   Serial.begin (9600);
@@ -103,21 +104,21 @@ void loop() {
       return;
     }
 
-    //check if there is an emergency
+    //incase of emergency stop
     if (isEmergencyObstaclePresent()) {
       doEmergencyObstacleManoeuvre();
       return;
     }
 
-    //check if there is an obstacle
-    if (isObstaclePresent()) {
-      doObstacleManoeuvre();
+    //rotate left or right
+    if (isAvoidableObstaclePresent()) {
+      doAvoidableObstacleManoeuvre();
       return;
     }
 
     //go forward
     else {
-      base.goForward();
+      doStraightManoeuvre();
       return;
     }
 
@@ -158,48 +159,62 @@ void intruderDetected() {
   isIntruderDetected = true;
 }
 
-boolean isObstaclePresent() {
+boolean isAvoidableObstaclePresent() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > 0 && centerReading <= minimumRange);
+  return (centerReading > 0 && centerReading <= avoidableObstacleRange);
 }
 
 boolean isEmergencyObstaclePresent() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > 0 && centerReading <= emergencyMinimumRange);
+  return (centerReading > 0 && centerReading <= emergencyObstacleRange);
 }
 
-void doObstacleManoeuvre() {
-  if (decideOnRight()) {
-    rotateRightByRandomAngle(0, 90);
-  } else {
-    rotateLeftByRandomAngle(0, 90);
-  }
+void doStraightManoeuvre() {
+  avoidableObstacleManoeuvreDirection == 0;
+  base.goForward();
 }
 
 void doEmergencyObstacleManoeuvre() {
-  base.stop();
   tone(speakerPin, talkFrequency, 100);
   base.goBackward();
-  delay(calibratedMovementTime / PI);
+  delay(calibratedMovementTime / M_PI);
+  if (decideOnRight())
+    base.rotateRight();
+  else
+    base.rotateLeft();
+  delay(random(9, 18) * 10 * (calibratedMovementTime / 360));
   base.stop();
-  if (decideOnRight()) {
-    rotateRightByRandomAngle(90, 180);
-  } else {
-    rotateLeftByRandomAngle(90, 180);
+  lastDirectionChangedTime = millis();
+}
+
+void doAvoidableObstacleManoeuvre() {
+  //set avoidableObstacleManoeuvreDirection
+  if (avoidableObstacleManoeuvreDirection == 0) {
+    if (decideOnRight())
+      avoidableObstacleManoeuvreDirection = 1;
+    else
+      avoidableObstacleManoeuvreDirection = -1;
   }
+  //based on what is set above, do one of below
+  if (avoidableObstacleManoeuvreDirection == 1)
+    base.rotateRight();
+  else
+    base.rotateLeft();
+  lastDirectionChangedTime = millis();
 }
 
 void doJamManoeuvre() {
   base.stop();
   morseCode.play("JAMMED");
   base.goBackward();
-  delay(calibratedMovementTime / PI);
+  delay(calibratedMovementTime / M_PI);
+  if (decideOnRight())
+    base.rotateRight();
+  else
+    base.rotateLeft();
+  delay(random(0, 36) * 10 * (calibratedMovementTime / 360));
   base.stop();
-  if (decideOnRight()) {
-    rotateRightByRandomAngle(0, 360);
-  } else {
-    rotateLeftByRandomAngle(0, 360);
-  }
+  lastDirectionChangedTime = millis();
 }
 
 void doIntruderManoeuvre() {
@@ -246,15 +261,17 @@ void doBIOSManoeuvre() {
 
   //forward
   base.goForward();
-  delay(calibratedMovementTime / PI);
+  delay(calibratedMovementTime / M_PI);
   base.stop();
   morseCode.play("Forward");
 
   //backward
   base.goBackward();
-  delay(calibratedMovementTime / PI);
+  delay(calibratedMovementTime / M_PI);
   base.stop();
   morseCode.play("Backward");
+
+  lastDirectionChangedTime = millis();
 }
 
 boolean decideOnRight() {
@@ -264,24 +281,6 @@ boolean decideOnRight() {
   } else {
     return false;
   }
-}
-
-void rotateRightByRandomAngle(int from, int to) {
-  int randAngle = random(from/10, to/10)*10;
-  int t = randAngle * (calibratedMovementTime/360);
-  base.rotateRight();
-  delay(t);
-  base.stop();
-  lastDirectionChangedTime = millis();
-}
-
-void rotateLeftByRandomAngle(int from, int to) {
-  int randAngle = random(from/10, to/10)*10;
-  int t = randAngle * (calibratedMovementTime/360);
-  base.rotateLeft();
-  delay(t);
-  base.stop();
-  lastDirectionChangedTime = millis();
 }
 
 ISR(WDT_vect) {
