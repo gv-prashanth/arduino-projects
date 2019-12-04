@@ -7,12 +7,14 @@
 #include "Arduino.h"
 #include "DigitalBase.h"
 
-DigitalBase::DigitalBase(int leftWheelForwardPin, int leftWheelBackwardPin, int rightWheelForwardPin, int rightWheelBackwardPin)
+DigitalBase::DigitalBase(int baseEnablePin, int leftWheelForwardPin, int leftWheelBackwardPin, int rightWheelForwardPin, int rightWheelBackwardPin)
 {
   pinMode(leftWheelForwardPin, OUTPUT);
   pinMode(leftWheelBackwardPin, OUTPUT);
   pinMode(rightWheelForwardPin, OUTPUT);
   pinMode(rightWheelBackwardPin, OUTPUT);
+  pinMode(baseEnablePin, OUTPUT);
+  _baseEnablePin = baseEnablePin;
   _leftWheelForwardPin = leftWheelForwardPin;
   _leftWheelBackwardPin = leftWheelBackwardPin;
   _rightWheelForwardPin = rightWheelForwardPin;
@@ -30,15 +32,6 @@ void DigitalBase::moveBackward(int duration){
   moveRightWheelBackward();
   delay(duration);
   stopAllMotion();
-}
-
-void DigitalBase::stopAllMotion(){
-  delay(5);
-  digitalWrite(_leftWheelForwardPin, LOW);
-  digitalWrite(_leftWheelBackwardPin, LOW);
-  digitalWrite(_rightWheelForwardPin, LOW);
-  digitalWrite(_rightWheelBackwardPin, LOW);
-  delay(5);
 }
 
 void DigitalBase::rotateRight(int duration){
@@ -72,21 +65,35 @@ void DigitalBase::turnLeft(int duration){
 }
 
 void DigitalBase::moveLeftWheelBackward(){
+  digitalWrite(_baseEnablePin, HIGH);
   digitalWrite(_leftWheelForwardPin, LOW);
   digitalWrite(_leftWheelBackwardPin, HIGH);
 }
 
 void DigitalBase::moveLeftWheelForward(){
+  digitalWrite(_baseEnablePin, HIGH);
   digitalWrite(_leftWheelBackwardPin, LOW);
   digitalWrite(_leftWheelForwardPin, HIGH);
 }
 
 void DigitalBase::moveRightWheelBackward(){
+  digitalWrite(_baseEnablePin, HIGH);
   digitalWrite(_rightWheelForwardPin, LOW);
   digitalWrite(_rightWheelBackwardPin, HIGH);
 }
 
 void DigitalBase::moveRightWheelForward(){
+  digitalWrite(_baseEnablePin, HIGH);
   digitalWrite(_rightWheelBackwardPin, LOW);
   digitalWrite(_rightWheelForwardPin, HIGH);
+}
+
+void DigitalBase::stopAllMotion(){
+  delay(5);
+  digitalWrite(_baseEnablePin, LOW);
+  digitalWrite(_leftWheelForwardPin, LOW);
+  digitalWrite(_leftWheelBackwardPin, LOW);
+  digitalWrite(_rightWheelForwardPin, LOW);
+  digitalWrite(_rightWheelBackwardPin, LOW);
+  delay(5);
 }
