@@ -233,11 +233,15 @@ void doSleepForEightSeconds() {
 
 void doBIOSManoeuvre() {
   //left
-  rotateLeftByRandomAngle(0, 360);
+  base.rotateLeft();
+  delay(calibratedMovementTime);
+  base.stop();
   morseCode.play("Left");
 
   //right
-  rotateRightByRandomAngle(0, 360);
+  base.rotateRight();
+  delay(calibratedMovementTime);
+  base.stop();
   morseCode.play("Right");
 
   //forward
