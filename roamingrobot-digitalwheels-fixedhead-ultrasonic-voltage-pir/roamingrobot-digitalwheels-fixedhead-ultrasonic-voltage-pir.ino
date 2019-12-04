@@ -187,6 +187,20 @@ void doEmergencyObstacleManoeuvre() {
   lastDirectionChangedTime = millis();
 }
 
+void doJamManoeuvre() {
+  base.stop();
+  morseCode.play("JAMMED");
+  base.goBackward();
+  delay(calibratedMovementTime / M_PI);
+  if (decideOnRight())
+    base.rotateRight();
+  else
+    base.rotateLeft();
+  delay(random(0, 36) * 10 * (calibratedMovementTime / 360));
+  base.stop();
+  lastDirectionChangedTime = millis();
+}
+
 void doAvoidableObstacleManoeuvre() {
   //set avoidableObstacleManoeuvreDirection
   if (avoidableObstacleManoeuvreDirection == 0) {
@@ -200,20 +214,6 @@ void doAvoidableObstacleManoeuvre() {
     base.rotateRight();
   else
     base.rotateLeft();
-  lastDirectionChangedTime = millis();
-}
-
-void doJamManoeuvre() {
-  base.stop();
-  morseCode.play("JAMMED");
-  base.goBackward();
-  delay(calibratedMovementTime / M_PI);
-  if (decideOnRight())
-    base.rotateRight();
-  else
-    base.rotateLeft();
-  delay(random(0, 36) * 10 * (calibratedMovementTime / 360));
-  base.stop();
   lastDirectionChangedTime = millis();
 }
 
@@ -249,27 +249,23 @@ void doSleepForEightSeconds() {
 void doBIOSManoeuvre() {
   //left
   base.rotateLeft();
-  delay(calibratedMovementTime);
-  base.stop();
   morseCode.play("Left");
+  base.stop();
 
   //right
   base.rotateRight();
-  delay(calibratedMovementTime);
-  base.stop();
   morseCode.play("Right");
+  base.stop();
 
   //forward
   base.goForward();
-  delay(calibratedMovementTime / M_PI);
-  base.stop();
   morseCode.play("Forward");
+  base.stop();
 
   //backward
   base.goBackward();
-  delay(calibratedMovementTime / M_PI);
-  base.stop();
   morseCode.play("Backward");
+  base.stop();
 
   lastDirectionChangedTime = millis();
 }
