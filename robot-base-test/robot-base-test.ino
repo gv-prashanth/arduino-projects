@@ -13,29 +13,30 @@ void setup() {
 }
 
 void loop() {
-  //left
-  rotateLeft();
-  delay(5000);
-  stopAllMotion();
-  delay(1000);
-
-  //right
-  rotateRight();
-  delay(5000);
-  stopAllMotion();
-  delay(1000);
-
-  //forward
-  goForward();
-  delay(5000);
-  stopAllMotion();
-  delay(1000);
-
-  //backward
-  moveBackward();
-  delay(5000);
-  stopAllMotion();
-  delay(1000);
+  digitalWrite(leftWheelBackwardPin, HIGH);
+//  //left
+//  rotateLeft();
+//  delay(5000);
+//  stopAllMotion();
+//  delay(1000);
+//
+//  //right
+//  rotateRight();
+//  delay(5000);
+//  stopAllMotion();
+//  delay(1000);
+//
+//  //forward
+//  goForward();
+//  delay(5000);
+//  stopAllMotion();
+//  delay(1000);
+//
+//  //backward
+//  moveBackward();
+//  delay(5000);
+//  stopAllMotion();
+//  delay(1000);
 }
 
 void stopAllMotion() {
