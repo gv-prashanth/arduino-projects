@@ -8,7 +8,7 @@ const int leftWheelForwardPin = 5;//5
 const int leftWheelBackwardPin = 9;//9
 const int rightWheelForwardPin = 11;//10
 const int rightWheelBackwardPin = 10;//11
-const int baseEnablePin = 6;
+const int smartPowerPin = 6; //can be used to sleep and wake peripherals
 const int speakerPin = 4;
 const int ultraTriggerPin = 7;
 const int ultraEchoPin = 8;
@@ -18,12 +18,12 @@ const int pirInterruptPin = 2;//pin 2 only should be used
 //functional Configuration
 const int avoidableObstacleRange = 60;//cm
 const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
-const int calibratedMovementTime = 3500;//milli seconds
+const int calibratedMovementTime = 7500;//milli seconds
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 60000; //milli seconds
 const float sleepVoltage = 3.0;//volts
-const float wakeVoltage = 3.5;//volts. Must be greater than sleepVoltage.
+const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
@@ -31,18 +31,18 @@ const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value.
 //Dont touch below stuff
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
-DigitalBase base(baseEnablePin, leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
+DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastDirectionChangedTime = 0;
 boolean isMarkedForSleep = false;
 unsigned long sleepCounter = 0;
 boolean isBatteryChargedWhileSleeping_Cached = false;
 boolean isIntruderDetected = false;
-int avoidableObstacleManoeuvreDirection = 0;//0 means straight, -1 means left, 1 means right
 
 void setup() {
   Serial.begin (9600);
-  //pinMode(pirInterruptPin, INPUT);// define interrupt pin D2 as input to read interrupt received by PIR sensor
+  pinMode(pirInterruptPin, INPUT);// define interrupt pin D2 as input to read interrupt received by PIR sensor
+  pinMode(smartPowerPin, OUTPUT);
 
   //SETUP WATCHDOG TIMER
   WDTCSR = (24);//change enable and WDE - also resets
@@ -69,7 +69,9 @@ void setup() {
 }
 
 void loop() {
-  Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()));
+  //TODO: Need to think of better place to write this logic
+  digitalWrite(smartPowerPin, HIGH);
+
   if (isMarkedForSleep) {
 
     //check if battery is charged and wake up
@@ -169,11 +171,11 @@ boolean isEmergencyObstaclePresent() {
 }
 
 void doStraightManoeuvre() {
-  avoidableObstacleManoeuvreDirection == 0;
   base.goForward();
 }
 
 void doEmergencyObstacleManoeuvre() {
+  base.stop();
   tone(speakerPin, talkFrequency, 100);
   base.goBackward();
   delay(calibratedMovementTime / M_PI);
@@ -201,18 +203,12 @@ void doJamManoeuvre() {
 }
 
 void doAvoidableObstacleManoeuvre() {
-  //set avoidableObstacleManoeuvreDirection
-  if (avoidableObstacleManoeuvreDirection == 0) {
-    if (decideOnRight())
-      avoidableObstacleManoeuvreDirection = 1;
-    else
-      avoidableObstacleManoeuvreDirection = -1;
-  }
-  //based on what is set above, do one of below
-  if (avoidableObstacleManoeuvreDirection == 1)
+  if (decideOnRight())
     base.rotateRight();
   else
     base.rotateLeft();
+  delay(random(0, 9) * 10 * (calibratedMovementTime / 360));
+  base.stop();
   lastDirectionChangedTime = millis();
 }
 
@@ -228,7 +224,7 @@ void doSleepForEightSeconds() {
 
   //Attach the PIR to activate intruder detection
   isIntruderDetected = false;
-  //attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
+  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
 
   //Disable ADC - don't forget to flip back after waking up if using ADC in your application
   ADCSRA &= ~(1 << 7);
@@ -240,7 +236,7 @@ void doSleepForEightSeconds() {
   ADCSRA |= (1 << 7);
 
   //Detach the PIR since we dont need intruder detection anymore
-  //detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
+  detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
 
   sleepCounter++;
 }

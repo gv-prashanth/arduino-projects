@@ -7,14 +7,12 @@
 #include "Arduino.h"
 #include "DigitalBase.h"
 
-DigitalBase::DigitalBase(int baseEnablePin, int leftWheelForwardPin, int leftWheelBackwardPin, int rightWheelForwardPin, int rightWheelBackwardPin)
+DigitalBase::DigitalBase(int leftWheelForwardPin, int leftWheelBackwardPin, int rightWheelForwardPin, int rightWheelBackwardPin)
 {
-  _baseEnablePin = baseEnablePin;
   _leftWheelForwardPin = leftWheelForwardPin;
   _leftWheelBackwardPin = leftWheelBackwardPin;
   _rightWheelForwardPin = rightWheelForwardPin;
   _rightWheelBackwardPin = rightWheelBackwardPin;
-  pinMode(_baseEnablePin, OUTPUT);
   pinMode(_leftWheelForwardPin, OUTPUT);
   pinMode(_leftWheelBackwardPin, OUTPUT);
   pinMode(_rightWheelForwardPin, OUTPUT);
@@ -22,7 +20,6 @@ DigitalBase::DigitalBase(int baseEnablePin, int leftWheelForwardPin, int leftWhe
 }
 
 void DigitalBase::goForward(){
-  digitalWrite(_baseEnablePin, HIGH);
   digitalWrite(_leftWheelForwardPin, HIGH);
   digitalWrite(_leftWheelBackwardPin, LOW);
   digitalWrite(_rightWheelForwardPin, HIGH);
@@ -30,7 +27,6 @@ void DigitalBase::goForward(){
 }
 
 void DigitalBase::goBackward(){
-  digitalWrite(_baseEnablePin, HIGH);
   digitalWrite(_leftWheelForwardPin, LOW);
   digitalWrite(_leftWheelBackwardPin, HIGH);
   digitalWrite(_rightWheelForwardPin, LOW);
@@ -38,7 +34,6 @@ void DigitalBase::goBackward(){
 }
 
 void DigitalBase::rotateRight(){
-  digitalWrite(_baseEnablePin, HIGH);
   digitalWrite(_leftWheelForwardPin, HIGH);
   digitalWrite(_leftWheelBackwardPin, LOW);
   digitalWrite(_rightWheelForwardPin, LOW);
@@ -46,7 +41,6 @@ void DigitalBase::rotateRight(){
 }
 
 void DigitalBase::rotateLeft(){
-  digitalWrite(_baseEnablePin, HIGH);
   digitalWrite(_leftWheelForwardPin, LOW);
   digitalWrite(_leftWheelBackwardPin, HIGH);
   digitalWrite(_rightWheelForwardPin, HIGH);
@@ -54,7 +48,6 @@ void DigitalBase::rotateLeft(){
 }
 
 void DigitalBase::stop(){
-  digitalWrite(_baseEnablePin, LOW);
   digitalWrite(_leftWheelForwardPin, LOW);
   digitalWrite(_leftWheelBackwardPin, LOW);
   digitalWrite(_rightWheelForwardPin, LOW);
