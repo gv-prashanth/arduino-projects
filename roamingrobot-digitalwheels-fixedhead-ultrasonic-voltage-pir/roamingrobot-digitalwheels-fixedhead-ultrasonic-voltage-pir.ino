@@ -8,7 +8,7 @@ const int leftWheelForwardPin = 5;//5
 const int leftWheelBackwardPin = 9;//9
 const int rightWheelForwardPin = 11;//10
 const int rightWheelBackwardPin = 10;//11
-const int baseEnablePin = 6;
+const int smartPowerPin = 6; //can be used to sleep and wake peripherals
 const int speakerPin = 4;
 const int ultraTriggerPin = 7;
 const int ultraEchoPin = 8;
@@ -16,17 +16,14 @@ const int batteryVoltageSensePin = -1;//A2 incase you want to detect from dedica
 const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
-const int minimumRange = 60;//cm
-const int emergencyMinimumRange = minimumRange / 3; //cm
-const int calibratedMovementTime = 3500;//milli seconds
-int robotWidth = 20;//cm
-const int robotLength = 20;//cm
+const int avoidableObstacleRange = 60;//cm
+const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
+const int calibratedMovementTime = 7500;//milli seconds
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 60000; //milli seconds
-const boolean rotateMode = true;
-const float sleepVoltage = 6.5;//volts
-const float wakeVoltage = 7.0;//volts. Must be greater than sleepVoltage.
+const float sleepVoltage = 3.0;//volts
+const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
 const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
@@ -34,7 +31,7 @@ const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value.
 //Dont touch below stuff
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
-DigitalBase base(baseEnablePin, leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
+DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 unsigned long lastDirectionChangedTime = 0;
 boolean isMarkedForSleep = false;
@@ -44,7 +41,8 @@ boolean isIntruderDetected = false;
 
 void setup() {
   Serial.begin (9600);
-  //pinMode(pirInterruptPin, INPUT);// define interrupt pin D2 as input to read interrupt received by PIR sensor
+  pinMode(pirInterruptPin, INPUT);// define interrupt pin D2 as input to read interrupt received by PIR sensor
+  pinMode(smartPowerPin, OUTPUT);
 
   //SETUP WATCHDOG TIMER
   WDTCSR = (24);//change enable and WDE - also resets
@@ -55,13 +53,13 @@ void setup() {
   SMCR |= (1 << 2); //power down mode
   SMCR |= 1;//enable sleep
 
-  //TODO: Quick hack to support both rotate and turn modes
-  if (!rotateMode) {
-    robotWidth = 2 * robotWidth;
-  }
-
   //Wake the robot
   markForWakeup();
+
+  //TODO: Need to improve this approach
+  //Tell the voltage of battery
+  float floatVoltage = batteryVoltageSensor.senseVoltage();
+  morseCode.play(String(floatVoltage));
 
   //check if battery is low and skip bios dance
   if (!isBatteryDead()) {
@@ -71,7 +69,9 @@ void setup() {
 }
 
 void loop() {
-  Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()));
+  //TODO: Need to think of better place to write this logic
+  digitalWrite(smartPowerPin, HIGH);
+
   if (isMarkedForSleep) {
 
     //check if battery is charged and wake up
@@ -106,21 +106,21 @@ void loop() {
       return;
     }
 
-    //check if there is an emergency
+    //incase of emergency stop
     if (isEmergencyObstaclePresent()) {
       doEmergencyObstacleManoeuvre();
       return;
     }
 
-    //check if there is an obstacle
-    if (isObstaclePresent()) {
-      doObstacleManoeuvre();
+    //rotate left or right
+    if (isAvoidableObstaclePresent()) {
+      doAvoidableObstacleManoeuvre();
       return;
     }
 
     //go forward
     else {
-      base.goForward();
+      doStraightManoeuvre();
       return;
     }
 
@@ -129,7 +129,7 @@ void loop() {
 }
 
 void markForSleep() {
-  base.stopAllMotion();
+  base.stop();
   morseCode.play("SOS");
   isMarkedForSleep = true;
   //TODO: Need to get rid of below
@@ -161,43 +161,56 @@ void intruderDetected() {
   isIntruderDetected = true;
 }
 
-boolean isObstaclePresent() {
+boolean isAvoidableObstaclePresent() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > 0 && centerReading <= minimumRange);
+  return (centerReading > 0 && centerReading <= avoidableObstacleRange);
 }
 
 boolean isEmergencyObstaclePresent() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > 0 && centerReading <= emergencyMinimumRange);
+  return (centerReading > 0 && centerReading <= emergencyObstacleRange);
 }
 
-void doObstacleManoeuvre() {
-  if (decideOnRight()) {
-    rotateRightByAngle(10 * random(0, 9));
-  } else {
-    rotateLeftByAngle(10 * random(0, 9));
-  }
+void doStraightManoeuvre() {
+  base.goForward();
 }
 
 void doEmergencyObstacleManoeuvre() {
+  base.stop();
   tone(speakerPin, talkFrequency, 100);
-  base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
-  if (decideOnRight()) {
-    rotateRightByAngle(10 * random(9, 18));
-  } else {
-    rotateLeftByAngle(10 * random(9, 18));
-  }
+  base.goBackward();
+  delay(calibratedMovementTime / M_PI);
+  if (decideOnRight())
+    base.rotateRight();
+  else
+    base.rotateLeft();
+  delay(random(9, 18) * 10 * (calibratedMovementTime / 360));
+  base.stop();
+  lastDirectionChangedTime = millis();
 }
 
 void doJamManoeuvre() {
-  base.stopAllMotion();
+  base.stop();
   morseCode.play("JAMMED");
-  base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
-  if (decideOnRight()) {
-    rotateRightByAngle(10 * random(0, 36));
-  } else {
-    rotateLeftByAngle(10 * random(0, 36));
-  }
+  base.goBackward();
+  delay(calibratedMovementTime / M_PI);
+  if (decideOnRight())
+    base.rotateRight();
+  else
+    base.rotateLeft();
+  delay(random(0, 36) * 10 * (calibratedMovementTime / 360));
+  base.stop();
+  lastDirectionChangedTime = millis();
+}
+
+void doAvoidableObstacleManoeuvre() {
+  if (decideOnRight())
+    base.rotateRight();
+  else
+    base.rotateLeft();
+  delay(random(0, 9) * 10 * (calibratedMovementTime / 360));
+  base.stop();
+  lastDirectionChangedTime = millis();
 }
 
 void doIntruderManoeuvre() {
@@ -212,7 +225,7 @@ void doSleepForEightSeconds() {
 
   //Attach the PIR to activate intruder detection
   isIntruderDetected = false;
-  //attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
+  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
 
   //Disable ADC - don't forget to flip back after waking up if using ADC in your application
   ADCSRA &= ~(1 << 7);
@@ -224,34 +237,37 @@ void doSleepForEightSeconds() {
   ADCSRA |= (1 << 7);
 
   //Detach the PIR since we dont need intruder detection anymore
-  //detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
+  detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
 
   sleepCounter++;
 }
 
 void doBIOSManoeuvre() {
-  //TODO: Need to improve this approach
-  //Tell the voltage of battery
-  float floatVoltage = batteryVoltageSensor.senseVoltage();
-  morseCode.play(String(floatVoltage));
-
   //left
-  rotateLeftByAngle(360);
+  base.rotateLeft();
+  delay(calibratedMovementTime);
+  base.stop();
   morseCode.play("Left");
 
   //right
-  rotateRightByAngle(360);
+  base.rotateRight();
+  delay(calibratedMovementTime);
+  base.stop();
   morseCode.play("Right");
 
   //forward
   base.goForward();
-  delay((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
-  base.stopAllMotion();
+  delay(calibratedMovementTime / M_PI);
+  base.stop();
   morseCode.play("Forward");
 
   //backward
-  base.moveBackward((calibratedMovementTime / (M_PI * robotWidth))*robotLength);
+  base.goBackward();
+  delay(calibratedMovementTime / M_PI);
+  base.stop();
   morseCode.play("Backward");
+
+  lastDirectionChangedTime = millis();
 }
 
 boolean decideOnRight() {
@@ -261,24 +277,6 @@ boolean decideOnRight() {
   } else {
     return false;
   }
-}
-
-void rotateRightByAngle(int angle) {
-  if (rotateMode) {
-    base.rotateRight((calibratedMovementTime / 360)*angle);
-  } else {
-    base.turnRight((calibratedMovementTime / 360)*angle);
-  }
-  lastDirectionChangedTime = millis();
-}
-
-void rotateLeftByAngle(int angle) {
-  if (rotateMode) {
-    base.rotateLeft((calibratedMovementTime / 360)*angle);
-  } else {
-    base.turnLeft((calibratedMovementTime / 360)*angle);
-  }
-  lastDirectionChangedTime = millis();
 }
 
 ISR(WDT_vect) {

@@ -7,93 +7,49 @@
 #include "Arduino.h"
 #include "DigitalBase.h"
 
-DigitalBase::DigitalBase(int baseEnablePin, int leftWheelForwardPin, int leftWheelBackwardPin, int rightWheelForwardPin, int rightWheelBackwardPin)
+DigitalBase::DigitalBase(int leftWheelForwardPin, int leftWheelBackwardPin, int rightWheelForwardPin, int rightWheelBackwardPin)
 {
-  pinMode(leftWheelForwardPin, OUTPUT);
-  pinMode(leftWheelBackwardPin, OUTPUT);
-  pinMode(rightWheelForwardPin, OUTPUT);
-  pinMode(rightWheelBackwardPin, OUTPUT);
-  pinMode(baseEnablePin, OUTPUT);
-  _baseEnablePin = baseEnablePin;
   _leftWheelForwardPin = leftWheelForwardPin;
   _leftWheelBackwardPin = leftWheelBackwardPin;
   _rightWheelForwardPin = rightWheelForwardPin;
   _rightWheelBackwardPin = rightWheelBackwardPin;
+  pinMode(_leftWheelForwardPin, OUTPUT);
+  pinMode(_leftWheelBackwardPin, OUTPUT);
+  pinMode(_rightWheelForwardPin, OUTPUT);
+  pinMode(_rightWheelBackwardPin, OUTPUT);
 }
 
 void DigitalBase::goForward(){
-  moveLeftWheelForward();
-  moveRightWheelForward();
+  digitalWrite(_leftWheelForwardPin, HIGH);
+  digitalWrite(_leftWheelBackwardPin, LOW);
+  digitalWrite(_rightWheelForwardPin, HIGH);
+  digitalWrite(_rightWheelBackwardPin, LOW);
 }
 
-void DigitalBase::moveBackward(int duration){
-  stopAllMotion();
-  moveLeftWheelBackward();
-  moveRightWheelBackward();
-  delay(duration);
-  stopAllMotion();
-}
-
-void DigitalBase::rotateRight(int duration){
-  stopAllMotion();
-  moveLeftWheelForward();
-  moveRightWheelBackward();
-  delay(duration);
-  stopAllMotion();
-}
-
-void DigitalBase::rotateLeft(int duration){
-  stopAllMotion();
-  moveRightWheelForward();
-  moveLeftWheelBackward();
-  delay(duration);
-  stopAllMotion();
-}
-
-void DigitalBase::turnRight(int duration){
-  stopAllMotion();
-  moveLeftWheelForward();
-  delay(duration);
-  stopAllMotion();
-}
-
-void DigitalBase::turnLeft(int duration){
-  stopAllMotion();
-  moveRightWheelForward();
-  delay(duration);
-  stopAllMotion();
-}
-
-void DigitalBase::moveLeftWheelBackward(){
-  digitalWrite(_baseEnablePin, HIGH);
+void DigitalBase::goBackward(){
   digitalWrite(_leftWheelForwardPin, LOW);
   digitalWrite(_leftWheelBackwardPin, HIGH);
-}
-
-void DigitalBase::moveLeftWheelForward(){
-  digitalWrite(_baseEnablePin, HIGH);
-  digitalWrite(_leftWheelBackwardPin, LOW);
-  digitalWrite(_leftWheelForwardPin, HIGH);
-}
-
-void DigitalBase::moveRightWheelBackward(){
-  digitalWrite(_baseEnablePin, HIGH);
   digitalWrite(_rightWheelForwardPin, LOW);
   digitalWrite(_rightWheelBackwardPin, HIGH);
 }
 
-void DigitalBase::moveRightWheelForward(){
-  digitalWrite(_baseEnablePin, HIGH);
-  digitalWrite(_rightWheelBackwardPin, LOW);
-  digitalWrite(_rightWheelForwardPin, HIGH);
+void DigitalBase::rotateRight(){
+  digitalWrite(_leftWheelForwardPin, HIGH);
+  digitalWrite(_leftWheelBackwardPin, LOW);
+  digitalWrite(_rightWheelForwardPin, LOW);
+  digitalWrite(_rightWheelBackwardPin, HIGH);
 }
 
-void DigitalBase::stopAllMotion(){
-  delay(5);
-  digitalWrite(_baseEnablePin, LOW);
+void DigitalBase::rotateLeft(){
+  digitalWrite(_leftWheelForwardPin, LOW);
+  digitalWrite(_leftWheelBackwardPin, HIGH);
+  digitalWrite(_rightWheelForwardPin, HIGH);
+  digitalWrite(_rightWheelBackwardPin, LOW);
+}
+
+void DigitalBase::stop(){
   digitalWrite(_leftWheelForwardPin, LOW);
   digitalWrite(_leftWheelBackwardPin, LOW);
   digitalWrite(_rightWheelForwardPin, LOW);
   digitalWrite(_rightWheelBackwardPin, LOW);
-  delay(5);
 }
