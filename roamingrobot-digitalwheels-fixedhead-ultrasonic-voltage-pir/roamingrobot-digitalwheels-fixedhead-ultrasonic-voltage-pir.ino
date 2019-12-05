@@ -43,6 +43,7 @@ void setup() {
   Serial.begin (9600);
   pinMode(pirInterruptPin, INPUT);// define interrupt pin D2 as input to read interrupt received by PIR sensor
   pinMode(smartPowerPin, OUTPUT);
+  //TODO: Need to think of better place to write this logic
   digitalWrite(smartPowerPin, HIGH);
 
   //SETUP WATCHDOG TIMER
