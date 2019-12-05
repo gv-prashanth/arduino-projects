@@ -129,6 +129,7 @@ void loop() {
 }
 
 void markForSleep() {
+  base.stop();
   morseCode.play("SOS");
   isMarkedForSleep = true;
   //TODO: Need to get rid of below
