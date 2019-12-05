@@ -2,6 +2,7 @@
 #include <UltrasonicSensor.h>
 #include <DigitalBase.h>
 #include <MorseCode.h>
+#include <DeepSleep.h>
 
 //Pin Configuration
 const int leftWheelForwardPin = 5;//5
@@ -33,6 +34,7 @@ VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
+DeepSleep deepSleep;
 unsigned long lastDirectionChangedTime = 0;
 boolean isMarkedForSleep = false;
 unsigned long sleepCounter = 0;
@@ -45,15 +47,6 @@ void setup() {
   pinMode(smartPowerPin, OUTPUT);
   //TODO: Need to think of better place to write this logic
   digitalWrite(smartPowerPin, HIGH);
-
-  //SETUP WATCHDOG TIMER
-  WDTCSR = (24);//change enable and WDE - also resets
-  WDTCSR = (33);//prescalers only - get rid of the WDE and WDCE bit
-  WDTCSR |= (1 << 6); //enable interrupt mode
-
-  //ENABLE SLEEP - this enables the sleep mode
-  SMCR |= (1 << 2); //power down mode
-  SMCR |= 1;//enable sleep
 
   //Wake the robot
   markForWakeup();
@@ -221,22 +214,11 @@ void doIntruderManoeuvre() {
 }
 
 void doSleepForEightSeconds() {
-  //BOD DISABLE - this must be called right before the __asm__ sleep instruction
-  MCUCR |= (3 << 5); //set both BODS and BODSE at the same time
-  MCUCR = (MCUCR & ~(1 << 5)) | (1 << 6); //then set the BODS bit and clear the BODSE bit at the same time
-
   //Attach the PIR to activate intruder detection
   isIntruderDetected = false;
   attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
 
-  //Disable ADC - don't forget to flip back after waking up if using ADC in your application
-  ADCSRA &= ~(1 << 7);
-
-  //Begin the actual sleep
-  __asm__  __volatile__("sleep");//in line assembler to go to sleep
-
-  //Enable ADC - don't forget to flip back after waking up if using ADC in your application
-  ADCSRA |= (1 << 7);
+  deepSleep.sleepForEightSecondsUnlessInterrupted();
 
   //Detach the PIR since we dont need intruder detection anymore
   detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
