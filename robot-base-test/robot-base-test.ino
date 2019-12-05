@@ -13,7 +13,11 @@ void setup() {
 }
 
 void loop() {
+  digitalWrite(baseEnablePin, HIGH);
+  digitalWrite(leftWheelForwardPin, LOW);
   digitalWrite(leftWheelBackwardPin, HIGH);
+  digitalWrite(rightWheelForwardPin, LOW);
+  digitalWrite(rightWheelBackwardPin, LOW);
 //  //left
 //  rotateLeft();
 //  delay(5000);
