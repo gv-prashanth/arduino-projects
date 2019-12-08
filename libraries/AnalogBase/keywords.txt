@@ -1,6 +1,0 @@
-AnalogBase	KEYWORD1
-goForward	KEYWORD2
-stopAllMotion	KEYWORD2
-goBackward	KEYWORD2
-rotateRight	KEYWORD2
-rotateLeft	KEYWORD2

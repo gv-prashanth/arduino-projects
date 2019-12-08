@@ -1,6 +1,6 @@
 #include <VoltageSensor.h>
 #include <UltrasonicSensor.h>
-#include <DigitalBase.h>
+#include <DualWheelBase.h>
 #include <MorseCode.h>
 #include <DeepSleep.h>
 
@@ -32,7 +32,7 @@ const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value.
 //Dont touch below stuff
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
-DigitalBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
+DualWheelBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 DeepSleep deepSleep;
 unsigned long lastDirectionChangedTime = 0;
