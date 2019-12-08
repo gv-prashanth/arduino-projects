@@ -1,0 +1,2 @@
+DeepSleep	KEYWORD1
+sleepForEightSecondsUnlessInterrupted	KEYWORD2
