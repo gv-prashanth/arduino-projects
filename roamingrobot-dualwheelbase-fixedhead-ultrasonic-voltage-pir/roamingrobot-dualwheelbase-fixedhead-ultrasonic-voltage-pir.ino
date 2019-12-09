@@ -25,7 +25,6 @@ const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 180000; //milli seconds
 const float sleepVoltage = 3.0;//volts
 const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
-const int sleepCheckupTime = 300;//sec
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 const float basePower = 0.5;//0.0 to 1.0
@@ -38,8 +37,6 @@ MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 DeepSleep deepSleep;
 unsigned long lastDirectionChangedTime = 0;
 boolean isMarkedForSleep = false;
-unsigned long sleepCounter = 0;
-boolean isBatteryChargedWhileSleeping_Cached = false;
 boolean isIntruderDetected = false;
 
 void setup() {
@@ -71,7 +68,7 @@ void loop() {
   if (isMarkedForSleep) {
 
     //check if battery is charged and wake up
-    if (isBatteryChargedWhileSleeping()) {
+    if (isBatteryCharged()) {
       markForWakeup();
       return;
     }
@@ -139,10 +136,8 @@ void markForWakeup() {
   lastDirectionChangedTime = millis();
 }
 
-boolean isBatteryChargedWhileSleeping() {
-  if (sleepCounter % (sleepCheckupTime / 8) == 0)
-    isBatteryChargedWhileSleeping_Cached = batteryVoltageSensor.senseVoltage() > wakeVoltage;
-  return isBatteryChargedWhileSleeping_Cached;
+boolean isBatteryCharged() {
+  return batteryVoltageSensor.senseVoltage() > wakeVoltage;;
 }
 
 boolean isJamDetected() {
@@ -223,8 +218,6 @@ void doSleepForEightSeconds() {
 
   //Detach the PIR since we dont need intruder detection anymore
   detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
-
-  sleepCounter++;
 }
 
 void doBIOSManoeuvre() {
