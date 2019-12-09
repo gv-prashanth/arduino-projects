@@ -256,3 +256,8 @@ boolean decideOnRight() {
     return false;
   }
 }
+
+//TODO: Need to get rid of below into library
+ISR(WDT_vect) {
+  //DON'T FORGET THIS!  Needed for the watch dog timer.  This is called after a watch dog timer timeout - this is the interrupt function called after waking up
+}//watchdog interrupt
