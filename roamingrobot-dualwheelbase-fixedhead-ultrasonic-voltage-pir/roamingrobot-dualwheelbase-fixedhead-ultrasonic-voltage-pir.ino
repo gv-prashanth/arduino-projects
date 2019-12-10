@@ -196,9 +196,9 @@ void doJamManoeuvre() {
 
 void doAvoidableObstacleManoeuvre() {
   if (decideOnRight())
-    base.rotateRight();
+    base.turnRight();
   else
-    base.rotateLeft();
+    base.turnLeft();
   delay(random(0, 9) * 10 * (calibratedMovementTime / 360));
   base.stop();
   lastDirectionChangedTime = millis();
@@ -256,8 +256,3 @@ boolean decideOnRight() {
     return false;
   }
 }
-
-//TODO: Need to get rid of below into library
-ISR(WDT_vect) {
-  //DON'T FORGET THIS!  Needed for the watch dog timer.  This is called after a watch dog timer timeout - this is the interrupt function called after waking up
-}//watchdog interrupt
