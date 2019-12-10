@@ -18,6 +18,8 @@ class DualWheelBase
 	void goBackward();
 	void rotateRight();
 	void rotateLeft();
+	void turnRight();
+	void turnLeft();
 	void setPower(float powerMultiplier);
   private:
     int _leftWheelForwardPin;

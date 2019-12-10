@@ -48,6 +48,20 @@ void DualWheelBase::rotateLeft(){
   digitalWrite(_rightWheelBackwardPin, LOW);
 }
 
+void DualWheelBase::turnRight(){
+  analogWrite(_leftWheelForwardPin, 255*_powerMultiplier);
+  digitalWrite(_leftWheelBackwardPin, LOW);
+  digitalWrite(_rightWheelForwardPin, LOW);
+  digitalWrite(_rightWheelBackwardPin, LOW);
+}
+
+void DualWheelBase::turnLeft(){
+  digitalWrite(_leftWheelForwardPin, LOW);
+  digitalWrite(_leftWheelBackwardPin, LOW);
+  analogWrite(_rightWheelForwardPin, 255*_powerMultiplier);
+  digitalWrite(_rightWheelBackwardPin, LOW);
+}
+
 void DualWheelBase::setPower(float powerMultiplier){
   if(powerMultiplier < 0){
     _powerMultiplier = 0;
