@@ -44,7 +44,6 @@ unsigned long lastDirectionChangedTime = 0;
 boolean isMarkedForSleep = false;
 boolean isIntruderDetected = false;
 float destinationHeading;
-boolean isDestinationAlreadySet = false;
 
 void setup() {
   Serial.begin (9600);
@@ -112,8 +111,7 @@ void loop() {
 
     //navigate the terrain
     else {
-      if (!isDestinationAlreadySet)
-        setDestination();
+      setDestination();
       goTowardsDestination();
       return;
     }
@@ -131,7 +129,6 @@ void setDestination() {
   } else {
     setStraightDestination();
   }
-  isDestinationAlreadySet = true;
 }
 
 void markForSleep() {
@@ -178,7 +175,7 @@ boolean isEmergencyObstaclePresent() {
 }
 
 void setStraightDestination() {
-  destinationHeading = getAvgHeading();
+  //No need to set. Already set when we last changed direction
 }
 
 void setEmergencyObstacleDestination() {
@@ -187,10 +184,34 @@ void setEmergencyObstacleDestination() {
   base.goBackward();
   delay(toDelete);
   if (decideOnRight())
-    random(9, 18) * 10;
+    setRightDestinationByAngle(random(9, 18) * 10);
   else
-    random(9, 18) * 10;
+    setLeftDestinationByAngle(random(9, 18) * 10);
   lastDirectionChangedTime = millis();
+}
+
+void setAvoidableObstacleDestination() {
+  if (decideOnRight())
+    setRightDestinationByAngle(random(0, 9) * 10);
+  else
+    setLeftDestinationByAngle(random(0, 9) * 10);
+  lastDirectionChangedTime = millis();
+}
+
+void setLeftDestinationByAngle(int angle) {
+  if (destinationHeading >= angle) {
+    destinationHeading = destinationHeading - angle;
+  } else {
+    destinationHeading = 360 - (angle - destinationHeading);
+  }
+}
+
+void setRightDestinationByAngle(int angle) {
+  if (destinationHeading + angle < 360) {
+    destinationHeading = destinationHeading + angle;
+  } else {
+    destinationHeading = (destinationHeading + angle) - 360;
+  }
 }
 
 void doJamManoeuvre() {
@@ -199,17 +220,9 @@ void doJamManoeuvre() {
   base.goBackward();
   delay(toDelete);
   if (decideOnRight())
-    random(0, 36) * 10;
+    setRightDestinationByAngle(random(0, 36) * 10);
   else
-    random(0, 36) * 10;
-  lastDirectionChangedTime = millis();
-}
-
-void setAvoidableObstacleDestination() {
-  if (decideOnRight())
-    random(0, 9) * 10;
-  else
-    random(0, 9) * 10;
+    setLeftDestinationByAngle(random(0, 36) * 10);
   lastDirectionChangedTime = millis();
 }
 
@@ -257,12 +270,6 @@ void doBIOSManoeuvre() {
   lastDirectionChangedTime = millis();
 }
 
-void goTowardsDestination() {
-
-  isDestinationAlreadySet = false;
-
-}
-
 boolean decideOnRight() {
   int randNumber = random(0, 2);
   if (randNumber < 1) {
@@ -295,12 +302,55 @@ float getHeading() {
   return heading * RAD_TO_DEG; //radians to degrees
 }
 
-void setupHMC5883L(){
- //Setup the HMC5883L, and check for errors
- int error;
- error = compass.setScale(1.3); //Set the scale of the compass.
- if(error != 0) Serial.println(compass.getErrorText(error)); //check if there is an error, and print if so
+void setupHMC5883L() {
+  //Setup the HMC5883L, and check for errors
+  int error;
+  error = compass.setScale(1.3); //Set the scale of the compass.
+  if (error != 0) Serial.println(compass.getErrorText(error)); //check if there is an error, and print if so
 
- error = compass.setMeasurementMode(MEASUREMENT_CONTINUOUS); // Set the measurement mode to Continuous
- if(error != 0) Serial.println(compass.getErrorText(error)); //check if there is an error, and print if so
+  error = compass.setMeasurementMode(MEASUREMENT_CONTINUOUS); // Set the measurement mode to Continuous
+  if (error != 0) Serial.println(compass.getErrorText(error)); //check if there is an error, and print if so
+}
+
+void goTowardsDestination() {
+  float rightAngleDiff = rightAngularDifference();
+  float leftAngleDiff = leftAngularDifference();
+  if (rightAngleDiff > 0) {
+    //steering towards right.. fix it
+    float calculatedPowerDiff = getPowerDiffFromAngleDiff(rightAngleDiff);
+    base.steerLeft(calculatedPowerDiff);
+  } else if (leftAngleDiff > 0) {
+    //steering towards left.. fix it
+    float calculatedPowerDiff = getPowerDiffFromAngleDiff(leftAngleDiff);
+    base.steerRight(calculatedPowerDiff);
+  } else {
+    base.goForward();
+  }
+}
+
+float rightAngularDifference() {
+  float toReturn = -1.0;
+  float currentHeading = getAvgHeading();
+  if (destinationHeading > 180 && destinationHeading < 360 && currentHeading > 0 && currentHeading < 180) {
+    toReturn = (360.0 - destinationHeading) + currentHeading;
+  } else if (currentHeading > destinationHeading) {
+    toReturn = currentHeading - destinationHeading;
+  }
+  return toReturn;
+}
+
+float leftAngularDifference() {
+  float toReturn = -1.0;
+  float currentHeading = getAvgHeading();
+  if (destinationHeading > 0 && destinationHeading < 180 && currentHeading > 180 && currentHeading < 360) {
+    toReturn = (360.0 - currentHeading) + destinationHeading;
+  } else if (currentHeading < destinationHeading) {
+    toReturn = destinationHeading - currentHeading;
+  }
+  return toReturn;
+}
+
+//TODO: Need to get rid if this in future using PID
+float getPowerDiffFromAngleDiff(float val) {
+  return map(val, 0, 180, 0, 255);
 }
