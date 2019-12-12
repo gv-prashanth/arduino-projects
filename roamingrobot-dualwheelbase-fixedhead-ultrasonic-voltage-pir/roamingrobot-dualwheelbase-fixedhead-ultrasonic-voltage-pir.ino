@@ -43,9 +43,10 @@ void setup() {
   Serial.begin (9600);
   pinMode(pirInterruptPin, INPUT);// define interrupt pin D2 as input to read interrupt received by PIR sensor
   pinMode(smartPowerPin, OUTPUT);
-  //TODO: Need to think of better place to write this logic
-  digitalWrite(smartPowerPin, HIGH);
+
+  //TODO: Setting base power to a fixed value. Need to make dynamic
   base.setPower(basePower);
+
   //Wake the robot
   markForWakeup();
 
@@ -62,8 +63,6 @@ void setup() {
 }
 
 void loop() {
-  //TODO: Need to think of better place to write this logic
-  digitalWrite(smartPowerPin, HIGH);
 
   if (isMarkedForSleep) {
 
@@ -125,6 +124,7 @@ void markForSleep() {
   base.stop();
   morseCode.play("SOS");
   isMarkedForSleep = true;
+  digitalWrite(smartPowerPin, LOW);
   //TODO: Need to get rid of below
   lastDirectionChangedTime = 0;
 }
@@ -132,6 +132,7 @@ void markForSleep() {
 void markForWakeup() {
   morseCode.play("Awake");
   isMarkedForSleep = false;
+  digitalWrite(smartPowerPin, HIGH);
   //TODO: Need to get rid of below
   lastDirectionChangedTime = millis();
 }
