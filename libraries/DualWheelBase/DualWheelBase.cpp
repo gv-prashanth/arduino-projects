@@ -62,6 +62,22 @@ void DualWheelBase::turnLeft(){
   digitalWrite(_rightWheelBackwardPin, LOW);
 }
 
+void DualWheelBase::steerRight(int powerDiff){
+  int maxVal = 255*_powerMultiplier;
+  analogWrite(_leftWheelForwardPin, maxVal);
+  digitalWrite(_leftWheelBackwardPin, LOW);
+  digitalWrite(_rightWheelForwardPin, maxVal - (powerDiff*_powerMultiplier));
+  digitalWrite(_rightWheelBackwardPin, LOW);
+}
+
+void DualWheelBase::steerLeft(int powerDiff){
+  int maxVal = 255*_powerMultiplier;
+  digitalWrite(_leftWheelForwardPin, maxVal - (powerDiff*_powerMultiplier));
+  digitalWrite(_leftWheelBackwardPin, LOW);
+  analogWrite(_rightWheelForwardPin, maxVal);
+  digitalWrite(_rightWheelBackwardPin, LOW);
+}
+
 void DualWheelBase::setPower(float powerMultiplier){
   if(powerMultiplier < 0){
     _powerMultiplier = 0;

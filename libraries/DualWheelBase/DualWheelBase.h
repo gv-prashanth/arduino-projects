@@ -20,6 +20,8 @@ class DualWheelBase
 	void rotateLeft();
 	void turnRight();
 	void turnLeft();
+	void steerRight(int powerDiff);
+	void steerLeft(int powerDiff);
 	void setPower(float powerMultiplier);
   private:
     int _leftWheelForwardPin;

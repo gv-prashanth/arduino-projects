@@ -6,3 +6,5 @@ rotateRight	KEYWORD2
 rotateLeft	KEYWORD2
 turnRight	KEYWORD2
 turnLeft	KEYWORD2
+steerRight	KEYWORD2
+steerLeft	KEYWORD2
