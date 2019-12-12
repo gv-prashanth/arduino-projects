@@ -3,6 +3,9 @@
 #include <DualWheelBase.h>
 #include <MorseCode.h>
 #include <DeepSleep.h>
+#include <Wire.h>
+#include <HMC5883L.h>
+//You can download the driver from https://github.com/Seeed-Studio/Grove_3Axis_Digital_Compass_HMC5883L
 
 //Pin Configuration
 const int leftWheelForwardPin = 5;//5
@@ -19,7 +22,8 @@ const int pirInterruptPin = 2;//pin 2 only should be used
 //functional Configuration
 const int avoidableObstacleRange = 60;//cm
 const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
-const int calibratedMovementTime = 7500;//milli seconds
+//TODO: Need to delete the below variable
+const int toDelete = 5000;//milli seconds
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 180000; //milli seconds
@@ -35,14 +39,21 @@ UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DualWheelBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 DeepSleep deepSleep;
+HMC5883L compass;
 unsigned long lastDirectionChangedTime = 0;
 boolean isMarkedForSleep = false;
 boolean isIntruderDetected = false;
+float destinationHeading;
+boolean isDestinationAlreadySet = false;
 
 void setup() {
   Serial.begin (9600);
   pinMode(pirInterruptPin, INPUT);// define interrupt pin D2 as input to read interrupt received by PIR sensor
   pinMode(smartPowerPin, OUTPUT);
+
+  Wire.begin();
+  compass = HMC5883L(); //new instance of HMC5883L library
+  setupHMC5883L(); //setup the HMC5883L
 
   //TODO: Setting base power to a fixed value. Need to make dynamic
   base.setPower(basePower);
@@ -60,6 +71,7 @@ void setup() {
     doBIOSManoeuvre();
   }
 
+  destinationHeading = getAvgHeading();
 }
 
 void loop() {
@@ -98,26 +110,28 @@ void loop() {
       return;
     }
 
-    //incase of emergency stop
-    if (isEmergencyObstaclePresent()) {
-      doEmergencyObstacleManoeuvre();
-      return;
-    }
-
-    //rotate left or right
-    if (isAvoidableObstaclePresent()) {
-      doAvoidableObstacleManoeuvre();
-      return;
-    }
-
-    //go forward
+    //navigate the terrain
     else {
-      doStraightManoeuvre();
+      if (!isDestinationAlreadySet)
+        setDestination();
+      goTowardsDestination();
       return;
     }
 
   }
 
+}
+
+void setDestination() {
+  //incase of emergency stop
+  if (isEmergencyObstaclePresent()) {
+    setEmergencyObstacleDestination();
+  } else if (isAvoidableObstaclePresent()) {
+    setAvoidableObstacleDestination();
+  } else {
+    setStraightDestination();
+  }
+  isDestinationAlreadySet = true;
 }
 
 void markForSleep() {
@@ -163,21 +177,19 @@ boolean isEmergencyObstaclePresent() {
   return (centerReading > 0 && centerReading <= emergencyObstacleRange);
 }
 
-void doStraightManoeuvre() {
-  base.goForward();
+void setStraightDestination() {
+  destinationHeading = getAvgHeading();
 }
 
-void doEmergencyObstacleManoeuvre() {
+void setEmergencyObstacleDestination() {
   base.stop();
   tone(speakerPin, talkFrequency, 100);
   base.goBackward();
-  delay(calibratedMovementTime / M_PI);
+  delay(toDelete);
   if (decideOnRight())
-    base.rotateRight();
+    random(9, 18) * 10;
   else
-    base.rotateLeft();
-  delay(random(9, 18) * 10 * (calibratedMovementTime / 360));
-  base.stop();
+    random(9, 18) * 10;
   lastDirectionChangedTime = millis();
 }
 
@@ -185,23 +197,19 @@ void doJamManoeuvre() {
   base.stop();
   morseCode.play("JAMMED");
   base.goBackward();
-  delay(calibratedMovementTime / M_PI);
+  delay(toDelete);
   if (decideOnRight())
-    base.rotateRight();
+    random(0, 36) * 10;
   else
-    base.rotateLeft();
-  delay(random(0, 36) * 10 * (calibratedMovementTime / 360));
-  base.stop();
+    random(0, 36) * 10;
   lastDirectionChangedTime = millis();
 }
 
-void doAvoidableObstacleManoeuvre() {
+void setAvoidableObstacleDestination() {
   if (decideOnRight())
-    base.turnRight();
+    random(0, 9) * 10;
   else
-    base.turnLeft();
-  delay(random(0, 9) * 10 * (calibratedMovementTime / 360));
-  base.stop();
+    random(0, 9) * 10;
   lastDirectionChangedTime = millis();
 }
 
@@ -224,29 +232,35 @@ void doSleepForEightSeconds() {
 void doBIOSManoeuvre() {
   //left
   base.rotateLeft();
-  delay(calibratedMovementTime);
+  delay(toDelete);
   base.stop();
   morseCode.play("Left");
 
   //right
   base.rotateRight();
-  delay(calibratedMovementTime);
+  delay(toDelete);
   base.stop();
   morseCode.play("Right");
 
   //forward
   base.goForward();
-  delay(calibratedMovementTime / M_PI);
+  delay(toDelete);
   base.stop();
   morseCode.play("Forward");
 
   //backward
   base.goBackward();
-  delay(calibratedMovementTime / M_PI);
+  delay(toDelete);
   base.stop();
   morseCode.play("Backward");
 
   lastDirectionChangedTime = millis();
+}
+
+void goTowardsDestination() {
+
+  isDestinationAlreadySet = false;
+
 }
 
 boolean decideOnRight() {
@@ -256,4 +270,37 @@ boolean decideOnRight() {
   } else {
     return false;
   }
+}
+
+float getAvgHeading() {
+  int NumOfAttempts = 10;
+  float toReturnAvg = 0.0;
+  for (int i = 1; i <= NumOfAttempts; i++) {
+    float thisHeadingToAvg = getHeading();
+    toReturnAvg = toReturnAvg + thisHeadingToAvg;
+    delay(10);
+  }
+  return toReturnAvg / NumOfAttempts;
+}
+
+float getHeading() {
+  //Get the reading from the HMC5883L and calculate the heading
+  MagnetometerScaled scaled = compass.readScaledAxis(); //scaled values from compass.
+  float heading = atan2(scaled.YAxis, scaled.XAxis);
+
+  // Correct for when signs are reversed.
+  if (heading < 0) heading += 2 * PI;
+  if (heading > 2 * PI) heading -= 2 * PI;
+
+  return heading * RAD_TO_DEG; //radians to degrees
+}
+
+void setupHMC5883L(){
+ //Setup the HMC5883L, and check for errors
+ int error;
+ error = compass.setScale(1.3); //Set the scale of the compass.
+ if(error != 0) Serial.println(compass.getErrorText(error)); //check if there is an error, and print if so
+
+ error = compass.setMeasurementMode(MEASUREMENT_CONTINUOUS); // Set the measurement mode to Continuous
+ if(error != 0) Serial.println(compass.getErrorText(error)); //check if there is an error, and print if so
 }
