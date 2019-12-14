@@ -111,7 +111,7 @@ void loop() {
 
     //navigate the terrain
     else {
-      //setDestination();
+      setDestination();
       goTowardsDestination();
       return;
     }
@@ -127,7 +127,7 @@ void setDestination() {
   } else if (isAvoidableObstaclePresent()) {
     setAvoidableObstacleDestination();
   } else {
-    setStraightDestination();
+    //No need to set any directio. Just go towards last set direction.
   }
 }
 
@@ -172,10 +172,6 @@ boolean isAvoidableObstaclePresent() {
 boolean isEmergencyObstaclePresent() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
   return (centerReading > 0 && centerReading <= emergencyObstacleRange);
-}
-
-void setStraightDestination() {
-  //No need to set. Already set when we last changed direction
 }
 
 void setEmergencyObstacleDestination() {
