@@ -111,7 +111,7 @@ void loop() {
 
     //navigate the terrain
     else {
-      setDestination();
+      //setDestination();
       goTowardsDestination();
       return;
     }
@@ -317,10 +317,12 @@ void goTowardsDestination() {
   float leftAngleDiff = leftAngularDifference();
   if (rightAngleDiff > 0) {
     //steering towards right.. fix it
+    tone(speakerPin, 2000, 100);
     float calculatedPowerDiff = getPowerDiffFromAngleDiff(rightAngleDiff);
     base.steerLeft(calculatedPowerDiff);
   } else if (leftAngleDiff > 0) {
     //steering towards left.. fix it
+    tone(speakerPin, 3000, 100);
     float calculatedPowerDiff = getPowerDiffFromAngleDiff(leftAngleDiff);
     base.steerRight(calculatedPowerDiff);
   } else {
