@@ -315,18 +315,16 @@ void setupHMC5883L() {
 void goTowardsDestination() {
   float rightAngleDiff = rightAngularDifference();
   float leftAngleDiff = leftAngularDifference();
-  if (rightAngleDiff > 0) {
-    //steering towards right.. fix it
+  if (rightAngleDiff < leftAngleDiff) {
+    //easier to fix by steering left
     tone(speakerPin, 2000, 100);
     float calculatedPowerDiff = getPowerDiffFromAngleDiff(rightAngleDiff);
     base.steerLeft(calculatedPowerDiff);
-  } else if (leftAngleDiff > 0) {
-    //steering towards left.. fix it
+  } else {
+    //easier to fix by steering right
     tone(speakerPin, 3000, 100);
     float calculatedPowerDiff = getPowerDiffFromAngleDiff(leftAngleDiff);
     base.steerRight(calculatedPowerDiff);
-  } else {
-    base.goForward();
   }
 }
 
