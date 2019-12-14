@@ -1,4 +1,4 @@
-#include <AnalogBase.h>
+#include <DualWheelBase.h>
 #include <Servo.h>
 #include <VoltageSensor.h>
 #include <UltrasonicSensor.h>
@@ -20,6 +20,8 @@ const int leftWheelEnablePin = 12;
 const int rightWheelEnablePin = 4;
 
 //functional Configuration
+const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
+const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 const int minDiffForDecissionChange = 50;//cm
 const int minimumRange = 30;//cm
 const int baseMovementTime = 400;//milli seconds
@@ -28,9 +30,9 @@ const float permittedAngularVariance = 5.0;
 
 //Dont touch below stuff
 Servo microServo;
-VoltageSensor voltageSensor(voltagePin);
+VoltageSensor voltageSensor(voltagePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
-AnalogBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
+DualWheelBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 HMC5883L compass;
 float destinationHeading;
 float directionChangeCounter;
@@ -91,53 +93,53 @@ void checkBatteryVoltage(){
 }
 
 void checkBaseHeadDirections(){
-  base.rotateLeft(1.0);
+  base.rotateLeft();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
-  base.rotateRight(1.0);
+  base.rotateRight();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
   scanAndGetReading(140);
   delay(400);
   scanAndGetReading(90);
   delay(400);
-  base.rotateRight(1.0);
+  base.rotateRight();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
-  base.rotateLeft(1.0);
+  base.rotateLeft();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
   scanAndGetReading(40);
   delay(400);  
   scanAndGetReading(90);
   delay(400);
-  base.goForward(1.0,1.0);
+  base.goForward();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
-  base.goBackward(1.0,1.0);
+  base.goBackward();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
 }
 
 void obstacleTooCloseEmergencyStop(){
   tone(speakerPin, 2000, 100);
-  base.goBackward(1.0,1.0);
+  base.goBackward();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   if(decideOnRight()){
-    base.rotateRight(1.0);
+    base.rotateRight();
     delay(baseMovementTime);
-    base.stopAllMotion();
+    base.stop();
   }else{
-    base.rotateLeft(1.0);
+    base.rotateLeft();
     delay(baseMovementTime);
-    base.stopAllMotion();
+    base.stop();
   }
   destinationHeading = getAvgHeading();
 }
@@ -225,14 +227,14 @@ void goTowardsDestination(){
     //steering towards right.. fix it
     float calculatedPowerDiff = getDirectionCorrectionDiff(rightDiff);
     Serial.print(rightDiff);Serial.print(" variance.");Serial.print(powerMultiplier*calculatedPowerDiff);Serial.print(" left.");Serial.print(powerMultiplier);Serial.print(" right.");Serial.println();
-    base.goForward(powerMultiplier*calculatedPowerDiff,powerMultiplier);
+    base.steerLeft(calculatedPowerDiff);
   }else if(leftDiff>permittedAngularVariance){
     //steering towards left.. fix it
     float calculatedPowerDiff = getDirectionCorrectionDiff(leftDiff);
     Serial.print(leftDiff);Serial.print(" variance.");Serial.print(powerMultiplier*calculatedPowerDiff);Serial.print(" right.");Serial.print(powerMultiplier);Serial.print(" left.");Serial.println();
-    base.goForward(powerMultiplier,powerMultiplier*calculatedPowerDiff);
+    base.steerRight(calculatedPowerDiff);
   }else{
-    base.goForward(powerMultiplier,powerMultiplier);
+    base.goForward();
   }
 }
 
