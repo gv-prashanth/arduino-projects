@@ -34,7 +34,7 @@ const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 const float basePower = 0.5;//0.0 to 1.0
-double Kp=2, Ki=5, Kd=1;//Specify the links and initial tuning parameters
+double Kp = 2, Ki = 5, Kd = 1; //Specify the links and initial tuning parameters
 
 //Dont touch below stuff
 unsigned long lastDirectionChangedTime = 0;
@@ -304,7 +304,7 @@ float getHeading() {
   // Correct for when signs are reversed.
   if (heading < 0) heading += 2 * PI;
   if (heading > 2 * PI) heading -= 2 * PI;
-
+  Serial.println("Mag Reading: " + String(heading * RAD_TO_DEG));
   return heading * RAD_TO_DEG; //radians to degrees
 }
 
@@ -326,14 +326,14 @@ void goTowardsDestination() {
     LSetpoint = 0;
     LInput = getAngularDiffIn255Scale(rightAngleDiff);
     LmyPID.Compute();
-    Serial.println("Left Input: "+String(getAngularDiffIn255Scale(rightAngleDiff))+" & Output: "+LOutput);
+    Serial.println("Left Input: " + String(getAngularDiffIn255Scale(rightAngleDiff)) + " & Output: " + LOutput);
     base.steerLeft(LOutput);
   } else {
     //easier to fix by steering right
     RSetpoint = 0;
     RInput = getAngularDiffIn255Scale(leftAngleDiff);
     RmyPID.Compute();
-    Serial.println("Right Input: "+String(getAngularDiffIn255Scale(leftAngleDiff))+" & Output: "+ROutput);
+    Serial.println("Right Input: " + String(getAngularDiffIn255Scale(leftAngleDiff)) + " & Output: " + ROutput);
     base.steerRight(ROutput);
   }
 }
