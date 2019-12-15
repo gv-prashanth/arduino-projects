@@ -6,6 +6,8 @@
 #include <Wire.h>
 #include <HMC5883L.h>
 //You can download the driver from https://github.com/Seeed-Studio/Grove_3Axis_Digital_Compass_HMC5883L
+#include <PID_v1.h>
+//You can download the driver from https://github.com/br3ttb/Arduino-PID-Library/
 
 //Pin Configuration
 const int leftWheelForwardPin = 5;//5
@@ -32,18 +34,23 @@ const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 const float basePower = 0.5;//0.0 to 1.0
+double Kp=2, Ki=5, Kd=1;//Specify the links and initial tuning parameters
 
 //Dont touch below stuff
+unsigned long lastDirectionChangedTime = 0;
+boolean isMarkedForSleep = false;
+boolean isIntruderDetected = false;
+float destinationHeading;
+double LSetpoint, LInput, LOutput;//Define Variables we'll be connecting to
+double RSetpoint, RInput, ROutput;//Define Variables we'll be connecting to
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DualWheelBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 DeepSleep deepSleep;
 HMC5883L compass;
-unsigned long lastDirectionChangedTime = 0;
-boolean isMarkedForSleep = false;
-boolean isIntruderDetected = false;
-float destinationHeading;
+PID LmyPID(&LInput, &LOutput, &LSetpoint, Kp, Ki, Kd, DIRECT);
+PID RmyPID(&RInput, &ROutput, &RSetpoint, Kp, Ki, Kd, DIRECT);
 
 void setup() {
   Serial.begin (9600);
@@ -53,6 +60,9 @@ void setup() {
   Wire.begin();
   compass = HMC5883L(); //new instance of HMC5883L library
   setupHMC5883L(); //setup the HMC5883L
+
+  LmyPID.SetMode(AUTOMATIC);
+  RmyPID.SetMode(AUTOMATIC);
 
   //TODO: Setting base power to a fixed value. Need to make dynamic
   base.setPower(basePower);
@@ -314,13 +324,15 @@ void goTowardsDestination() {
   if (rightAngleDiff < leftAngleDiff) {
     //easier to fix by steering left
     tone(speakerPin, 2000, 100);
-    float calculatedPowerDiff = getPowerDiffFromAngleDiff(rightAngleDiff);
-    base.steerLeft(calculatedPowerDiff);
+    LInput = getAngularDiffIn255Scale(rightAngleDiff);
+    LmyPID.Compute();
+    base.steerLeft(LOutput);
   } else {
     //easier to fix by steering right
     tone(speakerPin, 3000, 100);
-    float calculatedPowerDiff = getPowerDiffFromAngleDiff(leftAngleDiff);
-    base.steerRight(calculatedPowerDiff);
+    RInput = getAngularDiffIn255Scale(leftAngleDiff);
+    RmyPID.Compute();
+    base.steerRight(ROutput);
   }
 }
 
@@ -347,6 +359,6 @@ float leftAngularDifference() {
 }
 
 //TODO: Need to get rid if this in future using PID
-float getPowerDiffFromAngleDiff(float val) {
+float getAngularDiffIn255Scale(float val) {
   return map(val, 0, 180, 0, 255);
 }
