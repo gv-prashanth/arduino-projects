@@ -362,5 +362,5 @@ float leftAngularDifference() {
 
 //TODO: Need to get rid if this in future using PID
 float getAngularDiffIn255Scale(float val) {
-  return map(val, 0, 180, 0, 255);
+  return map(val, 0, 360, 0, 255);
 }
