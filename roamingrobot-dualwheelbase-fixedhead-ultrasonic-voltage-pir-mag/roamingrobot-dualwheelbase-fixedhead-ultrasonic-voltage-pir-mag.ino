@@ -323,12 +323,14 @@ void goTowardsDestination() {
   float leftAngleDiff = leftAngularDifference();
   if (rightAngleDiff < leftAngleDiff) {
     //easier to fix by steering left
+    LSetpoint = 0;
     LInput = getAngularDiffIn255Scale(rightAngleDiff);
     LmyPID.Compute();
     Serial.println("Left Input: "+getAngularDiffIn255Scale(rightAngleDiff)+" & Output: "+LOutput);
     base.steerLeft(LOutput);
   } else {
     //easier to fix by steering right
+    RSetpoint = 0;
     RInput = getAngularDiffIn255Scale(leftAngleDiff);
     RmyPID.Compute();
     Serial.println("Right Input: "+getAngularDiffIn255Scale(leftAngleDiff)+" & Output: "+ROutput);
