@@ -293,6 +293,7 @@ float getAvgHeading() {
     toReturnAvg = toReturnAvg + thisHeadingToAvg;
     delay(10);
   }
+  Serial.println("Mag Reading: " + String(toReturnAvg / NumOfAttempts));
   return toReturnAvg / NumOfAttempts;
 }
 
@@ -304,7 +305,7 @@ float getHeading() {
   // Correct for when signs are reversed.
   if (heading < 0) heading += 2 * PI;
   if (heading > 2 * PI) heading -= 2 * PI;
-  Serial.println("Mag Reading: " + String(heading * RAD_TO_DEG));
+  //Serial.println("Mag Reading: " + String(heading * RAD_TO_DEG));
   return heading * RAD_TO_DEG; //radians to degrees
 }
 
