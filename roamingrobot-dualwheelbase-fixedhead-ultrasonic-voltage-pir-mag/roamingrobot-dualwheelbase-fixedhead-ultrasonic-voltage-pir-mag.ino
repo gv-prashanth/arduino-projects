@@ -353,7 +353,6 @@ void displaySensorDetails(void)
 
 void goTowardsDestination() {
   float angleDiff = calculateAngularDifferenceVector();
-  //easier to fix by steering left
   Setpoint = 0;
   if (angleDiff <= 0)
     Input = angleDiff;
@@ -364,7 +363,7 @@ void goTowardsDestination() {
     Serial.println("PID Input: " + String(angleDiff) + " & Output: " + Output + " will steer left to fix the problem");
     base.steerLeft(abs(Output));
   } else {
-    Serial.println("PID Input: " + String(-1*angleDiff) + " & Output: " + Output + " will steer right to fix the problem");
+    Serial.println("PID Input: " + String(angleDiff) + " & Output: " + Output + " will steer right to fix the problem");
     base.steerRight(abs(Output));
   }
 }
