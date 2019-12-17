@@ -361,10 +361,10 @@ void goTowardsDestination() {
     Input = -1 * angleDiff;
   myPID.Compute();
   if (angleDiff <= 0) {
-    Serial.println("PID Input: " + String(Input) + " & Output: " + Output + " will steer left to fix the problem");
+    Serial.println("PID Input: " + String(angleDiff) + " & Output: " + Output + " will steer left to fix the problem");
     base.steerLeft(abs(Output));
   } else {
-    Serial.println("PID Input: " + String(Input) + " & Output: " + Output + " will steer right to fix the problem");
+    Serial.println("PID Input: " + String(-1*angleDiff) + " & Output: " + Output + " will steer right to fix the problem");
     base.steerRight(abs(Output));
   }
 }
