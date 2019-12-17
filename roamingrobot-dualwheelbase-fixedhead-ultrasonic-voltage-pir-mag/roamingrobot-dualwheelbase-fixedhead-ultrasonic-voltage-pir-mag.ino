@@ -37,24 +37,20 @@ const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance val
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 const float basePower = 0.5;//0.0 to 1.0
 double Kp = 2, Ki = 5, Kd = 1; //Specify the links and initial tuning parameters
-//TODO: need to get rid of below
-const float permittedAngularVariance = 5.0;
 
 //Dont touch below stuff
 unsigned long lastDirectionChangedTime = 0;
 boolean isMarkedForSleep = false;
 boolean isIntruderDetected = false;
 float destinationHeading;
-double LSetpoint, LInput, LOutput;//Define Variables we'll be connecting to
-double RSetpoint, RInput, ROutput;//Define Variables we'll be connecting to
+double Setpoint, Input, Output;//Define Variables we'll be connecting to
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DualWheelBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 DeepSleep deepSleep;
 Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
-PID LmyPID(&LInput, &LOutput, &LSetpoint, Kp, Ki, Kd, DIRECT);
-PID RmyPID(&RInput, &ROutput, &RSetpoint, Kp, Ki, Kd, DIRECT);
+PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 void setup() {
   Serial.begin (9600);
@@ -64,8 +60,7 @@ void setup() {
   Wire.begin();
   setupHMC5883L(); //setup the HMC5883L
 
-  LmyPID.SetMode(AUTOMATIC);
-  RmyPID.SetMode(AUTOMATIC);
+  myPID.SetMode(AUTOMATIC);
 
   //TODO: Setting base power to a fixed value. Need to make dynamic
   base.setPower(basePower);
@@ -357,51 +352,39 @@ void displaySensorDetails(void)
 }
 
 void goTowardsDestination() {
-  float rightAngleDiff = rightAngularDifference();
-  float leftAngleDiff = leftAngularDifference();
-  if (rightAngleDiff > permittedAngularVariance && rightAngleDiff < leftAngleDiff) {
-    //easier to fix by steering left
-    LSetpoint = 0;
-    LInput = getAngularDiffIn255Scale(rightAngleDiff);
-    LmyPID.Compute();
-    Serial.println("Left Input: " + String(getAngularDiffIn255Scale(rightAngleDiff)) + " & Output: " + LOutput);
-    base.steerLeft(LOutput);
-  } else if (leftAngleDiff > permittedAngularVariance && leftAngleDiff < rightAngleDiff) {
-    //easier to fix by steering right
-    RSetpoint = 0;
-    RInput = getAngularDiffIn255Scale(leftAngleDiff);
-    RmyPID.Compute();
-    Serial.println("Right Input: " + String(getAngularDiffIn255Scale(leftAngleDiff)) + " & Output: " + ROutput);
-    base.steerRight(ROutput);
+  float angleDiff = calculateAngularDifferenceVector();
+  //easier to fix by steering left
+  Setpoint = 0;
+  Input = angleDiff;
+  myPID.Compute();
+  Serial.println("PID Input: " + String(Input) + " & Output: " + Output);
+  if (Output <= 0) {
+    base.steerLeft(getPowerDiffIn255Scale(abs(Output)));
   } else {
-    Serial.println("Not much deviation. Will go straight");
-    base.goForward();
+    base.steerRight(getPowerDiffIn255Scale(abs(Output)));
   }
 }
 
-float rightAngularDifference() {
-  float toReturn = -1.0;
+float calculateAngularDifferenceVector() {
   float currentHeading = getHeading();
-  if (destinationHeading > 180 && destinationHeading < 360 && currentHeading > 0 && currentHeading < 180) {
-    toReturn = (360.0 - destinationHeading) + currentHeading;
-  } else if (currentHeading > destinationHeading) {
-    toReturn = currentHeading - destinationHeading;
+  if (currentHeading >= destinationHeading) {
+    float left = currentHeading - destinationHeading;
+    float right = (360.0 - currentHeading) + destinationHeading;
+    if (left < right)
+      return -1 * left;
+    else
+      return right;
+  } else {
+    float left = (360.0 - destinationHeading) + currentHeading;
+    float right = destinationHeading - currentHeading;
+    if (left < right)
+      return -1 * left;
+    else
+      return right;
   }
-  return toReturn;
-}
-
-float leftAngularDifference() {
-  float toReturn = -1.0;
-  float currentHeading = getHeading();
-  if (destinationHeading > 0 && destinationHeading < 180 && currentHeading > 180 && currentHeading < 360) {
-    toReturn = (360.0 - currentHeading) + destinationHeading;
-  } else if (currentHeading < destinationHeading) {
-    toReturn = destinationHeading - currentHeading;
-  }
-  return toReturn;
 }
 
 //TODO: Need to get rid if this in future using PID
-float getAngularDiffIn255Scale(float val) {
-  return map(val, 0, 360, 0, 255);
+float getPowerDiffIn255Scale(float val) {
+  return map(val, 0, 180, 0, 255);
 }
