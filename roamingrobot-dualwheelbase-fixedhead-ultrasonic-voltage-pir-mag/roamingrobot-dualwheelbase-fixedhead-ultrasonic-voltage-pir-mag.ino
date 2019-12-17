@@ -289,9 +289,9 @@ float getHeading() {
   mag.getEvent(&event);
 
   /* Display the results (magnetic vector values are in micro-Tesla (uT)) */
-  Serial.print("X: "); Serial.print(event.magnetic.x); Serial.print("  ");
-  Serial.print("Y: "); Serial.print(event.magnetic.y); Serial.print("  ");
-  Serial.print("Z: "); Serial.print(event.magnetic.z); Serial.print("  "); Serial.println("uT");
+  //Serial.print("X: "); Serial.print(event.magnetic.x); Serial.print("  ");
+  //Serial.print("Y: "); Serial.print(event.magnetic.y); Serial.print("  ");
+  //Serial.print("Z: "); Serial.print(event.magnetic.z); Serial.print("  "); Serial.println("uT");
 
   // Hold the module so that Z is pointing 'up' and you can measure the heading with x&y
   // Calculate heading when the magnetometer is level, then correct for signs of axis.
