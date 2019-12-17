@@ -354,6 +354,7 @@ void displaySensorDetails(void)
 void goTowardsDestination() {
   float angleDiff = calculateAngularDifferenceVector();
   Setpoint = 0;
+  //TODO: Need to analyze this. For now, always making input as negative since thats the only way PID is working. if input is positive PID is giving zero as output always
   if (angleDiff <= 0)
     Input = angleDiff;
   else
