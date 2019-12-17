@@ -36,7 +36,7 @@ const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 const float basePower = 0.5;//0.0 to 1.0
-double Kp = 2, Ki = 5, Kd = 1; //Specify the links and initial tuning parameters
+double Kp = 1.4, Ki = 0, Kd = 0; //Specify the links and initial tuning parameters
 
 //Dont touch below stuff
 unsigned long lastDirectionChangedTime = 0;
@@ -355,13 +355,17 @@ void goTowardsDestination() {
   float angleDiff = calculateAngularDifferenceVector();
   //easier to fix by steering left
   Setpoint = 0;
-  Input = angleDiff;
+  if (angleDiff <= 0)
+    Input = angleDiff;
+  else
+    Input = -1 * angleDiff;
   myPID.Compute();
-  Serial.println("PID Input: " + String(Input) + " & Output: " + Output);
-  if (Output <= 0) {
-    base.steerLeft(getPowerDiffIn255Scale(abs(Output)));
+  if (angleDiff <= 0) {
+    Serial.println("PID Input: " + String(Input) + " & Output: " + Output + " will steer left to fix the problem");
+    base.steerLeft(abs(Output));
   } else {
-    base.steerRight(getPowerDiffIn255Scale(abs(Output)));
+    Serial.println("PID Input: " + String(Input) + " & Output: " + Output + " will steer right to fix the problem");
+    base.steerRight(abs(Output));
   }
 }
 
@@ -382,9 +386,4 @@ float calculateAngularDifferenceVector() {
     else
       return right;
   }
-}
-
-//TODO: Need to get rid if this in future using PID
-float getPowerDiffIn255Scale(float val) {
-  return map(val, 0, 180, 0, 255);
 }
