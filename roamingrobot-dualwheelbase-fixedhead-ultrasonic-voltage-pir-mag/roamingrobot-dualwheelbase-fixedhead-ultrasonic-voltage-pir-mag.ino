@@ -61,7 +61,7 @@ void setup() {
   setupHMC5883L(); //setup the HMC5883L
 
   myPID.SetMode(AUTOMATIC);
-  myPID.SetOutputLimits(-255,255);
+  myPID.SetOutputLimits(-255, 255);
 
   //TODO: Setting base power to a fixed value. Need to make dynamic
   base.setPower(basePower);
@@ -357,6 +357,7 @@ void goTowardsDestination() {
   Setpoint = 0;
   Input = angleDiff;
   myPID.Compute();
+  //If angleDiff is negative, it means i would need to steer left to fix the problem.
   if (angleDiff <= 0) {
     Serial.println("PID Input: " + String(angleDiff) + " & Output: " + Output + " will steer left to fix the problem");
     base.steerLeft(abs(Output));
@@ -367,6 +368,7 @@ void goTowardsDestination() {
 }
 
 float calculateAngularDifferenceVector() {
+  //The angular error is calculated by actual - required. Further the easisest / closest direction is choosen as part of returning the value.
   float currentHeading = getHeading();
   if (currentHeading >= destinationHeading) {
     float left = currentHeading - destinationHeading;
