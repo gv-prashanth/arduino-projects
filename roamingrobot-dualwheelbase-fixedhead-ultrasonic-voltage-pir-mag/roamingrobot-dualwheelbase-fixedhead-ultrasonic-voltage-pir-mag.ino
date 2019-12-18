@@ -61,6 +61,7 @@ void setup() {
   setupHMC5883L(); //setup the HMC5883L
 
   myPID.SetMode(AUTOMATIC);
+  myPID.SetOutputLimits(-255,255);
 
   //TODO: Setting base power to a fixed value. Need to make dynamic
   base.setPower(basePower);
@@ -354,11 +355,7 @@ void displaySensorDetails(void)
 void goTowardsDestination() {
   float angleDiff = calculateAngularDifferenceVector();
   Setpoint = 0;
-  //TODO: Need to analyze this. For now, always making input as negative since thats the only way PID is working. if input is positive PID is giving zero as output always
-  if (angleDiff <= 0)
-    Input = angleDiff;
-  else
-    Input = -1 * angleDiff;
+  Input = angleDiff;
   myPID.Compute();
   if (angleDiff <= 0) {
     Serial.println("PID Input: " + String(angleDiff) + " & Output: " + Output + " will steer left to fix the problem");
