@@ -358,14 +358,10 @@ void goTowardsDestination() {
   Input = angleDiff;
   myPID.Compute();
   float powerDiff = Output;
-  //If angleDiff is negative, it means i would need to steer left to fix the problem.
-  if (angleDiff <= 0) {
-    Serial.println("PID Input: " + String(angleDiff) + " & Output: " + powerDiff + " will steer left to fix the problem");
-    base.steerLeft(abs(powerDiff));
-  } else {
-    Serial.println("PID Input: " + String(angleDiff) + " & Output: " + powerDiff + " will steer right to fix the problem");
-    base.steerRight(abs(powerDiff));
-  }
+  Serial.println("PID Input: " + String(angleDiff) + " & Output: " + powerDiff + " will steer to fix the problem");
+  //If powerDiff is negative i need to steer left
+  //If powerDiff is positive i need to steer right
+  base.goForward(powerDiff);
 }
 
 float calculateAngularDifferenceVector() {

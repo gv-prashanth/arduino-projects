@@ -48,33 +48,22 @@ void DualWheelBase::rotateLeft(){
   digitalWrite(_rightWheelBackwardPin, LOW);
 }
 
-void DualWheelBase::turnRight(){
-  analogWrite(_leftWheelForwardPin, 255*_powerMultiplier);
+void DualWheelBase::goForward(float powerDiff){
+  float v1 = (255 + powerDiff)*_powerMultiplier;
+  float v2 = (255 - powerDiff)*_powerMultiplier;
+  if(v1 >255)
+	  v1 = 255;
+  if(v2 >255)
+	  v2 = 255;
+  if(v1 <0)
+	  v1 = 0;
+  if(v2 <0)
+	  v2 = 0;
+  //If powerDiff is negative i need to steer left - v2 is more than v1
+  //If powerDiff is positive i need to steer right - v1 is more than v2
+  digitalWrite(_leftWheelForwardPin, v1);
   digitalWrite(_leftWheelBackwardPin, LOW);
-  digitalWrite(_rightWheelForwardPin, LOW);
-  digitalWrite(_rightWheelBackwardPin, LOW);
-}
-
-void DualWheelBase::turnLeft(){
-  digitalWrite(_leftWheelForwardPin, LOW);
-  digitalWrite(_leftWheelBackwardPin, LOW);
-  analogWrite(_rightWheelForwardPin, 255*_powerMultiplier);
-  digitalWrite(_rightWheelBackwardPin, LOW);
-}
-
-void DualWheelBase::steerRight(float powerDiff){
-  float maxVal = 255*_powerMultiplier;
-  analogWrite(_leftWheelForwardPin, maxVal);
-  digitalWrite(_leftWheelBackwardPin, LOW);
-  digitalWrite(_rightWheelForwardPin, maxVal - (powerDiff*_powerMultiplier));
-  digitalWrite(_rightWheelBackwardPin, LOW);
-}
-
-void DualWheelBase::steerLeft(float powerDiff){
-  float maxVal = 255*_powerMultiplier;
-  digitalWrite(_leftWheelForwardPin, maxVal - (powerDiff*_powerMultiplier));
-  digitalWrite(_leftWheelBackwardPin, LOW);
-  analogWrite(_rightWheelForwardPin, maxVal);
+  analogWrite(_rightWheelForwardPin, v2);
   digitalWrite(_rightWheelBackwardPin, LOW);
 }
 
