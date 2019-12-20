@@ -72,13 +72,15 @@ void setup() {
   //TODO: Need to improve this approach
   //Tell the voltage of battery
   float floatVoltage = batteryVoltageSensor.senseVoltage();
-  morseCode.play(String(floatVoltage));
+  //morseCode.play(String(floatVoltage));
 
   //check if battery is low and skip bios dance
   if (!isBatteryDead()) {
-    doBIOSManoeuvre();
+    //doBIOSManoeuvre();
   }
 
+  tone(speakerPin, talkFrequency, 3000);
+  delay(3000);
   destinationHeading = getHeading();
 }
 
