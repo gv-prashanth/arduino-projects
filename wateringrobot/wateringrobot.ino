@@ -132,7 +132,6 @@ void loop() {
 }
 
 void markForSleep() {
-  base.stop();
   morseCode.play("SOS");
   isMarkedForSleep = true;
   digitalWrite(smartPowerPin, LOW);
@@ -244,23 +243,18 @@ void doBIOSManoeuvre() {
   //left
   base.rotateLeft();
   morseCode.play("L");
-  base.stop();
 
   //right
   base.rotateRight();
   morseCode.play("R");
-  base.stop();
 
   //forward
   base.goForward();
   morseCode.play("F");
-  base.stop();
-
 
   //backward
   base.goBackward();
   morseCode.play("B");
-  base.stop();
 
   lastDirectionChangedTime = millis();
 }
