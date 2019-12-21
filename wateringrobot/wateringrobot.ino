@@ -25,19 +25,20 @@ const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
 const int avoidableObstacleRange = 60;//cm
-const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
+const int emergencyObstacleRangeDetect = avoidableObstacleRange / 3; //cm
+const int emergencyObstacleRangeAvoid = avoidableObstacleRange / 2; //cm
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
-const unsigned long robotJamCheckTime = 180000; //milli seconds
+const unsigned long robotJamCheckTime = 120000; //milli seconds
 const float sleepVoltage = 3.0;//volts
 const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-const float basePower = 0.5;//0.0 to 1.0
-double Kp = 15, Ki = 0, Kd = 0; //Specify the links and initial tuning parameters
+const float basePower = 0.75;//0.0 to 1.0
+double Kp = 60, Ki = 80, Kd = 20; //Specify the links and initial tuning parameters
 
 //Dont touch below stuff
-unsigned long lastDirectionChangedTime = 0;
+unsigned long lastComandedDirectionChangeTime = 0;
 boolean isMarkedForSleep = false;
 boolean isIntruderDetected = false;
 float destinationHeading = 0.0;
@@ -135,16 +136,14 @@ void markForSleep() {
   morseCode.play("SOS");
   isMarkedForSleep = true;
   digitalWrite(smartPowerPin, LOW);
-  //TODO: Need to get rid of below
-  lastDirectionChangedTime = 0;
 }
 
+//TODO: Need to get rid of marks logic
 void markForWakeup() {
   morseCode.play("Awake");
   isMarkedForSleep = false;
   digitalWrite(smartPowerPin, HIGH);
-  //TODO: Need to get rid of below
-  lastDirectionChangedTime = millis();
+  lastComandedDirectionChangeTime = millis();
 }
 
 boolean isBatteryCharged() {
@@ -152,7 +151,7 @@ boolean isBatteryCharged() {
 }
 
 boolean isJamDetected() {
-  return abs(millis() - lastDirectionChangedTime) > robotJamCheckTime;
+  return abs(millis() - lastComandedDirectionChangeTime) > robotJamCheckTime;
 }
 
 boolean isBatteryDead() {
@@ -170,56 +169,62 @@ boolean isAvoidableObstaclePresent() {
 
 boolean isEmergencyObstaclePresent() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > 0 && centerReading <= emergencyObstacleRange);
+  return (centerReading > 0 && centerReading <= emergencyObstacleRangeDetect);
+}
+
+boolean isEmergencyObstacleAvoidableDistanceYetToReach() {
+  int centerReading = (int) ultrasonicSensor.obstacleDistance();
+  return (centerReading > 0 && centerReading <= emergencyObstacleRangeAvoid);
 }
 
 void setEmergencyObstacleDestination() {
-  base.goBackward();
-  morseCode.play("B");
+  while (isEmergencyObstacleAvoidableDistanceYetToReach()) {
+    base.goBackward();
+  }
   if (decidedDirection == 0) {
-      if (decideOnRight())
-       decidedDirection = 1;
-      else
-        decidedDirection = -1;
+    if (decideOnRight())
+      decidedDirection = 1;
+    else
+      decidedDirection = -1;
   }
-  if(decidedDirection = -1){
+  if (decidedDirection = -1) {
     setLeftDestinationByAngle(random(9, 18) * 10);
-  }else {
-     setRightDestinationByAngle(random(9, 18) * 10);
+  } else {
+    setRightDestinationByAngle(random(9, 18) * 10);
   }
-  lastDirectionChangedTime = millis();
+  lastComandedDirectionChangeTime = millis();
 }
 
 void setJamDestination() {
   base.goBackward();
   morseCode.play("J");
   if (decidedDirection == 0) {
-      if (decideOnRight())
-       decidedDirection = 1;
-      else
-        decidedDirection = -1;
+    if (decideOnRight())
+      decidedDirection = 1;
+    else
+      decidedDirection = -1;
   }
-  if(decidedDirection = -1){
+  if (decidedDirection = -1) {
     setLeftDestinationByAngle(random(0, 36) * 10);
-  }else {
-     setRightDestinationByAngle(random(0, 36) * 10);
+  } else {
+    setRightDestinationByAngle(random(0, 36) * 10);
   }
-  lastDirectionChangedTime = millis();
+  lastComandedDirectionChangeTime = millis();
 }
 
 void setAvoidableObstacleDestination() {
   if (decidedDirection == 0) {
-      if (decideOnRight())
-       decidedDirection = 1;
-      else
-        decidedDirection = -1;
+    if (decideOnRight())
+      decidedDirection = 1;
+    else
+      decidedDirection = -1;
   }
-  if(decidedDirection = -1){
+  if (decidedDirection = -1) {
     setLeftDestinationByAngle(random(0, 9) * 10);
-  }else {
-     setRightDestinationByAngle(random(0, 9) * 10);
+  } else {
+    setRightDestinationByAngle(random(0, 9) * 10);
   }
-  lastDirectionChangedTime = millis();
+  lastComandedDirectionChangeTime = millis();
 }
 
 void doIntruderManoeuvre() {
@@ -256,7 +261,7 @@ void doBIOSManoeuvre() {
   base.goBackward();
   morseCode.play("B");
 
-  lastDirectionChangedTime = millis();
+  lastComandedDirectionChangeTime = millis();
 }
 
 boolean decideOnRight() {
