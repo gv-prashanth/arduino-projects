@@ -26,7 +26,6 @@ const int pirInterruptPin = 2;//pin 2 only should be used
 //functional Configuration
 const int avoidableObstacleRange = 60;//cm
 const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
-const int calibratedMovementTime = 7500;//milli seconds
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 180000; //milli seconds
@@ -41,8 +40,9 @@ double Kp = 15, Ki = 0, Kd = 0; //Specify the links and initial tuning parameter
 unsigned long lastDirectionChangedTime = 0;
 boolean isMarkedForSleep = false;
 boolean isIntruderDetected = false;
-float destinationHeading;
+float destinationHeading = 0.0;
 double Setpoint, Input, Output;//Define Variables we'll be connecting to
+int decidedDirection = 0;
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DualWheelBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
@@ -77,8 +77,6 @@ void setup() {
   if (!isBatteryDead()) {
     doBIOSManoeuvre();
   }
-
-  setStraightDestination();
 }
 
 void loop() {
@@ -112,28 +110,22 @@ void loop() {
     }
 
     //check if there is a robot jam
-    if (isJamDetected()) {
-      doJamManoeuvre();
-      return;
+    else if (isJamDetected()) {
+      setJamDestination();
     }
 
     //incase of emergency stop
-    if (isEmergencyObstaclePresent()) {
-      doEmergencyObstacleManoeuvre();
-      return;
+    else if (isEmergencyObstaclePresent()) {
+      setEmergencyObstacleDestination();
     }
 
     //rotate left or right
-    if (isAvoidableObstaclePresent()) {
-      doAvoidableObstacleManoeuvre();
-      return;
+    else if (isAvoidableObstaclePresent()) {
+      setAvoidableObstacleDestination();
     }
 
-    //go forward
-    else {
-      goTowardsDestination();
-      return;
-    }
+    decidedDirection = 0;
+    rotateOrSteerOrGoTowardsDestination();
 
   }
 
@@ -182,45 +174,52 @@ boolean isEmergencyObstaclePresent() {
   return (centerReading > 0 && centerReading <= emergencyObstacleRange);
 }
 
-void doEmergencyObstacleManoeuvre() {
-  base.stop();
+void setEmergencyObstacleDestination() {
   tone(speakerPin, talkFrequency, 100);
-  base.goBackward();
-  delay(calibratedMovementTime / M_PI);
-  if (decideOnRight())
-    base.rotateRight();
-  else
-    base.rotateLeft();
-  delay(random(9, 18) * 10 * (calibratedMovementTime / 360));
-  base.stop();
+  if (decidedDirection == 0) {
+      if (decideOnRight())
+       decidedDirection = 1;
+      else
+        decidedDirection = -1;
+  }
+  if(decidedDirection = -1){
+    setLeftDestinationByAngle(random(9, 18) * 10);
+  }else {
+     setRightDestinationByAngle(random(9, 18) * 10);
+  }
   lastDirectionChangedTime = millis();
-  setStraightDestination();
 }
 
-void doJamManoeuvre() {
-  base.stop();
-  morseCode.play("JAMMED");
+void setJamDestination() {
   base.goBackward();
-  delay(calibratedMovementTime / M_PI);
-  if (decideOnRight())
-    base.rotateRight();
-  else
-    base.rotateLeft();
-  delay(random(0, 36) * 10 * (calibratedMovementTime / 360));
-  base.stop();
+  morseCode.play("JAM");
+  if (decidedDirection == 0) {
+      if (decideOnRight())
+       decidedDirection = 1;
+      else
+        decidedDirection = -1;
+  }
+  if(decidedDirection = -1){
+    setLeftDestinationByAngle(random(0, 36) * 10);
+  }else {
+     setRightDestinationByAngle(random(0, 36) * 10);
+  }
   lastDirectionChangedTime = millis();
-  setStraightDestination();
 }
 
-void doAvoidableObstacleManoeuvre() {
-  if (decideOnRight())
-    base.goForward(255);
-  else
-    base.goForward(-255);
-  delay(random(0, 9) * 10 * (calibratedMovementTime / 360));
-  base.stop();
+void setAvoidableObstacleDestination() {
+  if (decidedDirection == 0) {
+      if (decideOnRight())
+       decidedDirection = 1;
+      else
+        decidedDirection = -1;
+  }
+  if(decidedDirection = -1){
+    setLeftDestinationByAngle(random(0, 9) * 10);
+  }else {
+     setRightDestinationByAngle(random(0, 9) * 10);
+  }
   lastDirectionChangedTime = millis();
-  setStraightDestination();
 }
 
 void doIntruderManoeuvre() {
@@ -239,33 +238,30 @@ void doSleepForEightSeconds() {
   detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
 }
 
+//TODO: need to make bios dynamic and not rely on morseCodePlay
 void doBIOSManoeuvre() {
   //left
   base.rotateLeft();
-  delay(calibratedMovementTime);
+  morseCode.play("L");
   base.stop();
-  morseCode.play("Left");
 
   //right
   base.rotateRight();
-  delay(calibratedMovementTime);
+  morseCode.play("R");
   base.stop();
-  morseCode.play("Right");
 
   //forward
   base.goForward();
-  delay(calibratedMovementTime / M_PI);
+  morseCode.play("F");
   base.stop();
-  morseCode.play("Forward");
+
 
   //backward
   base.goBackward();
-  delay(calibratedMovementTime / M_PI);
+  morseCode.play("B");
   base.stop();
-  morseCode.play("Backward");
 
   lastDirectionChangedTime = millis();
-  setStraightDestination();
 }
 
 boolean decideOnRight() {
@@ -345,7 +341,7 @@ void displaySensorDetails(void)
   delay(500);
 }
 
-void goTowardsDestination() {
+void rotateOrSteerOrGoTowardsDestination() {
   float angleDiff = calculateAngularDifferenceVector();
   Setpoint = 0;
   Input = angleDiff;
@@ -354,7 +350,13 @@ void goTowardsDestination() {
   Serial.println("PID Input: " + String(angleDiff) + " & Output: " + powerDiff + " will steer to fix the problem");
   //If powerDiff is negative i need to steer left
   //If powerDiff is positive i need to steer right
-  base.goForward(powerDiff);
+  if (powerDiff < -254) {
+    base.rotateLeft();
+  } else if (powerDiff > 254) {
+    base.rotateRight();
+  } else {
+    base.goForward(powerDiff);
+  }
 }
 
 float calculateAngularDifferenceVector() {
@@ -377,7 +379,6 @@ float calculateAngularDifferenceVector() {
   }
 }
 
-//TODO: Need to use the below
 void setLeftDestinationByAngle(int angle) {
   if (destinationHeading >= angle) {
     destinationHeading = destinationHeading - angle;
@@ -386,15 +387,10 @@ void setLeftDestinationByAngle(int angle) {
   }
 }
 
-//TODO: Need to use the below
 void setRightDestinationByAngle(int angle) {
   if (destinationHeading + angle < 360) {
     destinationHeading = destinationHeading + angle;
   } else {
     destinationHeading = (destinationHeading + angle) - 360;
   }
-}
-
-void setStraightDestination(){
-  destinationHeading = getHeading();
 }
