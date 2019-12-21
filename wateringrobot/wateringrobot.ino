@@ -333,7 +333,6 @@ void displaySensorDetails(void)
   Serial.print  ("Resolution:   "); Serial.print(sensor.resolution); Serial.println(" uT");
   Serial.println("------------------------------------");
   Serial.println("");
-  delay(500);
 }
 
 void rotateOrSteerOrGoTowardsDestination() {
