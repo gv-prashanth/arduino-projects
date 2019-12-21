@@ -175,7 +175,8 @@ boolean isEmergencyObstaclePresent() {
 }
 
 void setEmergencyObstacleDestination() {
-  tone(speakerPin, talkFrequency, 100);
+  base.goBackward();
+  morseCode.play("B");
   if (decidedDirection == 0) {
       if (decideOnRight())
        decidedDirection = 1;
@@ -192,7 +193,7 @@ void setEmergencyObstacleDestination() {
 
 void setJamDestination() {
   base.goBackward();
-  morseCode.play("JAM");
+  morseCode.play("J");
   if (decidedDirection == 0) {
       if (decideOnRight())
        decidedDirection = 1;
