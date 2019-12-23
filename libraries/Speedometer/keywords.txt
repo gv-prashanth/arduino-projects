@@ -1,0 +1,3 @@
+Speedometer	KEYWORD1
+logReading	KEYWORD2
+getSpeed KEYWORD2
