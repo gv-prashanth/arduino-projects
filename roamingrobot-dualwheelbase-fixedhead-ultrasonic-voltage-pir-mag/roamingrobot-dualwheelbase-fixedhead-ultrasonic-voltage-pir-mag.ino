@@ -130,8 +130,8 @@ void goTowardsDestination() {
   myPID.Compute();
   float powerDiff = Output;
   Serial.println("PID Input: " + String(angleDiff) + " & Output: " + powerDiff + " will steer to fix the problem");
-  //If powerDiff is negative i need to steer left
-  //If powerDiff is positive i need to steer right
+  //If powerDiff is positive i need to steer left
+  //If powerDiff is negative i need to steer right
   base.goForward(powerDiff);
 }
 
