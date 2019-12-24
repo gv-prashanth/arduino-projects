@@ -82,6 +82,7 @@ void setup() {
   tone(speakerPin, talkFrequency, 3000);
   delay(3000);
   destinationHeading = getHeading();
+  Serial.println("BIOS complete. Setting heading to "+ String(destinationHeading));
 }
 
 void loop() {
@@ -372,6 +373,7 @@ float calculateAngularDifferenceVector() {
   if (currentHeading >= destinationHeading) {
     float left = currentHeading - destinationHeading;
     float right = (360.0 - currentHeading) + destinationHeading;
+    Serial.println("Going towards destination. Bios Set heading is "+String(destinationHeading)+ ". current heading is "+ String(currentHeading) +". Diff is left "+ String(left)+ " right "+String(right));
     if (left < right)
       return -1 * left;
     else
@@ -379,6 +381,7 @@ float calculateAngularDifferenceVector() {
   } else {
     float left = (360.0 - destinationHeading) + currentHeading;
     float right = destinationHeading - currentHeading;
+    Serial.println("Going towards destination. Bios Set heading is "+String(destinationHeading)+ ". current heading is "+ String(currentHeading) +". Diff is left "+ String(left)+ " right "+String(right));
     if (left < right)
       return -1 * left;
     else
