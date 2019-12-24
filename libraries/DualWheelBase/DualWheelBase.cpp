@@ -61,7 +61,7 @@ void DualWheelBase::goForward(float powerDiff){
 	  v2 = 0;
   //If powerDiff is negative i need to steer left - v2 is more than v1
   //If powerDiff is positive i need to steer right - v1 is more than v2
-  digitalWrite(_leftWheelForwardPin, v1);
+  analogWrite(_leftWheelForwardPin, v1);
   digitalWrite(_leftWheelBackwardPin, LOW);
   analogWrite(_rightWheelForwardPin, v2);
   digitalWrite(_rightWheelBackwardPin, LOW);
