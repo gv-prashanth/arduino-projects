@@ -140,7 +140,7 @@ void markForSleep() {
 
 //TODO: Need to get rid of marks logic
 void markForWakeup() {
-  morseCode.play("Awake");
+  morseCode.play("A");
   isMarkedForSleep = false;
   digitalWrite(smartPowerPin, HIGH);
   unsigned long temp = millis();
