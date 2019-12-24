@@ -66,225 +66,16 @@ void setup() {
   //TODO: Setting base power to a fixed value. Need to make dynamic
   base.setPower(basePower);
 
-  //Wake the robot
-  markForWakeup();
-
-  //TODO: Need to improve this approach
-  //Tell the voltage of battery
-  float floatVoltage = batteryVoltageSensor.senseVoltage();
-  //morseCode.play(String(floatVoltage));
-
-  //check if battery is low and skip bios dance
-  if (!isBatteryDead()) {
-    //doBIOSManoeuvre();
-  }
+  digitalWrite(smartPowerPin, HIGH);
 
   tone(speakerPin, talkFrequency, 3000);
   delay(3000);
   destinationHeading = getHeading();
-  Serial.println("BIOS complete. Setting heading to "+ String(destinationHeading));
+  Serial.println("BIOS complete. Setting heading to " + String(destinationHeading));
 }
 
 void loop() {
-
-  if (isMarkedForSleep) {
-
-    //check if battery is charged and wake up
-    if (isBatteryCharged()) {
-      markForWakeup();
-      return;
-    }
-
-    //check if there was any intruder recently
-    if (isIntruderDetected) {
-      doIntruderManoeuvre();
-      return;
-    }
-
-    //check if battery is low and continue sleep
-    else {
-      doSleepForEightSeconds();
-      return;
-    }
-
-  } else {
-
-    //check if battery is low and go to sleep
-    if (isBatteryDead()) {
-      markForSleep();
-      return;
-    }
-
-    //check if there is a robot jam
-    if (isJamDetected()) {
-      doJamManoeuvre();
-      return;
-    }
-
-    //navigate the terrain
-    else {
-      setDestination();
-      goTowardsDestination();
-      return;
-    }
-
-  }
-
-}
-
-void setDestination() {
-  //incase of emergency stop
-  if (isEmergencyObstaclePresent()) {
-    setEmergencyObstacleDestination();
-  } else if (isAvoidableObstaclePresent()) {
-    setAvoidableObstacleDestination();
-  } else {
-    //No need to set any directio. Just go towards last set direction.
-  }
-}
-
-void markForSleep() {
-  base.stop();
-  morseCode.play("SOS");
-  isMarkedForSleep = true;
-  digitalWrite(smartPowerPin, LOW);
-  //TODO: Need to get rid of below
-  lastDirectionChangedTime = 0;
-}
-
-void markForWakeup() {
-  morseCode.play("Awake");
-  isMarkedForSleep = false;
-  digitalWrite(smartPowerPin, HIGH);
-  //TODO: Need to get rid of below
-  lastDirectionChangedTime = millis();
-}
-
-boolean isBatteryCharged() {
-  return batteryVoltageSensor.senseVoltage() > wakeVoltage;;
-}
-
-boolean isJamDetected() {
-  return abs(millis() - lastDirectionChangedTime) > robotJamCheckTime;
-}
-
-boolean isBatteryDead() {
-  return batteryVoltageSensor.senseVoltage() < sleepVoltage;
-}
-
-void intruderDetected() {
-  isIntruderDetected = true;
-}
-
-boolean isAvoidableObstaclePresent() {
-  int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > 0 && centerReading <= avoidableObstacleRange);
-}
-
-boolean isEmergencyObstaclePresent() {
-  int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > 0 && centerReading <= emergencyObstacleRange);
-}
-
-void setEmergencyObstacleDestination() {
-  base.stop();
-  tone(speakerPin, talkFrequency, 100);
-  base.goBackward();
-  delay(toDelete);
-  if (decideOnRight())
-    setRightDestinationByAngle(random(9, 18) * 10);
-  else
-    setLeftDestinationByAngle(random(9, 18) * 10);
-  lastDirectionChangedTime = millis();
-}
-
-void setAvoidableObstacleDestination() {
-  if (decideOnRight())
-    setRightDestinationByAngle(random(0, 9) * 10);
-  else
-    setLeftDestinationByAngle(random(0, 9) * 10);
-  lastDirectionChangedTime = millis();
-}
-
-void setLeftDestinationByAngle(int angle) {
-  if (destinationHeading >= angle) {
-    destinationHeading = destinationHeading - angle;
-  } else {
-    destinationHeading = 360 - (angle - destinationHeading);
-  }
-}
-
-void setRightDestinationByAngle(int angle) {
-  if (destinationHeading + angle < 360) {
-    destinationHeading = destinationHeading + angle;
-  } else {
-    destinationHeading = (destinationHeading + angle) - 360;
-  }
-}
-
-void doJamManoeuvre() {
-  base.stop();
-  morseCode.play("JAMMED");
-  base.goBackward();
-  delay(toDelete);
-  if (decideOnRight())
-    setRightDestinationByAngle(random(0, 36) * 10);
-  else
-    setLeftDestinationByAngle(random(0, 36) * 10);
-  lastDirectionChangedTime = millis();
-}
-
-void doIntruderManoeuvre() {
-  morseCode.play("INTRUDER");
-  isIntruderDetected = false;
-}
-
-void doSleepForEightSeconds() {
-  //Attach the PIR to activate intruder detection
-  isIntruderDetected = false;
-  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
-
-  deepSleep.sleepForEightSecondsUnlessInterrupted();
-
-  //Detach the PIR since we dont need intruder detection anymore
-  detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
-}
-
-void doBIOSManoeuvre() {
-  //left
-  base.rotateLeft();
-  delay(toDelete);
-  base.stop();
-  morseCode.play("Left");
-
-  //right
-  base.rotateRight();
-  delay(toDelete);
-  base.stop();
-  morseCode.play("Right");
-
-  //forward
-  base.goForward();
-  delay(toDelete);
-  base.stop();
-  morseCode.play("Forward");
-
-  //backward
-  base.goBackward();
-  delay(toDelete);
-  base.stop();
-  morseCode.play("Backward");
-
-  lastDirectionChangedTime = millis();
-}
-
-boolean decideOnRight() {
-  int randNumber = random(0, 2);
-  if (randNumber < 1) {
-    return true;
-  } else {
-    return false;
-  }
+  goTowardsDestination();
 }
 
 float getHeading() {
@@ -373,7 +164,7 @@ float calculateAngularDifferenceVector() {
   if (currentHeading >= destinationHeading) {
     float left = currentHeading - destinationHeading;
     float right = (360.0 - currentHeading) + destinationHeading;
-    Serial.println("Going towards destination. Bios Set heading is "+String(destinationHeading)+ ". current heading is "+ String(currentHeading) +". Diff is left "+ String(left)+ " right "+String(right));
+    Serial.println("Going towards destination. Bios Set heading is " + String(destinationHeading) + ". current heading is " + String(currentHeading) + ". Diff is left " + String(left) + " right " + String(right));
     if (left < right)
       return -1 * left;
     else
@@ -381,7 +172,7 @@ float calculateAngularDifferenceVector() {
   } else {
     float left = (360.0 - destinationHeading) + currentHeading;
     float right = destinationHeading - currentHeading;
-    Serial.println("Going towards destination. Bios Set heading is "+String(destinationHeading)+ ". current heading is "+ String(currentHeading) +". Diff is left "+ String(left)+ " right "+String(right));
+    Serial.println("Going towards destination. Bios Set heading is " + String(destinationHeading) + ". current heading is " + String(currentHeading) + ". Diff is left " + String(left) + " right " + String(right));
     if (left < right)
       return -1 * left;
     else
