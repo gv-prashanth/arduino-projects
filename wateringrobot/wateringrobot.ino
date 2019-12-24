@@ -35,7 +35,7 @@ const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 const float basePower = 0.75;//0.0 to 1.0
-double Kp = 60, Ki = 80, Kd = 20; //Specify the links and initial tuning parameters
+double Kp = 10, Ki = 2, Kd = 1; //Specify the links and initial tuning parameters
 
 //Dont touch below stuff
 unsigned long *lastComandedDirectionChangeTime;
@@ -343,12 +343,12 @@ void rotateOrSteerOrGoTowardsDestination() {
   myPID.Compute();
   float powerDiff = Output;
   Serial.println("PID Input: " + String(angleDiff) + " & Output: " + powerDiff + " will steer to fix the problem");
-  //If powerDiff is negative i need to steer left
-  //If powerDiff is positive i need to steer right
+  //If powerDiff is positive i need to steer left
+  //If powerDiff is negative i need to steer right
   if (powerDiff < -254) {
-    base.rotateLeft();
-  } else if (powerDiff > 254) {
     base.rotateRight();
+  } else if (powerDiff > 254) {
+    base.rotateLeft();
   } else {
     base.goForward(powerDiff);
   }
