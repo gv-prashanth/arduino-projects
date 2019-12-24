@@ -1,8 +1,4 @@
-#include <VoltageSensor.h>
-#include <UltrasonicSensor.h>
 #include <DualWheelBase.h>
-#include <MorseCode.h>
-#include <DeepSleep.h>
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 //You can download the driver from https://github.com/adafruit/Adafruit_Sensor
@@ -24,31 +20,13 @@ const int batteryVoltageSensePin = -1;//A2 incase you want to detect from dedica
 const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
-const int avoidableObstacleRange = 60;//cm
-const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
-//TODO: Need to delete the below variable
-const int toDelete = 5000;//milli seconds
-const int talkFrequency = 2000;//frequency in Hz
-const int morseUnit = 200; //unit of morse
-const unsigned long robotJamCheckTime = 180000; //milli seconds
-const float sleepVoltage = 3.0;//volts
-const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
-const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
-const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 const float basePower = 0.5;//0.0 to 1.0
 double Kp = 1.4, Ki = 0, Kd = 0; //Specify the links and initial tuning parameters
 
 //Dont touch below stuff
-unsigned long lastDirectionChangedTime = 0;
-boolean isMarkedForSleep = false;
-boolean isIntruderDetected = false;
 float destinationHeading;
 double Setpoint, Input, Output;//Define Variables we'll be connecting to
-VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
-UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DualWheelBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
-MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
-DeepSleep deepSleep;
 Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
@@ -68,7 +46,6 @@ void setup() {
 
   digitalWrite(smartPowerPin, HIGH);
 
-  tone(speakerPin, talkFrequency, 3000);
   delay(3000);
   destinationHeading = getHeading();
   Serial.println("BIOS complete. Setting heading to " + String(destinationHeading));
