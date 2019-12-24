@@ -38,7 +38,7 @@ const float basePower = 0.75;//0.0 to 1.0
 double Kp = 60, Ki = 80, Kd = 20; //Specify the links and initial tuning parameters
 
 //Dont touch below stuff
-unsigned long lastComandedDirectionChangeTime = 0;
+unsigned long *lastComandedDirectionChangeTime;
 boolean isMarkedForSleep = false;
 boolean isIntruderDetected = false;
 float destinationHeading = 0.0;
@@ -143,7 +143,8 @@ void markForWakeup() {
   morseCode.play("Awake");
   isMarkedForSleep = false;
   digitalWrite(smartPowerPin, HIGH);
-  lastComandedDirectionChangeTime = millis();
+  unsigned long temp = millis();
+  lastComandedDirectionChangeTime = &temp;
 }
 
 boolean isBatteryCharged() {
@@ -151,7 +152,7 @@ boolean isBatteryCharged() {
 }
 
 boolean isJamDetected() {
-  return abs(millis() - lastComandedDirectionChangeTime) > robotJamCheckTime;
+  return abs(millis() - *lastComandedDirectionChangeTime) > robotJamCheckTime;
 }
 
 boolean isBatteryDead() {
@@ -192,7 +193,6 @@ void setEmergencyObstacleDestination() {
   } else {
     setRightDestinationByAngle(random(9, 18) * 10);
   }
-  lastComandedDirectionChangeTime = millis();
 }
 
 void setJamDestination() {
@@ -209,7 +209,6 @@ void setJamDestination() {
   } else {
     setRightDestinationByAngle(random(0, 36) * 10);
   }
-  lastComandedDirectionChangeTime = millis();
 }
 
 void setAvoidableObstacleDestination() {
@@ -224,7 +223,6 @@ void setAvoidableObstacleDestination() {
   } else {
     setRightDestinationByAngle(random(0, 9) * 10);
   }
-  lastComandedDirectionChangeTime = millis();
 }
 
 void doIntruderManoeuvre() {
@@ -260,8 +258,6 @@ void doBIOSManoeuvre() {
   //backward
   base.goBackward();
   morseCode.play("B");
-
-  lastComandedDirectionChangeTime = millis();
 }
 
 boolean decideOnRight() {
@@ -384,6 +380,8 @@ void setLeftDestinationByAngle(int angle) {
   } else {
     destinationHeading = 360 - (angle - destinationHeading);
   }
+  unsigned long temp = millis();
+  lastComandedDirectionChangeTime = &temp;
 }
 
 void setRightDestinationByAngle(int angle) {
@@ -392,4 +390,6 @@ void setRightDestinationByAngle(int angle) {
   } else {
     destinationHeading = (destinationHeading + angle) - 360;
   }
+  unsigned long temp = millis();
+  lastComandedDirectionChangeTime = &temp;
 }
