@@ -86,8 +86,7 @@ void setup() {
 }
 
 void loop() {
-  //TODO: Dont quite like this here
-  calculateSpeedAndAdjustPower();
+  //NOTE: Never write anything at the start of loop. Since it will impact the sleep power consumption
 
   if (isMarkedForSleep) {
 
@@ -132,6 +131,8 @@ void loop() {
       setAvoidableObstacleDestination();
     }
 
+    //TODO: Dont quite like this here
+    calculateSpeedAndAdjustPower();
     decidedDirection = 0;
     rotateOrSteerOrGoTowardsDestination();
 
@@ -406,9 +407,9 @@ void calculateSpeedAndAdjustPower() {
     speedSetpoint = desiredSpeed;
     speedInput = currentSpeed;
     speedPID.Compute();
-    float calculatedBasePower = speedOutput/255.0;
+    float calculatedBasePower = speedOutput / 255.0;
     base.setPower(calculatedBasePower);
-  }else{
+  } else {
     base.setPower(1);
   }
 }
