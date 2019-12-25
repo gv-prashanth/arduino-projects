@@ -7,36 +7,34 @@
 #include "Arduino.h"
 #include "Speedometer.h"
 
-Speedometer::Speedometer(){
-	_oldestDistance = 0;
-	_latestDistance = 0;
+Speedometer::Speedometer(unsigned long *lastComandedDirectionChangeTime){
+	_oldestDistance = -1;
 	_oldestTime = 0;
-	_latestTime = 0;
+	_currentSpeed = -1;
+	_lastComandedDirectionChangeTime = lastComandedDirectionChangeTime;
 }
 
 void Speedometer::logReading(int reading){
 	if(reading < 960){
-		if(_oldestTime == 0){
+		if(_oldestTime == 0 || _oldestTime < *_lastComandedDirectionChangeTime){
 			_oldestTime = millis();
 			_oldestDistance = reading;
-		}else{
-			if(_latestTime != 0){
-				_oldestTime = _latestTime;
-				_oldestDistance = _latestDistance;	
-			}
-			_latestTime = millis();
-			_latestDistance = reading;
+			return;
 		}
+		if(reading - _oldestDistance > 1){
+			unsigned long currentTime = millis();
+			_currentSpeed = ((reading - _oldestDistance)*1000.0)/(currentTime-_oldestTime);
+			_oldestTime = currentTime;
+			_oldestDistance = reading;
+			return;
+		}else{
+			Serial.println("Inconsistent reading. Didnt travel enough yet");
+		}
+	}else{
+		Serial.println("Inconsistent reading. Reading is ignored");
 	}
 }
 
-void Speedometer::clearReadings(){
-	_oldestDistance = 0;
-	_latestDistance = 0;
-	_oldestTime = 0;
-	_latestTime = 0;
-}
-
 float Speedometer::getSpeed(){
-	return ((_latestDistance - _oldestDistance)*1000)/(_latestTime - _oldestTime);
+	return _currentSpeed;
 }

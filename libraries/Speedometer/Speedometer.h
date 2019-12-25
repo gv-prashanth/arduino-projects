@@ -12,13 +12,14 @@
 class Speedometer
 {
   public:
-	Speedometer();
+	Speedometer(unsigned long  *lastComandedDirectionChangeTime);
 	void logReading(int reading);
-	void clearReadings();
 	float getSpeed();
   private:
-	int _oldestDistance, _latestDistance;
-	unsigned long _oldestTime, _latestTime;
+	int _oldestDistance;
+	unsigned long _oldestTime;
+	unsigned long *_lastComandedDirectionChangeTime;
+	float _currentSpeed;
 };
 
 #endif

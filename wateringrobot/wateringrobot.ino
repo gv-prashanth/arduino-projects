@@ -10,6 +10,7 @@
 //You can download the driver from https://github.com/adafruit/Adafruit_HMC5883_Unified
 #include <PID_v1.h>
 //You can download the driver from https://github.com/br3ttb/Arduino-PID-Library/
+#include <Speedometer.h>
 
 //Pin Configuration
 const int leftWheelForwardPin = 5;//5
@@ -34,15 +35,18 @@ const float sleepVoltage = 3.0;//volts
 const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-const float basePower = 0.75;//0.0 to 1.0
 double Kp = 10, Ki = 2, Kd = 1; //Specify the links and initial tuning parameters
+double Lp = 10, Li = 2, Ld = 1; //Specify the links and initial tuning parameters
+const float desiredSpeed = 0.5;//cm per second
 
 //Dont touch below stuff
-unsigned long *lastComandedDirectionChangeTime;
+unsigned long lastComandedDirectionChangeTime = 0;
+float basePower;//automatic decided based on speed
 boolean isMarkedForSleep = false;
 boolean isIntruderDetected = false;
 float destinationHeading = 0.0;
 double Setpoint, Input, Output;//Define Variables we'll be connecting to
+double speedSetpoint, speedInput, speedOutput;//Define Variables we'll be connecting to
 int decidedDirection = 0;
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
@@ -51,6 +55,8 @@ MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 DeepSleep deepSleep;
 Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
+PID speedPID(&speedInput, &speedOutput, &speedSetpoint, Lp, Li, Ld, DIRECT);
+Speedometer speedometer(&lastComandedDirectionChangeTime);
 
 void setup() {
   Serial.begin (9600);
@@ -62,17 +68,16 @@ void setup() {
 
   myPID.SetMode(AUTOMATIC);
   myPID.SetOutputLimits(-255, 255);
-
-  //TODO: Setting base power to a fixed value. Need to make dynamic
-  base.setPower(basePower);
+  speedPID.SetMode(AUTOMATIC);
+  speedPID.SetOutputLimits(0, 255);
 
   //Wake the robot
   markForWakeup();
+  //TODO: Dont quite like this here
+  calculateSpeedAndAdjustPower();
 
-  //TODO: Need to improve this approach
-  //Tell the voltage of battery
-  float floatVoltage = batteryVoltageSensor.senseVoltage();
-  morseCode.play(String(floatVoltage));
+  //Print the voltage of battery
+  Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()));
 
   //check if battery is low and skip bios dance
   if (!isBatteryDead()) {
@@ -81,6 +86,8 @@ void setup() {
 }
 
 void loop() {
+  //TODO: Dont quite like this here
+  calculateSpeedAndAdjustPower();
 
   if (isMarkedForSleep) {
 
@@ -143,8 +150,7 @@ void markForWakeup() {
   morseCode.play("A");
   isMarkedForSleep = false;
   digitalWrite(smartPowerPin, HIGH);
-  unsigned long temp = millis();
-  lastComandedDirectionChangeTime = &temp;
+  lastComandedDirectionChangeTime = millis();
 }
 
 boolean isBatteryCharged() {
@@ -152,7 +158,7 @@ boolean isBatteryCharged() {
 }
 
 boolean isJamDetected() {
-  return abs(millis() - *lastComandedDirectionChangeTime) > robotJamCheckTime;
+  return abs(millis() - lastComandedDirectionChangeTime) > robotJamCheckTime;
 }
 
 boolean isBatteryDead() {
@@ -380,8 +386,7 @@ void setLeftDestinationByAngle(int angle) {
   } else {
     destinationHeading = 360 - (angle - destinationHeading);
   }
-  unsigned long temp = millis();
-  lastComandedDirectionChangeTime = &temp;
+  lastComandedDirectionChangeTime = millis();
 }
 
 void setRightDestinationByAngle(int angle) {
@@ -390,6 +395,20 @@ void setRightDestinationByAngle(int angle) {
   } else {
     destinationHeading = (destinationHeading + angle) - 360;
   }
-  unsigned long temp = millis();
-  lastComandedDirectionChangeTime = &temp;
+  lastComandedDirectionChangeTime = millis();
+}
+
+void calculateSpeedAndAdjustPower() {
+  int centerReading = (int) ultrasonicSensor.obstacleDistance();
+  speedometer.logReading(centerReading);
+  float currentSpeed = speedometer.getSpeed();
+  if (currentSpeed != -1) {
+    speedSetpoint = desiredSpeed;
+    speedInput = currentSpeed;
+    speedPID.Compute();
+    float calculatedBasePower = speedOutput/255.0;
+    base.setPower(calculatedBasePower);
+  }else{
+    base.setPower(1);
+  }
 }
