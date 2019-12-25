@@ -36,7 +36,7 @@ const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 double Kp = 10, Ki = 2, Kd = 1; //Specify the links and initial tuning parameters
-double Lp = 10, Li = 2, Ld = 1; //Specify the links and initial tuning parameters
+double Lp = 50, Li = 0, Ld = 0; //Specify the links and initial tuning parameters
 const float desiredSpeed = 0.5;//cm per second
 
 //Dont touch below stuff
@@ -308,7 +308,7 @@ float getHeading() {
   // Convert radians to degrees for readability.
   float headingDegrees = heading * 180 / M_PI;
 
-  Serial.print("Heading (degrees): "); Serial.println(headingDegrees);
+  //Serial.print("Heading (degrees): "); Serial.println(headingDegrees);
   return headingDegrees;
 
 }
@@ -349,7 +349,7 @@ void rotateOrSteerOrGoTowardsDestination() {
   Input = angleDiff;
   myPID.Compute();
   float powerDiff = Output;
-  Serial.println("PID Input: " + String(angleDiff) + " & Output: " + powerDiff + " will steer to fix the problem");
+  //Serial.println("PID Input: " + String(angleDiff) + " & Output: " + powerDiff + " will steer to fix the problem");
   //If powerDiff is positive i need to steer left
   //If powerDiff is negative i need to steer right
   if (powerDiff < -254) {
@@ -407,6 +407,7 @@ void calculateSpeedAndAdjustPower() {
     speedSetpoint = desiredSpeed;
     speedInput = currentSpeed;
     speedPID.Compute();
+    Serial.println("PID Input: " + String(speedInput) + " & Output: " + speedOutput + " will adjust to fix the speed");
     float calculatedBasePower = speedOutput / 255.0;
     base.setPower(calculatedBasePower);
   } else {
