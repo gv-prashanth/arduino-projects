@@ -27,7 +27,7 @@ const float sleepVoltage = 3.0;//volts
 const float wakeVoltage = 3.6;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-const float basePower = 0.5;//0.0 to 1.0
+const float basePowerMultiplier = 0.5;//0.0 to 1.0
 
 //Dont touch below stuff
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
@@ -45,7 +45,7 @@ void setup() {
   pinMode(smartPowerPin, OUTPUT);
 
   //TODO: Setting base power to a fixed value. Need to make dynamic
-  base.setPower(basePower);
+  base.setPowerMultiplier(basePowerMultiplier);
 
   //Wake the robot
   markForWakeup();

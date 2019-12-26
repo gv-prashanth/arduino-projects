@@ -6,7 +6,7 @@
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 //You can download the driver from https://github.com/adafruit/Adafruit_Sensor
-#include <Adafruit_HMC5883_U.h>
+#include <Adafruit_HMC5883_U.h> //SDA is A4, SCL is A5
 //You can download the driver from https://github.com/adafruit/Adafruit_HMC5883_Unified
 #include <PID_v1.h>
 //You can download the driver from https://github.com/br3ttb/Arduino-PID-Library/
@@ -41,7 +41,6 @@ const float desiredSpeed = 0.5;//cm per second
 
 //Dont touch below stuff
 unsigned long lastComandedDirectionChangeTime = 0;
-float basePower;//automatic decided based on speed
 boolean isMarkedForSleep = false;
 boolean isIntruderDetected = false;
 float destinationHeading = 0.0;
@@ -408,9 +407,9 @@ void calculateSpeedAndAdjustPower() {
     speedInput = currentSpeed;
     speedPID.Compute();
     Serial.println("PID Input: " + String(speedInput) + " & Output: " + speedOutput + " will adjust to fix the speed");
-    float calculatedBasePower = speedOutput / 255.0;
-    base.setPower(calculatedBasePower);
+    float calculatedBasePowerMultiplier = speedOutput / 255.0;
+    base.setPowerMultiplier(calculatedBasePowerMultiplier);
   } else {
-    base.setPower(1);
+    base.setPowerMultiplier(1);
   }
 }

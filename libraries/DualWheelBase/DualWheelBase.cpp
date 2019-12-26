@@ -67,7 +67,7 @@ void DualWheelBase::goForward(float powerDiff){
   digitalWrite(_rightWheelBackwardPin, LOW);
 }
 
-void DualWheelBase::setPower(float powerMultiplier){
+void DualWheelBase::setPowerMultiplier(float powerMultiplier){
   if(powerMultiplier < 0){
     _powerMultiplier = 0;
   }else if(powerMultiplier > 1){

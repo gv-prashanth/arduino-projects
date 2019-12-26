@@ -42,7 +42,7 @@ void setup() {
   myPID.SetOutputLimits(-255, 255);
 
   //TODO: Setting base power to a fixed value. Need to make dynamic
-  base.setPower(basePower);
+  base.setPowerMultiplier(basePower);
 
   digitalWrite(smartPowerPin, HIGH);
 

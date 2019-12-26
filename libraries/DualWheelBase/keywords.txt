@@ -4,3 +4,4 @@ stop		KEYWORD2
 goBackward	KEYWORD2
 rotateRight	KEYWORD2
 rotateLeft	KEYWORD2
+setPowerMultiplier KEYWORD2

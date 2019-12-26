@@ -1,4 +1,4 @@
-#include <AnalogBase.h>
+#include <DualWheelBase.h>
 #include <Servo.h>
 #include <VoltageSensor.h>
 #include <UltrasonicSensor.h>
@@ -27,12 +27,14 @@ const int shoutFrequency = 5000;//frquency in Hz
 const float highestWorkingVoltageSpecificationOfBatteryPack = 13.0; //Volts
 const float lowestWorkingVoltageSpecificationOfBatteryPack = 9.0; //Volts
 const float powerSuppresorFactorAtHighestVoltage = 0.4;//if you pass 0.4 then at highestWorkingVoltageSpecificationOfBatteryPack 60% power and lowestWorkingVoltageSpecificationOfBatteryPack 100% power
+const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
+const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 
 //Dont touch below stuff
 Servo microServo;
-VoltageSensor voltageSensor(voltagePin);
+VoltageSensor voltageSensor(voltagePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
-AnalogBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
+DualWheelBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 
 void setup() {
   Serial.begin (9600);
@@ -47,6 +49,9 @@ void setup() {
 }
 
 void loop() {
+  float powerMultiplier = calculatePowerMultiplier(lowestWorkingVoltageSpecificationOfBatteryPack, highestWorkingVoltageSpecificationOfBatteryPack, powerSuppresorFactorAtHighestVoltage);
+  base.setPowerMultiplier(powerMultiplier);
+  
   int centerReading = (int) scanAndGetReading(90);
   if(centerReading>0 && centerReading<=minimumRange){
     obstacleTooCloseEmergencyStop();
@@ -70,21 +75,20 @@ void loop() {
   int leftDecissionValue = leftReading-centerReading;
   int rightDecissionValue = rightReading-centerReading2;
   
-  float powerMultiplier = calculatePowerMultiplier(lowestWorkingVoltageSpecificationOfBatteryPack, highestWorkingVoltageSpecificationOfBatteryPack, powerSuppresorFactorAtHighestVoltage);
   if((leftDecissionValue>minDiffForDecissionChange)&&(leftDecissionValue>=rightDecissionValue)){
     //take left turn
     tone(speakerPin, talkFrequency, 200);
-    base.rotateLeft(powerMultiplier);
+    base.rotateLeft();
     delay(baseMovementTime);
   }else if((rightDecissionValue>minDiffForDecissionChange)&&(rightDecissionValue>leftDecissionValue)){
     //take right turn
     tone(speakerPin, talkFrequency, 200);
-    base.rotateRight(powerMultiplier);
+    base.rotateRight();
     delay(baseMovementTime);
   }
   
   //go forward
-  base.goForward(powerMultiplier,powerMultiplier);
+  base.goForward();
 }
 
 void checkHeadPosition(){
@@ -100,54 +104,53 @@ void checkBatteryVoltage(){
 }
 
 void checkBaseHeadDirections(){
-  base.rotateLeft(1.0);
+  base.rotateLeft();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
-  base.rotateRight(1.0);
+  base.rotateRight();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
   scanAndGetReading(180-headTurnAngle);
   delay(400);
   scanAndGetReading(90);
   delay(400);
-  base.rotateRight(1.0);
+  base.rotateRight();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
-  base.rotateLeft(1.0);
+  base.rotateLeft();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
   scanAndGetReading(headTurnAngle);
   delay(400);  
   scanAndGetReading(90);
   delay(400);
-  base.goForward(1.0,1.0);
+  base.goForward();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
-  base.goBackward(1.0,1.0);
+  base.goBackward();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   delay(400);
 }
 
 void obstacleTooCloseEmergencyStop(){
-  float powerMultiplier = calculatePowerMultiplier(lowestWorkingVoltageSpecificationOfBatteryPack, highestWorkingVoltageSpecificationOfBatteryPack, powerSuppresorFactorAtHighestVoltage);
   tone(speakerPin, shoutFrequency, 100);
-  base.goBackward(powerMultiplier,powerMultiplier);
+  base.goBackward();
   delay(baseMovementTime);
-  base.stopAllMotion();
+  base.stop();
   if(decideOnRight()){
-    base.rotateRight(powerMultiplier);
+    base.rotateRight();
     delay(baseMovementTime);
-    base.stopAllMotion();
+    base.stop();
   }else{
-    base.rotateLeft(powerMultiplier);
+    base.rotateLeft();
     delay(baseMovementTime);
-    base.stopAllMotion();
+    base.stop();
   }
 }
 
