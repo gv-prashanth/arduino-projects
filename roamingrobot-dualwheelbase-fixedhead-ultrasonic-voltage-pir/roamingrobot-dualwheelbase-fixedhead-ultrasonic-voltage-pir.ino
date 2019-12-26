@@ -197,9 +197,9 @@ void doJamManoeuvre() {
 
 void doAvoidableObstacleManoeuvre() {
   if (decideOnRight())
-    base.turnRight();
+    base.goForward(-255);
   else
-    base.turnLeft();
+    base.goForward(255);
   delay(random(0, 9) * 10 * (calibratedMovementTime / 360));
   base.stop();
   lastDirectionChangedTime = millis();
