@@ -186,22 +186,26 @@ boolean isEmergencyObstaclePresent() {
   return (centerReading > 0 && centerReading <= emergencyObstacleRange);
 }
 
+boolean isRightDecided() {
+  return random(0, 2) < 1;
+}
+
 void setEmergencyObstacleDestination() {
-  if (decideOnRight())
+  if (isRightDecided())
     setRightDestinationByAngle(random(9, 18) * 10);
   else
     setLeftDestinationByAngle(random(9, 18) * 10);
 }
 
 void setJamDestination() {
-  if (decideOnRight())
+  if (isRightDecided())
     setRightDestinationByAngle(random(0, 36) * 10);
   else
     setLeftDestinationByAngle(random(0, 36) * 10);
 }
 
 void setAvoidableObstacleDestination() {
-  if (decideOnRight())
+  if (isRightDecided())
     setRightDestinationByAngle(random(0, 9) * 10);
   else
     setLeftDestinationByAngle(random(0, 9) * 10);
@@ -240,15 +244,6 @@ void doBIOSManoeuvre() {
   //backward
   base.goBackward();
   morseCode.play("B");
-}
-
-boolean decideOnRight() {
-  int randNumber = random(0, 2);
-  if (randNumber < 1) {
-    return true;
-  } else {
-    return false;
-  }
 }
 
 float getHeading() {
