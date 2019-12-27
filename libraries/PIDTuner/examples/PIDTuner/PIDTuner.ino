@@ -13,11 +13,6 @@ const int leftWheelBackwardPin = 9;//9
 const int rightWheelForwardPin = 11;//10
 const int rightWheelBackwardPin = 10;//11
 const int smartPowerPin = 6; //can be used to sleep and wake peripherals
-const int speakerPin = 4;
-const int ultraTriggerPin = 7;
-const int ultraEchoPin = 8;
-const int batteryVoltageSensePin = -1;//A2 incase you want to detect from dedicated pin. -1 incase you want to detect from vcc.
-const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
 const float basePower = 0.5;//0.0 to 1.0
@@ -32,9 +27,10 @@ PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 void setup() {
   Serial.begin (9600);
-  pinMode(pirInterruptPin, INPUT);// define interrupt pin D2 as input to read interrupt received by PIR sensor
-  pinMode(smartPowerPin, OUTPUT);
 
+  pinMode(smartPowerPin, OUTPUT);
+  digitalWrite(smartPowerPin, HIGH);
+  
   Wire.begin();
   setupHMC5883L(); //setup the HMC5883L
 
@@ -43,8 +39,6 @@ void setup() {
 
   //TODO: Setting base power to a fixed value. Need to make dynamic
   base.setPowerMultiplier(basePower);
-
-  digitalWrite(smartPowerPin, HIGH);
 
   delay(3000);
   destinationHeading = getHeading();
