@@ -26,8 +26,8 @@ const int pirInterruptPin = 2;//pin 2 only should be used
 
 //functional Configuration
 const int avoidableObstacleRange = 60;//cm
-const int emergencyObstacleRangeDetect = avoidableObstacleRange / 3; //cm
-const int emergencyObstacleRangeAvoid = avoidableObstacleRange / 2; //cm
+const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
+const int angularAlignmentVariance = 5;//degrees
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 120000; //milli seconds
@@ -46,7 +46,6 @@ boolean isIntruderDetected = false;
 float destinationHeading = 0.0;
 double Setpoint, Input, Output;//Define Variables we'll be connecting to
 double speedSetpoint, speedInput, speedOutput;//Define Variables we'll be connecting to
-int decidedDirection = 0;
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
 UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
 DualWheelBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
@@ -117,22 +116,26 @@ void loop() {
 
     //check if there is a robot jam
     else if (isJamDetected()) {
+      base.goBackward();
+      morseCode.play("J");
       setJamDestination();
     }
 
     //incase of emergency stop
-    else if (isEmergencyObstaclePresent()) {
+    else if (isEmergencyObstaclePresent() && isAlignedInSetDestination()) {
+      while (isEmergencyObstaclePresent()) {
+        base.goBackward();
+      }
       setEmergencyObstacleDestination();
     }
 
     //rotate left or right
-    else if (isAvoidableObstaclePresent()) {
+    else if (isAvoidableObstaclePresent() && isAlignedInSetDestination()) {
       setAvoidableObstacleDestination();
     }
 
     //TODO: Dont quite like this here
     calculateSpeedAndAdjustPower();
-    decidedDirection = 0;
     rotateOrSteerOrGoTowardsDestination();
 
   }
@@ -165,6 +168,10 @@ boolean isBatteryDead() {
   return batteryVoltageSensor.senseVoltage() < sleepVoltage;
 }
 
+boolean isAlignedInSetDestination() {
+  return (abs(calculateAngularDifferenceVector()) < angularAlignmentVariance);
+}
+
 void intruderDetected() {
   isIntruderDetected = true;
 }
@@ -176,59 +183,28 @@ boolean isAvoidableObstaclePresent() {
 
 boolean isEmergencyObstaclePresent() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > 0 && centerReading <= emergencyObstacleRangeDetect);
-}
-
-boolean isEmergencyObstacleAvoidableDistanceYetToReach() {
-  int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > 0 && centerReading <= emergencyObstacleRangeAvoid);
+  return (centerReading > 0 && centerReading <= emergencyObstacleRange);
 }
 
 void setEmergencyObstacleDestination() {
-  while (isEmergencyObstacleAvoidableDistanceYetToReach()) {
-    base.goBackward();
-  }
-  if (decidedDirection == 0) {
-    if (decideOnRight())
-      decidedDirection = 1;
-    else
-      decidedDirection = -1;
-  }
-  if (decidedDirection = -1) {
-    setLeftDestinationByAngle(random(9, 18) * 10);
-  } else {
+  if (decideOnRight())
     setRightDestinationByAngle(random(9, 18) * 10);
-  }
+  else
+    setLeftDestinationByAngle(random(9, 18) * 10);
 }
 
 void setJamDestination() {
-  base.goBackward();
-  morseCode.play("J");
-  if (decidedDirection == 0) {
-    if (decideOnRight())
-      decidedDirection = 1;
-    else
-      decidedDirection = -1;
-  }
-  if (decidedDirection = -1) {
-    setLeftDestinationByAngle(random(0, 36) * 10);
-  } else {
+  if (decideOnRight())
     setRightDestinationByAngle(random(0, 36) * 10);
-  }
+  else
+    setLeftDestinationByAngle(random(0, 36) * 10);
 }
 
 void setAvoidableObstacleDestination() {
-  if (decidedDirection == 0) {
-    if (decideOnRight())
-      decidedDirection = 1;
-    else
-      decidedDirection = -1;
-  }
-  if (decidedDirection = -1) {
-    setLeftDestinationByAngle(random(0, 9) * 10);
-  } else {
+  if (decideOnRight())
     setRightDestinationByAngle(random(0, 9) * 10);
-  }
+  else
+    setLeftDestinationByAngle(random(0, 9) * 10);
 }
 
 void doIntruderManoeuvre() {
@@ -399,18 +375,18 @@ void setRightDestinationByAngle(int angle) {
 }
 
 void calculateSpeedAndAdjustPower() {
-//  int centerReading = (int) ultrasonicSensor.obstacleDistance();
-//  speedometer.logReading(centerReading);
-//  float currentSpeed = speedometer.getSpeed();
-//  if (currentSpeed != -1) {
-//    speedSetpoint = desiredSpeed;
-//    speedInput = currentSpeed;
-//    speedPID.Compute();
-//    Serial.println("PID Input: " + String(speedInput) + " & Output: " + speedOutput + " will adjust to fix the speed");
-//    float calculatedBasePowerMultiplier = speedOutput / 255.0;
-//    base.setPowerMultiplier(calculatedBasePowerMultiplier);
-//  } else {
-//    base.setPowerMultiplier(1);
-//  }
+  //  int centerReading = (int) ultrasonicSensor.obstacleDistance();
+  //  speedometer.logReading(centerReading);
+  //  float currentSpeed = speedometer.getSpeed();
+  //  if (currentSpeed != -1) {
+  //    speedSetpoint = desiredSpeed;
+  //    speedInput = currentSpeed;
+  //    speedPID.Compute();
+  //    Serial.println("PID Input: " + String(speedInput) + " & Output: " + speedOutput + " will adjust to fix the speed");
+  //    float calculatedBasePowerMultiplier = speedOutput / 255.0;
+  //    base.setPowerMultiplier(calculatedBasePowerMultiplier);
+  //  } else {
+  //    base.setPowerMultiplier(1);
+  //  }
   base.setPowerMultiplier(1);
 }
