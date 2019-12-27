@@ -136,7 +136,7 @@ void loop() {
 
     //TODO: Dont quite like this here
     calculateSpeedAndAdjustPower();
-    rotateOrSteerOrGoTowardsDestination();
+    rotateOrSteerAndGoTowardsDestination();
 
   }
 
@@ -313,7 +313,7 @@ void displaySensorDetails(void)
   Serial.println("");
 }
 
-void rotateOrSteerOrGoTowardsDestination() {
+void rotateOrSteerAndGoTowardsDestination() {
   float angleDiff = calculateAngularDifferenceVector();
   Setpoint = 0;
   Input = angleDiff;
@@ -369,6 +369,7 @@ void setRightDestinationByAngle(int angle) {
   lastComandedDirectionChangeTime = millis();
 }
 
+//TODO: Need to fix this
 void calculateSpeedAndAdjustPower() {
   //  int centerReading = (int) ultrasonicSensor.obstacleDistance();
   //  speedometer.logReading(centerReading);
