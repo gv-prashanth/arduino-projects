@@ -399,17 +399,18 @@ void setRightDestinationByAngle(int angle) {
 }
 
 void calculateSpeedAndAdjustPower() {
-  int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  speedometer.logReading(centerReading);
-  float currentSpeed = speedometer.getSpeed();
-  if (currentSpeed != -1) {
-    speedSetpoint = desiredSpeed;
-    speedInput = currentSpeed;
-    speedPID.Compute();
-    Serial.println("PID Input: " + String(speedInput) + " & Output: " + speedOutput + " will adjust to fix the speed");
-    float calculatedBasePowerMultiplier = speedOutput / 255.0;
-    base.setPowerMultiplier(calculatedBasePowerMultiplier);
-  } else {
-    base.setPowerMultiplier(1);
-  }
+//  int centerReading = (int) ultrasonicSensor.obstacleDistance();
+//  speedometer.logReading(centerReading);
+//  float currentSpeed = speedometer.getSpeed();
+//  if (currentSpeed != -1) {
+//    speedSetpoint = desiredSpeed;
+//    speedInput = currentSpeed;
+//    speedPID.Compute();
+//    Serial.println("PID Input: " + String(speedInput) + " & Output: " + speedOutput + " will adjust to fix the speed");
+//    float calculatedBasePowerMultiplier = speedOutput / 255.0;
+//    base.setPowerMultiplier(calculatedBasePowerMultiplier);
+//  } else {
+//    base.setPowerMultiplier(1);
+//  }
+  base.setPowerMultiplier(1);
 }
