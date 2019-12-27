@@ -171,7 +171,7 @@ void intruderDetected() {
 
 boolean isAvoidableObstaclePresent() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > emergencyObstacleRangeAvoid && centerReading <= avoidableObstacleRange);
+  return (centerReading > 0 && centerReading <= avoidableObstacleRange);
 }
 
 boolean isEmergencyObstaclePresent() {
@@ -181,7 +181,7 @@ boolean isEmergencyObstaclePresent() {
 
 boolean isEmergencyObstacleAvoidableDistanceYetToReach() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  return (centerReading > emergencyObstacleRangeDetect && centerReading <= emergencyObstacleRangeAvoid);
+  return (centerReading > 0 && centerReading <= emergencyObstacleRangeAvoid);
 }
 
 void setEmergencyObstacleDestination() {
