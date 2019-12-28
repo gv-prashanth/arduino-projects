@@ -28,10 +28,10 @@ void Speedometer::logReading(int reading){
 			_oldestDistance = reading;
 			return;
 		}else{
-			Serial.println("Inconsistent reading. Didnt travel enough yet");
+			//Serial.println("Inconsistent reading. Didnt travel enough yet");
 		}
 	}else{
-		Serial.println("Inconsistent reading. Reading is ignored");
+		//Serial.println("Inconsistent reading. Reading is ignored");
 	}
 }
 

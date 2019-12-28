@@ -37,7 +37,7 @@ const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance val
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 double Kp = 10, Ki = 2, Kd = 1; //Specify the links and initial tuning parameters
 double Lp = 50, Li = 0, Ld = 0; //Specify the links and initial tuning parameters
-const float desiredSpeed = 0.5;//cm per second
+const float desiredSpeed = 1.5;//cm per second
 
 //Dont touch below stuff
 unsigned long lastComandedDirectionChangeTime = 0;
@@ -72,7 +72,7 @@ void setup() {
   //Wake the robot
   markForWakeup();
   //TODO: Dont quite like this here
-  calculateSpeedAndAdjustPower();
+  getSpeedAndCalculatePower();
 
   //Print the voltage of battery
   Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()));
@@ -122,20 +122,23 @@ void loop() {
     }
 
     //incase of emergency stop
-    else if (isEmergencyObstaclePresent() && isAlignedInSetDestination()) {
+    else if (isEmergencyObstaclePresent()) {
       while (isEmergencyObstaclePresent()) {
         base.goBackward();
       }
-      setEmergencyObstacleDestination();
+      if (isAlignedInSetDestination())
+        setEmergencyObstacleDestination();
     }
 
     //rotate left or right
-    else if (isAvoidableObstaclePresent() && isAlignedInSetDestination()) {
-      setAvoidableObstacleDestination();
+    else if (isAvoidableObstaclePresent()) {
+      //TODO: We can do some alert here.
+      if (isAlignedInSetDestination())
+        setAvoidableObstacleDestination();
     }
 
     //TODO: Dont quite like this here
-    calculateSpeedAndAdjustPower();
+    getSpeedAndCalculatePower();
     rotateOrSteerAndGoTowardsDestination();
 
   }
@@ -370,15 +373,15 @@ void setRightDestinationByAngle(int angle) {
 }
 
 //TODO: Need to fix this
-void calculateSpeedAndAdjustPower() {
+void getSpeedAndCalculatePower() {
   //  int centerReading = (int) ultrasonicSensor.obstacleDistance();
   //  speedometer.logReading(centerReading);
   //  float currentSpeed = speedometer.getSpeed();
-  //  if (currentSpeed != -1) {
+  //  if (currentSpeed > 0) {
   //    speedSetpoint = desiredSpeed;
   //    speedInput = currentSpeed;
   //    speedPID.Compute();
-  //    Serial.println("PID Input: " + String(speedInput) + " & Output: " + speedOutput + " will adjust to fix the speed");
+  //    Serial.println("PID Input: " + String(speedInput) + " & Output: " + String(speedOutput) + " will adjust to fix the speed");
   //    float calculatedBasePowerMultiplier = speedOutput / 255.0;
   //    base.setPowerMultiplier(calculatedBasePowerMultiplier);
   //  } else {
