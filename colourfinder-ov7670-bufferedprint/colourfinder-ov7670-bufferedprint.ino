@@ -147,12 +147,10 @@ void QVGA_Image() {
     while (w--) {
       while ((PIND & 4));   //wait for low
       dataBuffer[319 - w] = (PINC & 15) | (PIND & 240);
+      Serial.println(dataBuffer[319 - w]);
       while (!(PIND & 4));  //wait for high
       while ((PIND & 4));   //wait for low
       while (!(PIND & 4));  //wait for high
-    }
-    for (int x = 0; x < 320; x++) {
-      Serial.print(dataBuffer[x]);
     }
     Serial.println("----------------");
   }
