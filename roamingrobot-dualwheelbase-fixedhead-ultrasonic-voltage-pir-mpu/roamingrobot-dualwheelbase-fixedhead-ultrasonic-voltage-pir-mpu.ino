@@ -145,18 +145,33 @@ void loop() {
       setJamDestination();
     }
 
+    //incase of excessive pitch or roll
+    else if (isEmergencyPitchRollSituation()) {
+      tone(speakerPin, talkFrequency, 100);
+      //below is true means im going forward
+      if (!isForwardOverridden()) {
+        //so lets go backward
+        markForForwardOverride(baseMovementTime);
+        setEmergencyDestination();
+      } else {
+        //so lets not go backward. You can stop going backward by removing mark
+        markForForwardOverride(0);
+        setAvoidableObstacleDestination();
+      }
+    }
+
     //incase of emergency
-    else if (isObstacleWithinEmergencyDistance() || isEmergencyPitchRollPresent()) {
+    else if (isObstacleWithinEmergencyDistance()) {
       tone(speakerPin, talkFrequency, 100);
       markForForwardOverride(baseMovementTime);
       setEmergencyDestination();
     }
 
-    //rotate left or right
-    //TODO: I dont think isAligned check is required. That method can be deleted
     //Only do this when you are moving forward
-    else if (!isForwardOverridden() && isObstacleWithinAvoidableDistance()) {
-      setAvoidableObstacleDestination();
+    else if (isObstacleWithinAvoidableDistance()) {
+      //below is true means im going forward
+      if (!isForwardOverridden())
+        setAvoidableObstacleDestination();
     }
 
     //TODO: Dont quite like this here
@@ -211,8 +226,8 @@ boolean isObstacleWithinAvoidableDistance() {
   return (centerReading > emergencyObstacleRange && centerReading <= avoidableObstacleRange);
 }
 
-boolean isEmergencyPitchRollPresent() {
-  boolean safe = ((-emergencyPitchRollRange < (ypr[1] * 180 / M_PI) < emergencyPitchRollRange) && (-emergencyPitchRollRange < (ypr[2] * 180 / M_PI) < emergencyPitchRollRange));
+boolean isEmergencyPitchRollSituation() {
+  boolean safe = ((-1 * emergencyPitchRollRange) < (ypr[1] * 180 / M_PI) && (ypr[1] * 180 / M_PI) < emergencyPitchRollRange && (-1 * emergencyPitchRollRange) < (ypr[2] * 180 / M_PI) && (ypr[2] * 180 / M_PI) < emergencyPitchRollRange);
   return !safe;
 }
 
