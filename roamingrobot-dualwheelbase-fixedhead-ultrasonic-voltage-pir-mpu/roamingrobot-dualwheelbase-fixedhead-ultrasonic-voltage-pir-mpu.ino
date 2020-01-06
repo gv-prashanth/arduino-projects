@@ -3,14 +3,11 @@
 #include <DualWheelBase.h>
 #include <MorseCode.h>
 #include <DeepSleep.h>
-#include <PID_v1.h>
-//You can download the driver from https://github.com/br3ttb/Arduino-PID-Library/
+#include <PID_v1.h> //You can download the driver from https://github.com/br3ttb/Arduino-PID-Library/
 #include <Speedometer.h>
 #include "I2Cdev.h"
-#include "MPU6050_6Axis_MotionApps20.h"
-#if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
+#include "MPU6050_6Axis_MotionApps20.h" //You can download the driver from https://github.com/electroniccats/mpu6050
 #include "Wire.h"
-#endif
 
 //Pin Configuration
 const int leftWheelForwardPin = 9;//5
@@ -27,8 +24,8 @@ const int pirInterruptPin = 3;//pin 3 only should be used
 //functional Configuration
 const int avoidableObstacleRange = 60;//cm
 const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
-const float emergencyPitchRange = 5;//degrees
-const int angularAlignmentVariance = 5;//degrees
+const float emergencyPitchRollRange = 7;//degrees
+const int timeToStickRightLeftDecission = 10000;//milli seconds
 const int talkFrequency = 2000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 120000; //milli seconds
@@ -44,13 +41,16 @@ const float desiredSpeed = 1.0;//cm per second
 //Dont touch below stuff
 unsigned long lastComandedDirectionChangeTime = 0;
 unsigned long overrideForwardUntill = 0;
-unsigned long lastRightDecidedTime = 0;
+unsigned long lastRightLeftDecidedTime = 0;
 boolean isMarkedForSleep = false;
 boolean isIntruderDetected = false;
 boolean isRightDecidedCached = false;
 float destinationHeading = 0.0;
 double Setpoint, Input, Output;//Define Variables we'll be connecting to
 double speedSetpoint, speedInput, speedOutput;//Define Variables we'll be connecting to
+//TODO: Need to use both of the below codes
+float emergencyPitchOffset = 0;
+float emergencyRollOffset = 0;
 
 // MPU control/status vars
 bool dmpReady = false;  // set true if DMP init was successful
@@ -131,11 +131,6 @@ void loop() {
 
     //TODO: Dont quite like it here
     populateYPR();
-    unsigned long tempA = millis();
-    if (tempA - lastRightDecidedTime > 10000) {
-      isRightDecidedCached = (random(0, 2) < 1);
-      lastRightDecidedTime = tempA;
-    }
 
     //check if battery is low and go to sleep
     if (isBatteryDead()) {
@@ -146,21 +141,21 @@ void loop() {
     //TODO: Need to better check if there is a robot jam
     else if (isJamDetected()) {
       tone(speakerPin, talkFrequency, 1000);
-      overrideForwardUntill = millis() + baseMovementTime;
+      markForForwardOverride(baseMovementTime);
       setJamDestination();
     }
 
     //incase of emergency
-    else if (isEmergencyObstaclePresent()) {
+    else if (isObstacleWithinEmergencyDistance() || isEmergencyPitchRollPresent()) {
       tone(speakerPin, talkFrequency, 100);
-      overrideForwardUntill = millis() + baseMovementTime;
+      markForForwardOverride(baseMovementTime);
       setEmergencyDestination();
     }
 
     //rotate left or right
     //TODO: I dont think isAligned check is required. That method can be deleted
     //Only do this when you are moving forward
-    else if (isAvoidableObstaclePresent() && overrideForwardUntill < millis()) {
+    else if (!isForwardOverridden() && isObstacleWithinAvoidableDistance()) {
       setAvoidableObstacleDestination();
     }
 
@@ -187,6 +182,14 @@ void markForWakeup() {
   overrideForwardUntill = millis();
 }
 
+void markForForwardOverride(unsigned long overrideTime) {
+  overrideForwardUntill = millis() + overrideTime;
+}
+
+boolean isForwardOverridden() {
+  return overrideForwardUntill >= millis();
+}
+
 boolean isBatteryCharged() {
   return batteryVoltageSensor.senseVoltage() > wakeVoltage;
 }
@@ -199,29 +202,30 @@ boolean isBatteryDead() {
   return batteryVoltageSensor.senseVoltage() < sleepVoltage;
 }
 
-boolean isAlignedInSetDestination() {
-  return (abs(calculateAngularDifferenceVector()) < angularAlignmentVariance);
-}
-
 void intruderDetected() {
   isIntruderDetected = true;
 }
 
-boolean isAvoidableObstaclePresent() {
+boolean isObstacleWithinAvoidableDistance() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
   return (centerReading > emergencyObstacleRange && centerReading <= avoidableObstacleRange);
 }
 
-boolean isEmergencyPitchPresent() {
-  return ((abs(ypr[1] * 180 / M_PI) > emergencyPitchRange) || (abs(ypr[2] * 180 / M_PI) > emergencyPitchRange));
+boolean isEmergencyPitchRollPresent() {
+  boolean safe = ((-emergencyPitchRollRange < (ypr[1] * 180 / M_PI) < emergencyPitchRollRange) && (-emergencyPitchRollRange < (ypr[2] * 180 / M_PI) < emergencyPitchRollRange));
+  return !safe;
 }
 
-boolean isEmergencyObstaclePresent() {
+boolean isObstacleWithinEmergencyDistance() {
   int centerReading = (int) ultrasonicSensor.obstacleDistance();
   return (centerReading > 0 && centerReading <= emergencyObstacleRange);
 }
 
 boolean isRightDecided() {
+  if (millis() - lastRightLeftDecidedTime > timeToStickRightLeftDecission) {
+    isRightDecidedCached = (random(0, 2) < 1);
+    lastRightLeftDecidedTime = millis();
+  }
   return isRightDecidedCached;
 }
 
@@ -421,7 +425,7 @@ void rotateOrSteerAndGoTowardsDestination() {
   //If powerDiff is negative i need to steer right
   float powerDiff = Output;
   //Serial.println("PID Input: " + String(angleDiff) + " & Output: " + powerDiff + " will steer to fix the problem");
-  if (overrideForwardUntill > millis()) {
+  if (isForwardOverridden()) {
     base.goBackward();
   } else if (powerDiff < -254) {
     base.rotateRight();
