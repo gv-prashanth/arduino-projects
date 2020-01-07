@@ -385,9 +385,11 @@ void setupMPU() {
     while (true);
   }
   Serial.println("Stabilizing MPU");
-  for (int i = 0; i < 30; i++) {
-    tone(speakerPin, talkFrequency, 100);
-    delay(1000);
+  unsigned long currentTime = millis();
+  while (millis() - currentTime < 30000) {
+    populateYPR();
+    if ((millis() - currentTime) % 1000 == 0)
+      tone(speakerPin, talkFrequency, 100);
   }
   Serial.println("MPU stabilization complete");
 }
@@ -502,6 +504,8 @@ void getPitchRollAndCalculateOffsets() {
   populateYPR();
   emergencyPitchOffset = ypr[1];
   emergencyRollOffset = ypr[2];
+  Serial.println("Using pitch offset as " + String(ypr[1]));
+  Serial.println("Using roll offset as " + String(ypr[2]));
 }
 
 //TODO: Need to fix this
