@@ -92,8 +92,12 @@ void setup() {
 
   //Wake the robot
   markForWakeup();
+
   //TODO: Dont quite like this here
   getSpeedAndCalculatePower();
+
+  //TODO: Dont quite ike this here
+  getPitchRollAndCalculateOffsets();
 
   //Print the voltage of battery
   Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()));
@@ -227,7 +231,10 @@ boolean isObstacleWithinAvoidableDistance() {
 }
 
 boolean isEmergencyPitchRollSituation() {
-  boolean safe = ((-1 * emergencyPitchRollRange) < (ypr[1] * 180 / M_PI) && (ypr[1] * 180 / M_PI) < emergencyPitchRollRange && (-1 * emergencyPitchRollRange) < (ypr[2] * 180 / M_PI) && (ypr[2] * 180 / M_PI) < emergencyPitchRollRange);
+  float currentPitchWithOffset = (ypr[1] * 180 / M_PI) - emergencyPitchOffset;
+  float currentRollWithOffset = (ypr[2] * 180 / M_PI) - emergencyRollOffset;
+  boolean safe = (-emergencyPitchRollRange < currentPitchWithOffset && currentPitchWithOffset < emergencyPitchRollRange &&
+                  -emergencyPitchRollRange < currentRollWithOffset && currentRollWithOffset < emergencyPitchRollRange);
   return !safe;
 }
 
@@ -489,6 +496,12 @@ void setRightDestinationByAngle(int angle) {
     destinationHeading = (currentHeading + angle) - 360;
   }
   lastComandedDirectionChangeTime = millis();
+}
+
+void getPitchRollAndCalculateOffsets() {
+  populateYPR();
+  emergencyPitchOffset = ypr[1];
+  emergencyRollOffset = ypr[2];
 }
 
 //TODO: Need to fix this
