@@ -49,9 +49,6 @@ boolean isRightDecidedCached = false;
 float destinationHeading = 0.0;
 double Setpoint, Input, Output;//Define Variables we'll be connecting to
 double speedSetpoint, speedInput, speedOutput;//Define Variables we'll be connecting to
-//TODO: Need to use both of the below codes
-float emergencyPitchOffset = 0;
-float emergencyRollOffset = 0;
 
 // MPU control/status vars
 bool dmpReady = false;  // set true if DMP init was successful
@@ -96,9 +93,6 @@ void setup() {
 
   //TODO: Dont quite like this here
   getSpeedAndCalculatePower();
-
-  //TODO: Dont quite ike this here
-  getPitchRollAndCalculateOffsets();
 
   //Print the voltage of battery
   Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()));
@@ -160,11 +154,11 @@ void loop() {
         setEmergencyDestination();
       }
       //below is true means im going backward
-      else if (isForwardOverridden() && !isClimbingPitch()) {
-        //so lets not go backward. You can stop going backward by removing mark
-        markForForwardOverride(0);
-        setAvoidableObstacleDestination();
-      }
+//      else if (isForwardOverridden() && !isClimbingPitch()) {
+//        //so lets not go backward. You can stop going backward by removing mark
+//        markForForwardOverride(0);
+//        setAvoidableObstacleDestination();
+//      }
       //below is there only incase of edge scenarios
       else {
         //we dont care because we are moving away from danger anyway
@@ -242,10 +236,8 @@ boolean isObstacleWithinAvoidableDistance() {
 }
 
 boolean isEmergencyPitchRollSituation() {
-  float currentPitchWithOffset = (ypr[1] * 180 / M_PI) - emergencyPitchOffset;
-  float currentRollWithOffset = (ypr[2] * 180 / M_PI) - emergencyRollOffset;
-  boolean safe = (-emergencyPitchRollRange < currentPitchWithOffset && currentPitchWithOffset < emergencyPitchRollRange &&
-                  -emergencyPitchRollRange < currentRollWithOffset && currentRollWithOffset < emergencyPitchRollRange);
+  boolean safe = (-emergencyPitchRollRange < (ypr[1] * 180 / M_PI) && (ypr[1] * 180 / M_PI) < emergencyPitchRollRange &&
+                  -emergencyPitchRollRange < (ypr[2] * 180 / M_PI) && (ypr[2] * 180 / M_PI) < emergencyPitchRollRange);
   return !safe;
 }
 
@@ -509,14 +501,6 @@ void setRightDestinationByAngle(int angle) {
     destinationHeading = (currentHeading + angle) - 360;
   }
   lastComandedDirectionChangeTime = millis();
-}
-
-void getPitchRollAndCalculateOffsets() {
-  populateYPR();
-  emergencyPitchOffset = ypr[1] * 180 / M_PI;
-  emergencyRollOffset = ypr[2] * 180 / M_PI;
-  Serial.println("Using pitch offset as " + String(ypr[1]));
-  Serial.println("Using roll offset as " + String(ypr[2]));
 }
 
 //TODO: Need to fix this
