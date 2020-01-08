@@ -26,7 +26,8 @@ const int avoidableObstacleRange = 60;//cm
 const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
 const float emergencyPitchRollRange = 7;//degrees
 const int timeToStickRightLeftDecission = 10000;//milli seconds
-const int talkFrequency = 2000;//frequency in Hz
+const int talkFrequency = 1000;//frequency in Hz
+const int shoutFrequency = 3000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 120000; //milli seconds
 const int baseMovementTime = 1500;//milli seconds
@@ -151,16 +152,22 @@ void loop() {
 
     //incase of excessive pitch or roll
     else if (isEmergencyPitchRollSituation()) {
-      tone(speakerPin, talkFrequency, 100);
+      tone(speakerPin, shoutFrequency, 100);
       //below is true means im going forward
-      if (!isForwardOverridden()) {
+      if (!isForwardOverridden() && isClimbingPitch()) {
         //so lets go backward
         markForForwardOverride(baseMovementTime);
         setEmergencyDestination();
-      } else {
+      }
+      //below is true means im going backward
+      else if (isForwardOverridden() && !isClimbingPitch()) {
         //so lets not go backward. You can stop going backward by removing mark
         markForForwardOverride(0);
         setAvoidableObstacleDestination();
+      }
+      //below is there only incase of edge scenarios
+      else {
+        //we dont care because we are moving away from danger anyway
       }
     }
 
@@ -203,6 +210,10 @@ void markForWakeup() {
 
 void markForForwardOverride(unsigned long overrideTime) {
   overrideForwardUntill = millis() + overrideTime;
+}
+
+boolean isClimbingPitch(){
+  return ypr[1] >= 0;
 }
 
 boolean isForwardOverridden() {
