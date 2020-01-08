@@ -384,13 +384,13 @@ void setupMPU() {
     morseCode.play("DMP Failed");
     while (true);
   }
-  Serial.println("Stabilizing MPU");
+  Serial.println("Stabilizing MPU...");
+  tone(speakerPin, talkFrequency);
   unsigned long currentTime = millis();
-  while (millis() - currentTime < 30000) {
+  while (millis() - currentTime < 10000) {
     populateYPR();
-    if ((millis() - currentTime) % 1000 == 0)
-      tone(speakerPin, talkFrequency, 100);
   }
+  noTone(speakerPin);
   Serial.println("MPU stabilization complete");
 }
 
@@ -502,8 +502,8 @@ void setRightDestinationByAngle(int angle) {
 
 void getPitchRollAndCalculateOffsets() {
   populateYPR();
-  emergencyPitchOffset = ypr[1];
-  emergencyRollOffset = ypr[2];
+  emergencyPitchOffset = ypr[1] * 180 / M_PI;
+  emergencyRollOffset = ypr[2] * 180 / M_PI;
   Serial.println("Using pitch offset as " + String(ypr[1]));
   Serial.println("Using roll offset as " + String(ypr[2]));
 }
