@@ -154,11 +154,11 @@ void loop() {
         setEmergencyDestination();
       }
       //below is true means im going backward
-//      else if (isForwardOverridden() && !isClimbingPitch()) {
-//        //so lets not go backward. You can stop going backward by removing mark
-//        markForForwardOverride(0);
-//        setAvoidableObstacleDestination();
-//      }
+      else if (isForwardOverridden() && !isClimbingPitch()) {
+        //so lets not go backward. You can stop going backward by removing mark
+        markForForwardOverride(0);
+        setAvoidableObstacleDestination();
+      }
       //below is there only incase of edge scenarios
       else {
         //we dont care because we are moving away from danger anyway
@@ -211,7 +211,7 @@ boolean isClimbingPitch(){
 }
 
 boolean isForwardOverridden() {
-  return overrideForwardUntill >= millis();
+  return overrideForwardUntill > millis();
 }
 
 boolean isBatteryCharged() {
