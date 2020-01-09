@@ -145,24 +145,21 @@ void loop() {
     }
 
     //incase of excessive pitch or roll
-    else if (isEmergencyPitchRollSituation()) {
+    //below is true means im going forward
+    else if (isEmergencyPitchRollSituation() && !isForwardOverridden() && isClimbingPitch()) {
+      //so lets go backward
       tone(speakerPin, shoutFrequency, 100);
-      //below is true means im going forward
-      if (!isForwardOverridden() && isClimbingPitch()) {
-        //so lets go backward
-        markForForwardOverride(baseMovementTime);
-        setEmergencyDestination();
-      }
-      //below is true means im going backward
-      else if (isForwardOverridden() && !isClimbingPitch()) {
-        //so lets not go backward. You can stop going backward by removing mark
-        markForForwardOverride(0);
-        setAvoidableObstacleDestination();
-      }
-      //below is there only incase of edge scenarios
-      else {
-        //we dont care because we are moving away from danger anyway
-      }
+      markForForwardOverride(baseMovementTime);
+      setEmergencyDestination();
+    }
+
+    //incase of excessive pitch or roll
+    //below is true means im going backward
+    else if (isEmergencyPitchRollSituation() && isForwardOverridden() && !isClimbingPitch()) {
+      //so lets not go backward. You can stop going backward by removing mark
+      tone(speakerPin, shoutFrequency, 100);
+      markForForwardOverride(0);
+      setAvoidableObstacleDestination();
     }
 
     //incase of emergency
@@ -206,7 +203,7 @@ void markForForwardOverride(unsigned long overrideTime) {
   overrideForwardUntill = millis() + overrideTime;
 }
 
-boolean isClimbingPitch(){
+boolean isClimbingPitch() {
   return ypr[1] >= 0;
 }
 
