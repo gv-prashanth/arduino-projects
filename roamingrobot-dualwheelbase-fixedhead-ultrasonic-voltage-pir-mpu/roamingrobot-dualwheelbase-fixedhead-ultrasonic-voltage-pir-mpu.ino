@@ -10,15 +10,15 @@
 #include "Wire.h"
 
 //Pin Configuration
-const int leftWheelForwardPin = 6;//5
+const int leftWheelForwardPin = 5;//5
 const int leftWheelBackwardPin = 9;//9
-const int rightWheelForwardPin = 10;//10
-const int rightWheelBackwardPin = 11;//11
-const int smartPowerPin = 12; //can be used to sleep and wake peripherals
-const int speakerPin = 13;
+const int rightWheelForwardPin = 11;//10
+const int rightWheelBackwardPin = 10;//11
+const int smartPowerPin = 6; //can be used to sleep and wake peripherals
+const int speakerPin = 4;
 const int ultraTriggerPin = 7;
 const int ultraEchoPin = 8;
-const int batteryVoltageSensePin = -1;//A2 incase you want to detect from dedicated pin. -1 incase you want to detect from vcc.
+const int batteryVoltageSensePin = A2;//A2 incase you want to detect from dedicated pin. -1 incase you want to detect from vcc.
 const int pirInterruptPin = 3;//pin 3 only should be used
 
 //functional Configuration
@@ -29,12 +29,12 @@ const int timeToStickRightLeftDecission = 5000;//milli seconds
 const int talkFrequency = 1000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 120000; //milli seconds
-const int baseMovementTime = 500;//milli seconds
+const int baseMovementTime = 1000;//milli seconds
 const float sleepVoltage = 3.2;//volts
 const float wakeVoltage = 3.7;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-double Kp = 1.6, Ki = 0.2, Kd = 0.6; //Specify the links and initial tuning parameters
+double Kp = 6, Ki = 0.2, Kd = 0.7; //Specify the links and initial tuning parameters
 double Lp = 50, Li = 0, Ld = 0; //Specify the links and initial tuning parameters
 const float desiredSpeed = 1.0;//cm per second
 
@@ -50,7 +50,6 @@ double Setpoint, Input, Output;//Define Variables we'll be connecting to
 double speedSetpoint, speedInput, speedOutput;//Define Variables we'll be connecting to
 float emergencyPitchOffset = 0;
 float emergencyRollOffset = 0;
-boolean isPitchRollCompensationNotDone = true;
 
 // MPU control/status vars
 bool dmpReady = false;  // set true if DMP init was successful
@@ -83,8 +82,6 @@ void setup() {
   pinMode(pirInterruptPin, INPUT);// define interrupt pin as input to read interrupt received by PIR sensor
   pinMode(smartPowerPin, OUTPUT);
 
-  setupMPU();
-
   myPID.SetMode(AUTOMATIC);
   myPID.SetOutputLimits(-255, 255);
   speedPID.SetMode(AUTOMATIC);
@@ -93,9 +90,6 @@ void setup() {
   //Wake the robot
   markForWakeup();
 
-  //TODO: Dont quite like this here
-  getSpeedAndCalculatePower();
-
   //Print the voltage of battery
   Serial.println("Battery Voltage: " + String(batteryVoltageSensor.senseVoltage()));
 
@@ -103,6 +97,11 @@ void setup() {
   if (!isBatteryDead()) {
     doBIOSManoeuvre();
   }
+
+  setupMPU();
+  stabilizeMPU();
+  //TODO: Dont quite ike this here
+  getPitchRollAndCalculateOffsets();
 
 }
 
@@ -134,12 +133,6 @@ void loop() {
     //TODO: Dont quite like it here
     populateYPR();
 
-    //TODO: Dont quite ike this here
-    if (isPitchRollCompensationNotDone) {
-      getPitchRollAndCalculateOffsets();
-      isPitchRollCompensationNotDone = false;
-    }
-
     //check if battery is low and go to sleep
     if (isBatteryDead()) {
       markForSleep();
@@ -164,6 +157,7 @@ void loop() {
 
     //incase of excessive pitch or roll
     //below is true means im going backward
+    //TODO: Not really sure if this is working. Need to test properly
     else if (isEmergencyPitchRollSituation() && isForwardOverridden() && !isClimbingPitch()) {
       //so lets not go backward. You can stop going backward by removing mark
       tone(speakerPin, talkFrequency, 100);
@@ -201,7 +195,7 @@ void markForSleep() {
 
 //TODO: Need to get rid of marks logic
 void markForWakeup() {
-  morseCode.play("Awake");
+  morseCode.play("A");
   isMarkedForSleep = false;
   digitalWrite(smartPowerPin, HIGH);
   lastComandedDirectionChangeTime = millis();
@@ -278,9 +272,9 @@ void setJamDestination() {
 
 void setAvoidableObstacleDestination() {
   if (isRightDecided())
-    setRightDestinationByAngle(random(3, 12) * 10);
+    setRightDestinationByAngle(random(1, 9) * 10);
   else
-    setLeftDestinationByAngle(random(3, 12) * 10);
+    setLeftDestinationByAngle(random(1, 9) * 10);
 }
 
 void doIntruderManoeuvre() {
@@ -301,25 +295,25 @@ void doSleepForEightSeconds() {
 
 void doBIOSManoeuvre() {
   //left
-  morseCode.play("Left");
+  morseCode.play("L");
   base.rotateLeft();
   delay(baseMovementTime);
   base.stop();
 
   //right
-  morseCode.play("Right");
+  morseCode.play("R");
   base.rotateRight();
   delay(baseMovementTime);
   base.stop();
 
   //forward
-  morseCode.play("Forward");
+  morseCode.play("F");
   base.goForward();
   delay(baseMovementTime);
   base.stop();
 
   //backward
-  morseCode.play("Backward");
+  morseCode.play("B");
   base.goBackward();
   delay(baseMovementTime);
   base.stop();
@@ -399,12 +393,12 @@ void setupMPU() {
 
 void stabilizeMPU() {
   Serial.println("Stabilizing MPU...");
-  tone(speakerPin, talkFrequency);
   unsigned long currentTime = millis();
-  while (millis() - currentTime < 10000) {
+  tone(speakerPin, talkFrequency, 1000);
+  while (millis() - currentTime < 30000) {
     populateYPR();
   }
-  noTone(speakerPin);
+  tone(speakerPin, talkFrequency, 1000);
   Serial.println("MPU stabilization complete");
 }
 
@@ -444,12 +438,12 @@ void populateYPR() {
       mpu.dmpGetQuaternion(&q, fifoBuffer);
       mpu.dmpGetGravity(&gravity, &q);
       mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-      //      Serial.print("ypr\t");
-      //      Serial.print(ypr[0] * 180 / M_PI);
-      //      Serial.print("\t");
-      //      Serial.print(ypr[1] * 180 / M_PI);
-      //      Serial.print("\t");
-      //      Serial.println(ypr[2] * 180 / M_PI);
+//      Serial.print("ypr\t");
+//      Serial.print(ypr[0] * 180 / M_PI);
+//      Serial.print("\t");
+//      Serial.print(ypr[1] * 180 / M_PI);
+//      Serial.print("\t");
+//      Serial.println(ypr[2] * 180 / M_PI);
     }
   }
 }
@@ -529,11 +523,10 @@ void getSpeedAndCalculatePower() {
   //  } else {
   //    base.setPowerMultiplier(1);
   //  }
-  base.setPowerMultiplier(0.8);
+  base.setPowerMultiplier(1);
 }
 
 void getPitchRollAndCalculateOffsets() {
-  stabilizeMPU();
   populateYPR();
   emergencyPitchOffset = ypr[1] * 180 / M_PI;
   emergencyRollOffset = ypr[2] * 180 / M_PI;
