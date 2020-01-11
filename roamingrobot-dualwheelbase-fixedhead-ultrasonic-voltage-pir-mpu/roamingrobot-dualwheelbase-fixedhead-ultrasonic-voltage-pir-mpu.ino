@@ -10,32 +10,31 @@
 #include "Wire.h"
 
 //Pin Configuration
-const int leftWheelForwardPin = 9;//5
-const int leftWheelBackwardPin = 5;//9
+const int leftWheelForwardPin = 6;//5
+const int leftWheelBackwardPin = 9;//9
 const int rightWheelForwardPin = 10;//10
 const int rightWheelBackwardPin = 11;//11
-const int smartPowerPin = 6; //can be used to sleep and wake peripherals
+const int smartPowerPin = 12; //can be used to sleep and wake peripherals
 const int speakerPin = 13;
-const int ultraTriggerPin = 8;
-const int ultraEchoPin = 7;
+const int ultraTriggerPin = 7;
+const int ultraEchoPin = 8;
 const int batteryVoltageSensePin = -1;//A2 incase you want to detect from dedicated pin. -1 incase you want to detect from vcc.
 const int pirInterruptPin = 3;//pin 3 only should be used
 
 //functional Configuration
 const int avoidableObstacleRange = 60;//cm
 const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
-const float emergencyPitchRollRange = 7;//degrees
-const int timeToStickRightLeftDecission = 10000;//milli seconds
+const float emergencyPitchRollRange = 5;//degrees
+const int timeToStickRightLeftDecission = 5000;//milli seconds
 const int talkFrequency = 1000;//frequency in Hz
-const int shoutFrequency = 3000;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 120000; //milli seconds
-const int baseMovementTime = 1500;//milli seconds
+const int baseMovementTime = 500;//milli seconds
 const float sleepVoltage = 3.2;//volts
 const float wakeVoltage = 3.7;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-double Kp = 2, Ki = 0.2, Kd = 0.7; //Specify the links and initial tuning parameters
+double Kp = 1.6, Ki = 0.2, Kd = 0.6; //Specify the links and initial tuning parameters
 double Lp = 50, Li = 0, Ld = 0; //Specify the links and initial tuning parameters
 const float desiredSpeed = 1.0;//cm per second
 
@@ -49,6 +48,9 @@ boolean isRightDecidedCached = false;
 float destinationHeading = 0.0;
 double Setpoint, Input, Output;//Define Variables we'll be connecting to
 double speedSetpoint, speedInput, speedOutput;//Define Variables we'll be connecting to
+float emergencyPitchOffset = 0;
+float emergencyRollOffset = 0;
+boolean isPitchRollCompensationNotDone = true;
 
 // MPU control/status vars
 bool dmpReady = false;  // set true if DMP init was successful
@@ -101,6 +103,7 @@ void setup() {
   if (!isBatteryDead()) {
     doBIOSManoeuvre();
   }
+
 }
 
 void loop() {
@@ -131,6 +134,12 @@ void loop() {
     //TODO: Dont quite like it here
     populateYPR();
 
+    //TODO: Dont quite ike this here
+    if (isPitchRollCompensationNotDone) {
+      getPitchRollAndCalculateOffsets();
+      isPitchRollCompensationNotDone = false;
+    }
+
     //check if battery is low and go to sleep
     if (isBatteryDead()) {
       markForSleep();
@@ -148,7 +157,7 @@ void loop() {
     //below is true means im going forward
     else if (isEmergencyPitchRollSituation() && !isForwardOverridden() && isClimbingPitch()) {
       //so lets go backward
-      tone(speakerPin, shoutFrequency, 100);
+      tone(speakerPin, talkFrequency, 100);
       markForForwardOverride(baseMovementTime);
       setEmergencyDestination();
     }
@@ -157,7 +166,7 @@ void loop() {
     //below is true means im going backward
     else if (isEmergencyPitchRollSituation() && isForwardOverridden() && !isClimbingPitch()) {
       //so lets not go backward. You can stop going backward by removing mark
-      tone(speakerPin, shoutFrequency, 100);
+      tone(speakerPin, talkFrequency, 100);
       markForForwardOverride(0);
       setAvoidableObstacleDestination();
     }
@@ -233,8 +242,10 @@ boolean isObstacleWithinAvoidableDistance() {
 }
 
 boolean isEmergencyPitchRollSituation() {
-  boolean safe = (-emergencyPitchRollRange < (ypr[1] * 180 / M_PI) && (ypr[1] * 180 / M_PI) < emergencyPitchRollRange &&
-                  -emergencyPitchRollRange < (ypr[2] * 180 / M_PI) && (ypr[2] * 180 / M_PI) < emergencyPitchRollRange);
+  float currentPitchWithOffset = (ypr[1] * 180 / M_PI) - emergencyPitchOffset;
+  float currentRollWithOffset = (ypr[2] * 180 / M_PI) - emergencyRollOffset;
+  boolean safe = (-emergencyPitchRollRange < currentPitchWithOffset && currentPitchWithOffset < emergencyPitchRollRange &&
+                  -emergencyPitchRollRange < currentRollWithOffset && currentRollWithOffset < emergencyPitchRollRange);
   return !safe;
 }
 
@@ -384,6 +395,9 @@ void setupMPU() {
     morseCode.play("DMP Failed");
     while (true);
   }
+}
+
+void stabilizeMPU() {
   Serial.println("Stabilizing MPU...");
   tone(speakerPin, talkFrequency);
   unsigned long currentTime = millis();
@@ -430,12 +444,12 @@ void populateYPR() {
       mpu.dmpGetQuaternion(&q, fifoBuffer);
       mpu.dmpGetGravity(&gravity, &q);
       mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-      //  Serial.print("ypr\t");
-      //  Serial.print(ypr[0] * 180 / M_PI);
-      //  Serial.print("\t");
-      //  Serial.print(ypr[1] * 180 / M_PI);
-      //  Serial.print("\t");
-      //  Serial.println(ypr[2] * 180 / M_PI);
+      //      Serial.print("ypr\t");
+      //      Serial.print(ypr[0] * 180 / M_PI);
+      //      Serial.print("\t");
+      //      Serial.print(ypr[1] * 180 / M_PI);
+      //      Serial.print("\t");
+      //      Serial.println(ypr[2] * 180 / M_PI);
     }
   }
 }
@@ -515,5 +529,14 @@ void getSpeedAndCalculatePower() {
   //  } else {
   //    base.setPowerMultiplier(1);
   //  }
-  base.setPowerMultiplier(0.5);
+  base.setPowerMultiplier(0.8);
+}
+
+void getPitchRollAndCalculateOffsets() {
+  stabilizeMPU();
+  populateYPR();
+  emergencyPitchOffset = ypr[1] * 180 / M_PI;
+  emergencyRollOffset = ypr[2] * 180 / M_PI;
+  Serial.println("Using pitch offset as " + String(emergencyPitchOffset));
+  Serial.println("Using roll offset as " + String(emergencyRollOffset));
 }
