@@ -4,7 +4,6 @@
 #include <MorseCode.h>
 #include <DeepSleep.h>
 #include <PID_v1.h> //You can download the driver from https://github.com/br3ttb/Arduino-PID-Library/
-#include <Speedometer.h>
 #include "I2Cdev.h"
 #include "MPU6050_6Axis_MotionApps20.h" //You can download the driver from https://github.com/electroniccats/mpu6050
 #include "Wire.h"
@@ -14,10 +13,10 @@ const int leftWheelForwardPin = 5;//5
 const int leftWheelBackwardPin = 9;//9
 const int rightWheelForwardPin = 11;//10
 const int rightWheelBackwardPin = 10;//11
-const int smartPowerPin = 6; //can be used to sleep and wake peripherals
+const int smartPowerPin = 8; //can be used to sleep and wake peripherals
 const int speakerPin = 4;
 const int ultraTriggerPin = 7;
-const int ultraEchoPin = 8;
+const int ultraEchoPin = 6;
 const int batteryVoltageSensePin = A2;//A2 incase you want to detect from dedicated pin. -1 incase you want to detect from vcc.
 const int pirInterruptPin = 3;//pin 3 only should be used
 
@@ -26,17 +25,15 @@ const int avoidableObstacleRange = 60;//cm
 const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
 const float emergencyPitchRollRange = 5;//degrees
 const int timeToStickRightLeftDecission = 5000;//milli seconds
-const int talkFrequency = 1000;//frequency in Hz
+const int talkFrequency = 1700;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 120000; //milli seconds
-const int baseMovementTime = 1000;//milli seconds
-const float sleepVoltage = 3.2;//volts
+const int baseMovementTime = 1500;//milli seconds
+const float sleepVoltage = 3.3;//volts
 const float wakeVoltage = 3.7;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
 const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
-double Kp = 6, Ki = 0.2, Kd = 0.7; //Specify the links and initial tuning parameters
-double Lp = 50, Li = 0, Ld = 0; //Specify the links and initial tuning parameters
-const float desiredSpeed = 1.0;//cm per second
+double Kp = 8.0, Ki = 1.0, Kd = 2.0; //Specify the links and initial tuning parameters
 
 //Dont touch below stuff
 unsigned long lastComandedDirectionChangeTime = 0;
@@ -73,8 +70,6 @@ DualWheelBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardP
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
 DeepSleep deepSleep;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
-PID speedPID(&speedInput, &speedOutput, &speedSetpoint, Lp, Li, Ld, DIRECT);
-Speedometer speedometer(&lastComandedDirectionChangeTime);
 MPU6050 mpu;
 
 void setup() {
@@ -84,8 +79,6 @@ void setup() {
 
   myPID.SetMode(AUTOMATIC);
   myPID.SetOutputLimits(-255, 255);
-  speedPID.SetMode(AUTOMATIC);
-  speedPID.SetOutputLimits(0, 255);
 
   //Wake the robot
   markForWakeup();
@@ -100,8 +93,7 @@ void setup() {
 
   setupMPU();
   stabilizeMPU();
-  //TODO: Dont quite ike this here
-  getPitchRollAndCalculateOffsets();
+  calculatePitchRollBodyOffset();
 
 }
 
@@ -179,8 +171,6 @@ void loop() {
         setAvoidableObstacleDestination();
     }
 
-    //TODO: Dont quite like this here
-    getSpeedAndCalculatePower();
     rotateOrSteerAndGoTowardsDestination();
 
   }
@@ -508,25 +498,7 @@ void setRightDestinationByAngle(int angle) {
   lastComandedDirectionChangeTime = millis();
 }
 
-//TODO: Need to fix this
-void getSpeedAndCalculatePower() {
-  //  int centerReading = (int) ultrasonicSensor.obstacleDistance();
-  //  speedometer.logReading(centerReading);
-  //  float currentSpeed = speedometer.getSpeed();
-  //  if (currentSpeed > 0) {
-  //    speedSetpoint = desiredSpeed;
-  //    speedInput = currentSpeed;
-  //    speedPID.Compute();
-  //    Serial.println("PID Input: " + String(speedInput) + " & Output: " + String(speedOutput) + " will adjust to fix the speed");
-  //    float calculatedBasePowerMultiplier = speedOutput / 255.0;
-  //    base.setPowerMultiplier(calculatedBasePowerMultiplier);
-  //  } else {
-  //    base.setPowerMultiplier(1);
-  //  }
-  base.setPowerMultiplier(1);
-}
-
-void getPitchRollAndCalculateOffsets() {
+void calculatePitchRollBodyOffset() {
   populateYPR();
   emergencyPitchOffset = ypr[1] * 180 / M_PI;
   emergencyRollOffset = ypr[2] * 180 / M_PI;
