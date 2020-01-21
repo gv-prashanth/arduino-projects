@@ -1,18 +1,18 @@
 /*
-  PIDTuner.h - Library for base movement pid tuner.
+  Tuners.h - Library for base movement pid tuner.
   Created by Vader, December 28, 2019.
   Released into the public domain.
 */
 
-#ifndef PIDTuner_h
-#define PIDTuner_h
+#ifndef Tuners_h
+#define Tuners_h
 
 #include "Arduino.h"
 
-class PIDTuner
+class Tuners
 {
   public:
-    PIDTuner();
+    Tuners();
 };
 
 #endif

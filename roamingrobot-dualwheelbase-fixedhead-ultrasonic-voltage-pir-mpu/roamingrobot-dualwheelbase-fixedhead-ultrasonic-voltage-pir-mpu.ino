@@ -25,7 +25,7 @@ const int avoidableObstacleRange = 60;//cm
 const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
 const float emergencyPitchRollRange = 5;//degrees
 const int timeToStickRightLeftDecission = 5000;//milli seconds
-const int talkFrequency = 1700;//frequency in Hz
+const int talkFrequency = 2700;//frequency in Hz
 const int morseUnit = 200; //unit of morse
 const unsigned long robotJamCheckTime = 120000; //milli seconds
 const int baseMovementTime = 1500;//milli seconds
@@ -44,7 +44,6 @@ boolean isIntruderDetected = false;
 boolean isRightDecidedCached = false;
 float destinationHeading = 0.0;
 double Setpoint, Input, Output;//Define Variables we'll be connecting to
-double speedSetpoint, speedInput, speedOutput;//Define Variables we'll be connecting to
 float emergencyPitchOffset = 0;
 float emergencyRollOffset = 0;
 
