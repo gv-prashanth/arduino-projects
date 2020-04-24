@@ -22,7 +22,7 @@ const char* password = "YYYYYY";
 
 //Dimmer initialization
 dimmerLamp dimmer(outputPin, zerocross); //initialase port for dimmer for ESP8266, ESP32, Arduino due boards
-int currentPercentage=100;
+uint8_t percent = 100;
 
 // prototypes
 bool connectWifi();
@@ -58,8 +58,8 @@ void setup()
 void loop()
 {
  espalexa.loop();
- dimmer.setPower(currentPercentage); // setPower(0-100%);
- delay(1);
+ dimmer.setPower(percent); // setPower(0-100%);
+ delay(50);
 }
 
 //our callback functions
@@ -67,14 +67,12 @@ void knobCallback(EspalexaDevice* d) {
   if (d == nullptr) return;
 
   uint8_t brightness = d->getValue();
-  uint8_t percent = d->getPercent();
+  percent = d->getPercent();
   uint8_t degrees = d->getDegrees(); //for heaters, HVAC, ...
 
-  Serial.print("B changed to ");
+  Serial.print("Knob changed to ");
   Serial.print(percent);
   Serial.println("%");
-
-  currentPercentage = percent;
 }
 
 // connect to wifi – returns true if successful or false if not
