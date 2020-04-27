@@ -95,6 +95,13 @@ void knobCallback(EspalexaDevice* d) {
   Serial.print("Received percentage from alexa ");
   Serial.print(percent);
   Serial.println("%");
+
+  if(percent < 15){
+    percent = 15;
+    Serial.print("Overriding percentage from alexa ");
+    Serial.print(percent);
+    Serial.println("%");
+  }
 }
 
 // connect to wifi – returns true if successful or false if not
