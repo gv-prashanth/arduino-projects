@@ -51,14 +51,19 @@ void setup()
   }
   
   // Define your devices here. 
-  espalexa.addDevice("Hall Fan", knobCallback, EspalexaDeviceType::dimmable, 127); //Dimmable device, optional 4th parameter is beginning state (here fully on)
+  espalexa.addDevice("Fan", knobCallback, EspalexaDeviceType::dimmable, 127); //Dimmable device, optional 4th parameter is beginning state (here fully on)
   espalexa.begin();
 }
  
 void loop()
 {
  espalexa.loop();
- dimmer.setPower(percent); // setPower(0-100%);
+ if(percent < 15){
+  Serial.println("Too low setting. Shutting down!");
+  digitalWrite(outputPin, LOW);
+ }else{
+  dimmer.setPower(percent); // setPower(0-100%);
+ }
  delay(50);
 }
 
@@ -69,6 +74,10 @@ void knobCallback(EspalexaDevice* d) {
   uint8_t brightness = d->getValue();
   percent = d->getPercent();
   uint8_t degrees = d->getDegrees(); //for heaters, HVAC, ...
+
+  Serial.print("Received value from alexa ");
+  Serial.print(brightness);
+  Serial.println(".");
 
   Serial.print("Knob changed to ");
   Serial.print(percent);
