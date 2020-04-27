@@ -14,7 +14,7 @@
 #include <RBDdimmer.h>//
 
 #define outputPin  2
-#define zerocross  1 // for boards with CHANGEBLE input pins
+#define zerocross  0 // for boards with CHANGEBLE input pins
 
 // Change this!!
 const char* ssid = "XXXXXX";
@@ -23,6 +23,7 @@ const char* password = "YYYYYY";
 //Dimmer initialization
 dimmerLamp dimmer(outputPin, zerocross); //initialase port for dimmer for ESP8266, ESP32, Arduino due boards
 uint8_t percent = 100;
+boolean isONState = true;
 
 // prototypes
 bool connectWifi();
@@ -58,13 +59,12 @@ void setup()
 void loop()
 {
  espalexa.loop();
- if(percent < 15){
-  Serial.println("Too low setting. Shutting down!");
-  digitalWrite(outputPin, LOW);
- }else{
+ if(isONState){
   dimmer.setPower(percent); // setPower(0-100%);
+ }else{
+  digitalWrite(outputPin, LOW);
  }
- delay(50);
+ delay(50);//TODO: Decide if 1 is better?
 }
 
 //our callback functions
@@ -75,11 +75,24 @@ void knobCallback(EspalexaDevice* d) {
   percent = d->getPercent();
   uint8_t degrees = d->getDegrees(); //for heaters, HVAC, ...
 
+  if(d->getLastChangedProperty()== EspalexaDeviceProperty::off){
+    Serial.println("Looks like switch off command was invoked");
+    isONState = false;
+  } else if(d->getLastChangedProperty()== EspalexaDeviceProperty::on){
+    Serial.println("Looks like switch on command was invoked");
+    isONState = true;
+  } else if(d->getLastChangedProperty()== EspalexaDeviceProperty::bri){
+    Serial.println("Looks like percentage command was invoked");
+  } else {
+    Serial.print("Looks like unknown command was invoked");
+    Serial.println(d->getLastChangedProperty());
+  }
+
   Serial.print("Received value from alexa ");
   Serial.print(brightness);
   Serial.println(".");
 
-  Serial.print("Knob changed to ");
+  Serial.print("Received percentage from alexa ");
   Serial.print(percent);
   Serial.println("%");
 }
