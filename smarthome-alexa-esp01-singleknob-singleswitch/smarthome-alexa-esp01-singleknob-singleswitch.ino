@@ -44,6 +44,9 @@ void setup()
   // initialize dimmer
   dimmerA.begin(NORMAL_MODE, ON); //dimmer initialisation: name.begin(MODE, STATE)
 
+  pinMode(outputPinB, OUTPUT);
+  digitalWrite(outputPinB, HIGH);
+
   // Initialise wifi connection
   wifiConnected = connectWifi();
   if(!wifiConnected){
