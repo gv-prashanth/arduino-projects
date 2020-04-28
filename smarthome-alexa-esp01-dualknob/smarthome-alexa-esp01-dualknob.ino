@@ -10,8 +10,8 @@
 //#define ESPALEXA_NO_SUBPAGE       //disable /espalexa status page
 //#define ESPALEXA_DEBUG            //activate debug serial logging
 //#define ESPALEXA_MAXDEVICES 15    //set maximum devices add-able to Espalexa
-#include <Espalexa.h>
-#include <RBDdimmer.h>//
+#include <Espalexa.h>  // you can download the library from https://github.com/Aircoookie/Espalexa
+#include <RBDdimmer.h> // you can download the library from https://github.com/RobotDynOfficial/RBDDimmer
 
 #define outputPinA  2
 #define outputPinB  3

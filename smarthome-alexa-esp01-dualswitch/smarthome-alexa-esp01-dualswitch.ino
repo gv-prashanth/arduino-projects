@@ -9,11 +9,11 @@
   #define RELAY_PIN_1 2
   #define RELAY_PIN_2 0
 #else
-  #include <ESP8266WiFi.h>
+  #include <ESP8266WiFi.h> //you can download the library from https://github.com/gv-prashanth/arduino-projects/tree/master/libraries
   #define RELAY_PIN_1 2
   #define RELAY_PIN_2 0
 #endif
-#include "fauxmoESP.h"
+#include "fauxmoESP.h" //you can download the library from https://github.com/gv-prashanth/arduino-projects/tree/master/libraries
 
 #define SERIAL_BAUDRATE 115200
 

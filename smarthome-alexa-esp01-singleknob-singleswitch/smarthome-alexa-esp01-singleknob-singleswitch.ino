@@ -10,8 +10,8 @@
 //#define ESPALEXA_NO_SUBPAGE       //disable /espalexa status page
 //#define ESPALEXA_DEBUG            //activate debug serial logging
 //#define ESPALEXA_MAXDEVICES 15    //set maximum devices add-able to Espalexa
-#include <Espalexa.h>
-#include <RBDdimmer.h>//
+#include <Espalexa.h> // you can download the library from https://github.com/Aircoookie/Espalexa
+#include <RBDdimmer.h>// you can download the library from https://github.com/RobotDynOfficial/RBDDimmer
 
 #define outputPinA  2 // knob
 #define outputPinB  3 // switch
@@ -24,7 +24,6 @@ const char* password = "YYYYYY";
 //Dimmer initialization
 dimmerLamp dimmerA(outputPinA, zerocross); //initialase port for dimmer for ESP8266, ESP32, Arduino due boards
 uint8_t percentA = 100;
-boolean isONB = true;
 
 // prototypes
 bool connectWifi();
@@ -69,11 +68,6 @@ void loop()
   dimmerA.setPower(percentA); // setPower(0-100%);
  }else{
   digitalWrite(outputPinA, LOW);
- }
- if(isONB){
-  digitalWrite(outputPinB, HIGH);
- }else{
-  digitalWrite(outputPinB, LOW);
  }
  delay(50);//TODO: Decide if 1 is better?
 }
@@ -122,10 +116,10 @@ void switchCallbackB(EspalexaDevice* d) {
 
   if(d->getLastChangedProperty()== EspalexaDeviceProperty::off){
     Serial.println("Looks like switch off command was invoked");
-    isONB = false;
+    digitalWrite(outputPinB, LOW);
   } else if(d->getLastChangedProperty()== EspalexaDeviceProperty::on){
     Serial.println("Looks like switch on command was invoked");
-    isONB = true;
+    digitalWrite(outputPinB, HIGH);
   }
 
   Serial.print("Received value from alexa ");
