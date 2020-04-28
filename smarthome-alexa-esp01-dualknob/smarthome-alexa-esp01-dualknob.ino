@@ -25,7 +25,7 @@ const char* password = "YYYYYY";
 dimmerLamp dimmerA(outputPinA, zerocross); //initialase port for dimmer for ESP8266, ESP32, Arduino due boards
 dimmerLamp dimmerB(outputPinB, zerocross); //initialase port for dimmer for ESP8266, ESP32, Arduino due boards
 uint8_t percentA = 100;
-boolean isONStateA = true;
+uint8_t percentB = 100;
 
 // prototypes
 bool connectWifi();
@@ -64,12 +64,12 @@ void setup()
 void loop()
 {
  espalexa.loop();
- if(isONStateA){
+ if(dimmerA.getState()){
   dimmerA.setPower(percentA); // setPower(0-100%);
  }else{
   digitalWrite(outputPinA, LOW);
  }
- if(isONStateB){
+ if(dimmerB.getState()){
   dimmerB.setPower(percentB); // setPower(0-100%);
  }else{
   digitalWrite(outputPinB, LOW);
@@ -87,15 +87,21 @@ void knobCallbackA(EspalexaDevice* d) {
 
   if(d->getLastChangedProperty()== EspalexaDeviceProperty::off){
     Serial.println("Looks like switch off command was invoked");
-    isONStateA = false;
-  } else if(d->getLastChangedProperty()== EspalexaDeviceProperty::on){
-    Serial.println("Looks like switch on command was invoked");
-    isONStateA = true;
-  } else if(d->getLastChangedProperty()== EspalexaDeviceProperty::bri){
-    Serial.println("Looks like percentage command was invoked");
+    dimmerA.setState(OFF);
   } else {
-    Serial.print("Looks like unknown command was invoked");
-    Serial.println(d->getLastChangedProperty());
+    if(d->getLastChangedProperty()== EspalexaDeviceProperty::on){
+      Serial.println("Looks like switch on command was invoked");
+      dimmerA.setState(ON);
+    }
+    if(d->getLastChangedProperty()== EspalexaDeviceProperty::bri){
+      Serial.println("Looks like percentage command was invoked");
+    }
+    if(percentA < 15){
+      percentA = 15;
+      Serial.print("Overriding percentage from alexa ");
+      Serial.print(percentA);
+      Serial.println("%");
+    }
   }
 
   Serial.print("Received value from alexa ");
@@ -105,13 +111,6 @@ void knobCallbackA(EspalexaDevice* d) {
   Serial.print("Received percentage from alexa ");
   Serial.print(percentA);
   Serial.println("%");
-
-  if(percentA < 15){
-    percentA = 15;
-    Serial.print("Overriding percentage from alexa ");
-    Serial.print(percentA);
-    Serial.println("%");
-  }
 }
 
 //our callback functions
@@ -124,15 +123,21 @@ void knobCallbackB(EspalexaDevice* d) {
 
   if(d->getLastChangedProperty()== EspalexaDeviceProperty::off){
     Serial.println("Looks like switch off command was invoked");
-    isONStateB = false;
-  } else if(d->getLastChangedProperty()== EspalexaDeviceProperty::on){
-    Serial.println("Looks like switch on command was invoked");
-    isONStateB = true;
-  } else if(d->getLastChangedProperty()== EspalexaDeviceProperty::bri){
-    Serial.println("Looks like percentage command was invoked");
+    dimmerB.setState(OFF);
   } else {
-    Serial.print("Looks like unknown command was invoked");
-    Serial.println(d->getLastChangedProperty());
+    if(d->getLastChangedProperty()== EspalexaDeviceProperty::on){
+      Serial.println("Looks like switch on command was invoked");
+      dimmerB.setState(ON);
+    }
+    if(d->getLastChangedProperty()== EspalexaDeviceProperty::bri){
+      Serial.println("Looks like percentage command was invoked");
+    }
+    if(percentB < 15){
+      percentB = 15;
+      Serial.print("Overriding percentage from alexa ");
+      Serial.print(percentB);
+      Serial.println("%");
+    }
   }
 
   Serial.print("Received value from alexa ");
@@ -142,13 +147,6 @@ void knobCallbackB(EspalexaDevice* d) {
   Serial.print("Received percentage from alexa ");
   Serial.print(percentB);
   Serial.println("%");
-
-  if(percentB < 15){
-    percentB = 15;
-    Serial.print("Overriding percentage from alexa ");
-    Serial.print(percentB);
-    Serial.println("%");
-  }
 }
 
 // connect to wifi – returns true if successful or false if not
