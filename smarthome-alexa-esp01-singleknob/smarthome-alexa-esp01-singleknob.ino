@@ -78,14 +78,15 @@ void knobCallback(EspalexaDevice* d) {
   if(d->getLastChangedProperty()== EspalexaDeviceProperty::off){
     Serial.println("Looks like switch off command was invoked");
     isONState = false;
+    dimmer.setState(OFF);
   } else if(d->getLastChangedProperty()== EspalexaDeviceProperty::on){
     Serial.println("Looks like switch on command was invoked");
     isONState = true;
+    dimmer.setState(ON);
   } else if(d->getLastChangedProperty()== EspalexaDeviceProperty::bri){
     Serial.println("Looks like percentage command was invoked");
   } else {
     Serial.print("Looks like unknown command was invoked");
-    Serial.println(d->getLastChangedProperty());
   }
 
   Serial.print("Received value from alexa ");
