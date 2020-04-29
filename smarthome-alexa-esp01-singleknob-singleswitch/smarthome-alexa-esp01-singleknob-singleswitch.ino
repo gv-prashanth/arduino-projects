@@ -39,13 +39,6 @@ Espalexa espalexa;
 void setup()
 {
   Serial.begin(115200);
-
-  // initialize dimmer
-  dimmerA.begin(NORMAL_MODE, ON); //dimmer initialisation: name.begin(MODE, STATE)
-
-  pinMode(outputPinB, OUTPUT);
-  digitalWrite(outputPinB, HIGH);
-
   // Initialise wifi connection
   wifiConnected = connectWifi();
   if(!wifiConnected){
@@ -59,6 +52,14 @@ void setup()
   espalexa.addDevice("Fan", knobCallbackA, EspalexaDeviceType::dimmable, 127); //Dimmable device, optional 4th parameter is beginning state (here fully on)
   espalexa.addDevice("Light", switchCallbackB, EspalexaDeviceType::onoff); //on off type device
   espalexa.begin();
+
+
+  // initialize dimmer
+  dimmerA.begin(NORMAL_MODE, ON); //dimmer initialisation: name.begin(MODE, STATE)
+
+  pinMode(outputPinB, OUTPUT);
+  digitalWrite(outputPinB, HIGH);
+
 }
  
 void loop()
