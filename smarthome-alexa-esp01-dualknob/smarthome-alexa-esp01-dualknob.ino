@@ -1,5 +1,7 @@
 /*
- * Make sure you configure your wifi SSID & Password before loadig
+ * Make sure you configure your wifi SSID & Password before loading
+ * Make sure you use Board version 2.5.0
+ * For two knobs to work use ZeroCross pin as 3. Although the PCB is designed with ZeroCross as zero pin.
  */ 
 #ifdef ARDUINO_ARCH_ESP32
 #include <WiFi.h>
