@@ -15,17 +15,18 @@
 #include <Espalexa.h>  // you can download the library from https://github.com/Aircoookie/Espalexa
 #include <RBDdimmer.h> // you can download the library from https://github.com/RobotDynOfficial/RBDDimmer
 
-#define outputPinA  2
-#define outputPinB  3
-#define zerocross  0 // for boards with CHANGEBLE input pins
+const int pinA = 2;
+const int pinB = 3; //give -1 incase you dont want to use this pin
+const boolean changeBToSwitch = true; //incase you want to use B as a switch
+const int zerocross = 0; // for boards with CHANGEBLE input pins
 
 // Change this!!
 const char* ssid = "XXXXXX";
 const char* password = "YYYYYY";
 
 //Dimmer initialization
-dimmerLamp dimmerA(outputPinA, zerocross); //initialase port for dimmer for ESP8266, ESP32, Arduino due boards
-dimmerLamp dimmerB(outputPinB, zerocross); //initialase port for dimmer for ESP8266, ESP32, Arduino due boards
+dimmerLamp dimmerA(pinA, zerocross); //initialase port for dimmer for ESP8266, ESP32, Arduino due boards
+dimmerLamp dimmerB(pinB, zerocross); //initialase port for dimmer for ESP8266, ESP32, Arduino due boards
 uint8_t percentA = 100;
 uint8_t percentB = 100;
 
@@ -35,6 +36,7 @@ bool connectWifi();
 //callback functions
 void knobCallbackA(EspalexaDevice* dev);
 void knobCallbackB(EspalexaDevice* dev);
+void switchCallbackB(EspalexaDevice* dev);
 
 bool wifiConnected = false;
 
@@ -55,13 +57,20 @@ void setup()
   
   // Define your devices here. 
   espalexa.addDevice("Fan", knobCallbackA, EspalexaDeviceType::dimmable, 127); //Dimmable device, optional 4th parameter is beginning state (here fully on)
-  espalexa.addDevice("Light", knobCallbackB, EspalexaDeviceType::dimmable, 127); //Dimmable device, optional 4th parameter is beginning state (here fully on)
-  espalexa.begin();
-
   // initialize dimmer
   dimmerA.begin(NORMAL_MODE, ON); //dimmer initialisation: name.begin(MODE, STATE)
-  dimmerB.begin(NORMAL_MODE, ON); //dimmer initialisation: name.begin(MODE, STATE)
 
+  if(pinB>=0){
+    if(changeBToSwitch){
+      espalexa.addDevice("Light", switchCallbackB, EspalexaDeviceType::onoff); //on off type device
+      pinMode(pinB, OUTPUT);
+      digitalWrite(pinB, HIGH);
+    }else{
+      espalexa.addDevice("Light", knobCallbackB, EspalexaDeviceType::dimmable, 127); //Dimmable device, optional 4th parameter is beginning state (here fully on)
+      dimmerB.begin(NORMAL_MODE, ON); //dimmer initialisation: name.begin(MODE, STATE)
+    }
+  }
+  espalexa.begin();
 }
  
 void loop()
@@ -70,12 +79,14 @@ void loop()
  if(dimmerA.getState()){
   dimmerA.setPower(percentA); // setPower(0-100%);
  }else{
-  digitalWrite(outputPinA, LOW);
+  digitalWrite(pinA, LOW);
  }
- if(dimmerB.getState()){
-  dimmerB.setPower(percentB); // setPower(0-100%);
- }else{
-  digitalWrite(outputPinB, LOW);
+ if(!changeBToSwitch){
+   if(dimmerB.getState()){
+    dimmerB.setPower(percentB); // setPower(0-100%);
+   }else{
+    digitalWrite(pinB, LOW);
+   }
  }
  delay(50);//TODO: Decide if 1 is better?
 }
@@ -99,8 +110,8 @@ void knobCallbackA(EspalexaDevice* d) {
     if(d->getLastChangedProperty()== EspalexaDeviceProperty::bri){
       Serial.println("Looks like percentage command was invoked");
     }
-    if(percentA < 15){
-      percentA = 15;
+    if(percentA < 30){
+      percentA = 30;
       Serial.print("Overriding percentage from alexa ");
       Serial.print(percentA);
       Serial.println("%");
@@ -135,8 +146,8 @@ void knobCallbackB(EspalexaDevice* d) {
     if(d->getLastChangedProperty()== EspalexaDeviceProperty::bri){
       Serial.println("Looks like percentage command was invoked");
     }
-    if(percentB < 15){
-      percentB = 15;
+    if(percentB < 30){
+      percentB = 30;
       Serial.print("Overriding percentage from alexa ");
       Serial.print(percentB);
       Serial.println("%");
@@ -150,6 +161,25 @@ void knobCallbackB(EspalexaDevice* d) {
   Serial.print("Received percentage from alexa ");
   Serial.print(percentB);
   Serial.println("%");
+}
+
+//our callback functions
+void switchCallbackB(EspalexaDevice* d) {
+  if (d == nullptr) return;
+
+  uint8_t bvalue = d->getValue();
+
+  if(d->getLastChangedProperty()== EspalexaDeviceProperty::off){
+    Serial.println("Looks like switch off command was invoked");
+    digitalWrite(pinB, LOW);
+  } else if(d->getLastChangedProperty()== EspalexaDeviceProperty::on){
+    Serial.println("Looks like switch on command was invoked");
+    digitalWrite(pinB, HIGH);
+  }
+
+  Serial.print("Received value from alexa ");
+  Serial.print(bvalue);
+  Serial.println(". But it will be ignored!");
 }
 
 // connect to wifi – returns true if successful or false if not
