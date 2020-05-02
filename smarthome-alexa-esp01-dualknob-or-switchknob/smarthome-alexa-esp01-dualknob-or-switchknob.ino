@@ -55,16 +55,16 @@ void setup()
     }
   }
   
-  // Define your devices here. 
+  // Define your first device here.
   espalexa.addDevice("Fan", knobCallbackA, EspalexaDeviceType::dimmable, 127); //Dimmable device, optional 4th parameter is beginning state (here fully on)
-  // initialize dimmer
   dimmerA.begin(NORMAL_MODE, ON); //dimmer initialisation: name.begin(MODE, STATE)
 
   if(pinB>=0){
     if(changeBToSwitch){
-      espalexa.addDevice("Light", switchCallbackB, EspalexaDeviceType::onoff); //on off type device
       pinMode(pinB, OUTPUT);
       digitalWrite(pinB, HIGH);
+      // Define your second device in next two lines.
+      espalexa.addDevice("Light", switchCallbackB, EspalexaDeviceType::onoff); //on off type device
     }else{
       espalexa.addDevice("Light", knobCallbackB, EspalexaDeviceType::dimmable, 127); //Dimmable device, optional 4th parameter is beginning state (here fully on)
       dimmerB.begin(NORMAL_MODE, ON); //dimmer initialisation: name.begin(MODE, STATE)
