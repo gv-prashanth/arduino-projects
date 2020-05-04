@@ -2,167 +2,159 @@
   Automtic Water Level Controller:
 
   The concept:
-   Turns ON and OFF a Motor pump Automtically by sensing presense of water in Overhead Tank and Sump.
+   Turns ON and OFF a sumpMotorTriggerPin pump Automtically by sensing presense of water in Overhead Tank and Sump.
    Using 433MHz RF Transmitter and Receiver modules for wireless link, along with
    HT12E (Encoder)and HT12D (Decoder) ICs for water level Data communiction and finally
-   Arduino as logic controller to drive a Motor Pump. Pump is  connected EM Relay mounted on Power supply unit.
+   Arduino as logic controller to drive a sumpMotorTriggerPin Pump. Pump is  connected EM Relay mounted on Power supply unit.
    Overhed tank bottom water level sensor attached to pin 2 with 10k resistor to ground
    Overhed tank top water level sensor attached to pin 3 with 10k resistor to ground
    Sump bottom water level Capasitor sensor attached to pin A4 - A5
-   Motor driver attached to pin 5  with 10k resistor to ground
-   Valid transmition  (VT){Indicating that the transmitter is alive!} attached to pin A0  with 10k resistor to ground
+   sumpMotorTriggerPin driver attached to pin 5  with 10k resistor to ground
+   Valid transmition  (overheadTransmissionValidityPin){Indicating that the transmitter is alive!} attached to pin A0  with 10k resistor to ground
 
   The Challenge:
-   The VT pin is the only link to ensure the transmitter is sending signals
-   Unfortunately VT pin is not HIGH always, voltage is not steady varying constantly.
+   The overheadTransmissionValidityPin pin is the only link to ensure the transmitter is sending signals
+   Unfortunately overheadTransmissionValidityPin pin is not HIGH always, voltage is not steady varying constantly.
    To ensure the stability and to avoid errors We need to take samples of varrying voltage
    and define the number of samples to keep track.  Higher the number of samples,
    more accurate readings will be smoothened, but slower response to the input.  Using a constant rather than a normal variable lets
    this value to determine the size of the readings array.
 */
 
-const int OUT_PIN = A5;
-const int  IN_PIN = A4;
-const float IN_STRAY_CAP_TO_GND = 24.48;
-const float IN_CAP_TO_GND  = IN_STRAY_CAP_TO_GND;
+//Pin Configurations
+const int overheadTransmissionLowPin = 9; // Over head tank water Minimum level
+const int overheadTransmissionHighPin = 10; // Over head tank water Maximum level
+const int overheadTransmissionValidityPin = A0; // Valid transmition  pin
+const int sumpCapacitorSensorPin1 = A5; // Sump camapcitor sensor pin1
+const int sumpCapacitorSensorPin2 = A4; // Sump camapcitor sensor pin2
+const int sumpMotorTriggerPin = 8; // sump pump driver pin
+const int SumpLevelIndicatorPin = 11; // Sump water level led pin
+
+//Functional Configurations
+const float IN_CAP_TO_GND  = 24.48;
 const float R_PULLUP = 34.8;
 const int MAX_ADC_VALUE = 1023;
 const float MAX_CAP_VALUE_IN_AIR = 0.3;//originally 0.28
+const int NUM_READINGS = 40; // Define the number of samples to keep track of                                         ;
 
-int VT = A0;                     // Valid transmition  pin:
-const int Motor =  8;             // Motor pump driver pin:
-const int OverheadLevelLow = 9;      // Over head tank water Minimum level:
-const int OverheadLevelHigh = 10;    // Over head tank water Maximum level:
-const int SumpLevelLow = 11;        // Sump water Minimum level:
-
-
-const int numReadings = 20;         // Define the number of samples to keep track of                                         ;
-int readings[numReadings];         // the readings from the analog input
-int readIndex = 0;                // the index of the current reading
-int total = 0;                   // the running total
-int average = 0;                // the average
-
+//Dont touch below stuff
+int readings[NUM_READINGS]; // the readings from the analog input
+int readIndex = 0; // the index of the current reading
+int total = 0; // the running total
+int average = 0; // the average
 
 void setup()
 {
-
-  pinMode(OUT_PIN, OUTPUT);
-  pinMode(IN_PIN, OUTPUT);
-  pinMode(SumpLevelLow, OUTPUT);
-
   // initialize serial communication with computer:
   Serial.begin(9600);
 
-  // initialize the Motor pin as Output:
-  pinMode(Motor, OUTPUT);
+  // initialize the sumpMotorTriggerPin pin, SumpLevelIndicatorPinPin as Output:
+  pinMode(sumpMotorTriggerPin, OUTPUT);
+  pinMode(SumpLevelIndicatorPin, OUTPUT);
 
-  // initialize the OverheadLevelLowPin, OverheadLevelHighPin, SumpLevelLowPin, as an input:
-  pinMode(OverheadLevelLow, INPUT);
-  pinMode(OverheadLevelHigh, INPUT);
-
+  // initialize the overheadTransmissionLowPinPin, overheadTransmissionHighPinPin as an input:
+  pinMode(overheadTransmissionLowPin, INPUT);
+  pinMode(overheadTransmissionHighPin, INPUT);
 
   // initialize all the readings to 0:
-  for (int thisReading = 0; thisReading < numReadings; thisReading++) {
+  for (int thisReading = 0; thisReading < NUM_READINGS; thisReading++) {
     readings[thisReading] = 0;
   }
 }
 
 void loop()
 {
-  float capacitance = measureCapacitanceInNanoFarad();
+  // read values from all sensors
+  float sumpCapacitance = measureCapacitanceInNanoFarad();
+  int overheadTransmissionStrength = analogRead(overheadTransmissionValidityPin);
+  boolean overheadLevelLow = digitalRead(overheadTransmissionLowPin);
+  boolean overheadLevelHigh = digitalRead(overheadTransmissionHighPin);
+
+  //switch on or off the motor
+  if (sumpHasWater(sumpCapacitance) && isValidTransmission(overheadTransmissionStrength) && overheadLevelLow)
+    digitalWrite(sumpMotorTriggerPin, HIGH);
+  else if (!sumpHasWater(sumpCapacitance) || !isValidTransmission(overheadTransmissionStrength) || overheadLevelHigh)
+    digitalWrite(sumpMotorTriggerPin, LOW);
+  else
+    Serial.println("No need to do anything");
+
+  //Take a break for a second
+  delay(1000);
+}
+
+boolean isValidTransmission(int overheadTransmissionStrength) {
+  // subtract the last reading:
+  total = total - readings[readIndex];
+  // read from the sensor:
+  readings[readIndex] = overheadTransmissionStrength;
+  // add the reading to the total:
+  total = total + readings[readIndex];
+  // advance to the next position in the array:
+  readIndex = readIndex + 1;
+  // if we're at the end of the array...
+  if (readIndex >= NUM_READINGS) {
+    // ...wrap around to the beginning:
+    readIndex = 0;
+  }
+  // calculate the average:
+  average = total / NUM_READINGS;
+  // send it to the computer as ASCII digits
+  Serial.println(average);
+  return average > 1;
+}
+
+boolean sumpHasWater(float capacitance) {
   Serial.println(capacitance, 2);
   if (capacitance < MAX_CAP_VALUE_IN_AIR)
   {
-    digitalWrite(SumpLevelLow, LOW);
+    digitalWrite(SumpLevelIndicatorPin, LOW);
+    return false;
   }
   else
   {
-    digitalWrite(SumpLevelLow, HIGH);
+    digitalWrite(SumpLevelIndicatorPin, HIGH);
+    return true;
   }
-  delay(1000);
-  {
-
-    // subtract the last reading:
-    total = total - readings[readIndex];
-    // read from the sensor:
-    readings[readIndex] = analogRead(VT);
-    // add the reading to the total:
-    total = total + readings[readIndex];
-    // advance to the next position in the array:
-    readIndex = readIndex + 1;
-
-    // if we're at the end of the array...
-    if (readIndex >= numReadings) {
-      // ...wrap around to the beginning:
-      readIndex = 0;
-    }
-
-    // calculate the average:
-    average = total / numReadings;
-    // send it to the computer as ASCII digits
-    Serial.println(average);
-    delay(100);        // delay in between reads for stability
-
-
-    // read the state of sensor INPUTS:
-
-    int OverheadLevelLowState = digitalRead(OverheadLevelLow);
-    int OverheadLevelHighState = digitalRead(OverheadLevelHigh);
-    // int SumpLevelLowState = digitalRead(SumpLevelLow);
-
-
-    //check if the Over head tnak water level is low(Minimum) and water in Sump is above Minimum level.
-    // ie if transmitter sending signls and OverheadLevelLow state is LOW and sumplevelLow state is HIGH:
-
-    if ( average > 1 && OverheadLevelLowState == LOW && capacitance > MAX_CAP_VALUE_IN_AIR)
-
-      // turn motor ON :
-      digitalWrite(Motor, HIGH);
-
-    // If transmitter not sending signls OR OverheadLevelHigh state is HIGH (Overhed tank is full
-    // OR sumplevelLow state is LOW(Sump water level below minimum) :
-
-    if (average < 1 || OverheadLevelHighState == HIGH || capacitance < MAX_CAP_VALUE_IN_AIR)
-
-      // turn motor OFF:
-      digitalWrite(Motor, LOW);
-  }
-
 }
 
 float measureCapacitanceInNanoFarad() {
-  pinMode(IN_PIN, INPUT);
-  digitalWrite(OUT_PIN, HIGH);
-  int val = analogRead(IN_PIN);
-  digitalWrite(OUT_PIN, LOW);
+  //First lets set both to output
+  pinMode(sumpCapacitorSensorPin1, OUTPUT);
+  pinMode(sumpCapacitorSensorPin2, OUTPUT);
 
+  //Now check with 2 as input. Revert back to output once ur done.
+  pinMode(sumpCapacitorSensorPin2, INPUT);
+  digitalWrite(sumpCapacitorSensorPin1, HIGH);
+  int val = analogRead(sumpCapacitorSensorPin2);
+  digitalWrite(sumpCapacitorSensorPin1, LOW);
+  pinMode(sumpCapacitorSensorPin2, OUTPUT);
+
+  //Now check with 1 as input. Revert back to output once ur done.
   if (val < 1000)
   {
-    pinMode(IN_PIN, OUTPUT);
     return ((float)val * IN_CAP_TO_GND / (float)(MAX_ADC_VALUE - val)) / 1000;
   }
   else
   {
-    pinMode(IN_PIN, OUTPUT);
     delay(1);
-    pinMode(OUT_PIN, INPUT_PULLUP);
+    pinMode(sumpCapacitorSensorPin1, INPUT_PULLUP);
     unsigned long u1 = micros();
     unsigned long t;
     int digVal;
     do
     {
-      digVal = digitalRead(OUT_PIN);
+      digVal = digitalRead(sumpCapacitorSensorPin1);
       unsigned long u2 = micros();
       t = u2 > u1 ? u2 - u1 : u1 - u2;
     } while ((digVal < 1) && (t < 400000L));
-    pinMode(OUT_PIN, INPUT);
-    val = analogRead(OUT_PIN);
-    digitalWrite(IN_PIN, HIGH);
+    pinMode(sumpCapacitorSensorPin1, INPUT);
+    val = analogRead(sumpCapacitorSensorPin1);
+    digitalWrite(sumpCapacitorSensorPin2, HIGH);
     int dischargeTime = (int)(t / 1000L) * 5;
     delay(dischargeTime);
-    pinMode(OUT_PIN, OUTPUT);
-    digitalWrite(OUT_PIN, LOW);
-    digitalWrite(IN_PIN, LOW);
+    pinMode(sumpCapacitorSensorPin1, OUTPUT);
+    digitalWrite(sumpCapacitorSensorPin1, LOW);
+    digitalWrite(sumpCapacitorSensorPin2, LOW);
     return -(float)t / R_PULLUP
            / log(1.0 - (float)val / (float)MAX_ADC_VALUE);
   }
