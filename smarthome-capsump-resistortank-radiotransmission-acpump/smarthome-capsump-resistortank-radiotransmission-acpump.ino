@@ -27,12 +27,14 @@ const float IN_CAP_TO_GND  = 24.48;
 const float R_PULLUP = 34.8;
 const int MAX_ADC_VALUE = 1023;
 const float MAX_CAP_VALUE_IN_AIR = 0.3;//originally 0.28
-const unsigned long DISCONNECT_WAIT_TIME = 5000; // in milliseconds
+const unsigned long WAIT_TIME = 10000; // in milliseconds
 
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime;
 boolean cached_doesOverheadBottomHasWater;
 boolean cached_doesOverheadTopHasWater;
+boolean cached_doesSumpHasWater;
+unsigned long mostRecentSumpFluctuationTime;
 
 void setup()
 {
@@ -51,6 +53,8 @@ void setup()
   lastSuccesfulOverheadTransmissionTime = millis();
   cached_doesOverheadBottomHasWater = true;
   cached_doesOverheadTopHasWater = true;
+  cached_doesSumpHasWater = false;
+  mostRecentSumpFluctuationTime = millis();
 
 }
 
@@ -67,7 +71,7 @@ void loop()
   if (!isConnectionWithinTreshold()) {
     Serial.println("No strong signal from overhead. Shutting down!");
     digitalWrite(sumpMotorTriggerPin, LOW);
-  } else if (!sumpHasWater(sumpCapacitance)) {
+  } else if (!doesSumpHasWaterConsideringFluctuations(sumpCapacitance)) {
     Serial.println("Out of water in sump. Shutting down!");
     digitalWrite(sumpMotorTriggerPin, LOW);
   } else if (cached_doesOverheadTopHasWater) {
@@ -83,7 +87,7 @@ void loop()
 
 boolean isConnectionWithinTreshold() {
   unsigned long currentTime = millis();
-  return currentTime - lastSuccesfulOverheadTransmissionTime < DISCONNECT_WAIT_TIME ;
+  return currentTime - lastSuccesfulOverheadTransmissionTime < WAIT_TIME ;
 }
 
 void LoadAndCacheOverheadTransmissions() {
@@ -98,15 +102,23 @@ void LoadAndCacheOverheadTransmissions() {
 
 }
 
-boolean indicateSumpLevel(float capacitance) {
-  if (sumpHasWater(capacitance))
+void indicateSumpLevel(float capacitance) {
+  if (doesSumpHasWaterConsideringFluctuations(capacitance))
     digitalWrite(SumpLevelIndicatorPin, HIGH);
   else
     digitalWrite(SumpLevelIndicatorPin, LOW);
 }
 
-boolean sumpHasWater(float capacitance) {
-  return (capacitance > MAX_CAP_VALUE_IN_AIR);
+boolean doesSumpHasWaterConsideringFluctuations(float capacitance) {
+  boolean current_doesSumpHasWater = (capacitance > MAX_CAP_VALUE_IN_AIR);
+  if(current_doesSumpHasWater != cached_doesSumpHasWater)
+    mostRecentSumpFluctuationTime = millis(); //there is a fluctuation
+  cached_doesSumpHasWater = current_doesSumpHasWater;
+  unsigned long currentTime = millis();
+  if(currentTime - mostRecentSumpFluctuationTime > WAIT_TIME)
+    return current_doesSumpHasWater;
+  else
+    return false;
 }
 
 float measureCapacitanceInNanoFarad() {
