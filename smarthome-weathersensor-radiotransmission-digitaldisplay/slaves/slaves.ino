@@ -2,7 +2,7 @@
 #include <RF24.h>
 #include <LiquidCrystal_I2C.h> //download from https://bitbucket.org/fmalpartida/new-liquidcrystal/downloads/
 
-LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);
+LiquidCrystal_I2C lcd(0x27);  // Set the LCD I2C address
 RF24 radio(9, 10); // Heard that pin 10 is not adviced to be used.
 
 //Dont touch below stuff
@@ -72,7 +72,7 @@ void printMessage(int messageIndex, String header, String row1, String row2) {
   if (messageIndex != prevMessageIndex) {
     //cls
     lcd.clear();
-
+    lcd.home();
     //Print welcome
     lcd.setCursor(2, 0);
     lcd.print(header);
