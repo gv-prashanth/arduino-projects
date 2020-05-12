@@ -12,6 +12,7 @@
    sumpMotorTriggerPin driver attached to pin 5  with 10k resistor to ground
    Valid transmition Indicates that the transmitter is alive! attached to pin A0 with 10k resistor to ground
 */
+#include <Capacitor.h> //Download from https://github.com/codewrite/arduino-capacitor
 
 //Pin Configurations
 const int overheadTransmissionBottomPin = 9; // Over head tank water Minimum level
@@ -23,9 +24,6 @@ const int sumpMotorTriggerPin = 8; // sump pump driver pin
 const int SumpLevelIndicatorPin = 11; // Sump water level led pin
 
 //Functional Configurations
-const float IN_CAP_TO_GND  = 24.48;
-const float R_PULLUP = 34.8;
-const int MAX_ADC_VALUE = 1023;
 const float MAX_CAP_VALUE_IN_AIR = 0.3;//originally 0.28
 const unsigned long WAIT_TIME = 10000; // in milliseconds
 
@@ -35,6 +33,7 @@ boolean cached_doesOverheadBottomHasWater;
 boolean cached_doesOverheadTopHasWater;
 boolean cached_doesSumpHasWater;
 unsigned long mostRecentSumpFluctuationTime;
+Capacitor cap1(sumpCapacitorSensorPin1,sumpCapacitorSensorPin2);
 
 void setup()
 {
@@ -61,7 +60,7 @@ void setup()
 void loop()
 {
   // read values from all sensors
-  float sumpCapacitance = measureCapacitanceInNanoFarad();
+  float sumpCapacitance = cap1.Measure();// Measure the capacitance (in pF)
   Serial.print("Sump capacitance is ");
   Serial.println(sumpCapacitance, 2);
   indicateSumpLevel(sumpCapacitance);
@@ -119,47 +118,4 @@ boolean doesSumpHasWaterConsideringFluctuations(float capacitance) {
     return current_doesSumpHasWater;
   else
     return false;
-}
-
-float measureCapacitanceInNanoFarad() {
-  //First lets set both to output
-  pinMode(sumpCapacitorSensorPin1, OUTPUT);
-  pinMode(sumpCapacitorSensorPin2, OUTPUT);
-
-  //Now check with 2 as input. Revert back once ur done.
-  pinMode(sumpCapacitorSensorPin2, INPUT);
-  digitalWrite(sumpCapacitorSensorPin1, HIGH);
-  int val = analogRead(sumpCapacitorSensorPin2);
-  digitalWrite(sumpCapacitorSensorPin1, LOW);
-  pinMode(sumpCapacitorSensorPin2, OUTPUT);
-
-  //Now check with 1 as input. Revert back once ur done.
-  if (val < 1000)
-  {
-    return ((float)val * IN_CAP_TO_GND / (float)(MAX_ADC_VALUE - val)) / 1000;
-  }
-  else
-  {
-    delay(1);
-    pinMode(sumpCapacitorSensorPin1, INPUT_PULLUP);
-    unsigned long u1 = micros();
-    unsigned long t;
-    int digVal;
-    do
-    {
-      digVal = digitalRead(sumpCapacitorSensorPin1);
-      unsigned long u2 = micros();
-      t = u2 > u1 ? u2 - u1 : u1 - u2;
-    } while ((digVal < 1) && (t < 400000L));
-    pinMode(sumpCapacitorSensorPin1, INPUT);
-    val = analogRead(sumpCapacitorSensorPin1);
-    digitalWrite(sumpCapacitorSensorPin2, HIGH);
-    int dischargeTime = (int)(t / 1000L) * 5;
-    delay(dischargeTime);
-    pinMode(sumpCapacitorSensorPin1, OUTPUT);
-    digitalWrite(sumpCapacitorSensorPin1, LOW);
-    digitalWrite(sumpCapacitorSensorPin2, LOW);
-    return -(float)t / R_PULLUP
-           / log(1.0 - (float)val / (float)MAX_ADC_VALUE);
-  }
 }
