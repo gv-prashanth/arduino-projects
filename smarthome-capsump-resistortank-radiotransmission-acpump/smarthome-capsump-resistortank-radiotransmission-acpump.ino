@@ -24,7 +24,7 @@ const int sumpMotorTriggerPin = 8; // sump pump driver pin
 const int SumpLevelIndicatorPin = 11; // Sump water level led pin
 
 //Functional Configurations
-const float MAX_CAP_VALUE_IN_AIR = 0.3;//originally 0.28
+const float MAX_CAP_VALUE_IN_AIR = 3000;//(in pF)
 const unsigned long WAIT_TIME = 10000; // in milliseconds
 
 //Dont touch below stuff
@@ -33,7 +33,7 @@ boolean cached_doesOverheadBottomHasWater;
 boolean cached_doesOverheadTopHasWater;
 boolean cached_doesSumpHasWater;
 unsigned long mostRecentSumpFluctuationTime;
-Capacitor cap1(sumpCapacitorSensorPin1,sumpCapacitorSensorPin2);
+Capacitor capSensor(sumpCapacitorSensorPin1,sumpCapacitorSensorPin2);//One Pin should be analog atleast
 
 void setup()
 {
@@ -60,9 +60,9 @@ void setup()
 void loop()
 {
   // read values from all sensors
-  float sumpCapacitance = cap1.Measure();// Measure the capacitance (in pF)
+  float sumpCapacitance = capSensor.Measure();// Measure the capacitance (in pF)
   Serial.print("Sump capacitance is ");
-  Serial.println(sumpCapacitance, 2);
+  Serial.println(sumpCapacitance);
   indicateSumpLevel(sumpCapacitance);
   LoadAndCacheOverheadTransmissions();
 
