@@ -28,7 +28,8 @@ struct largePackage
 unsigned long cycleStartTime;
 int prevMessageIndex = 2;
 //Create up to 6 pipe_addresses;  the "LL" is for LongLong type
-const uint64_t pipe_addresses[] = {0x7878787878LL, 0xB3B4B5B6F1LL, 0xB3B4B5B6CDLL, 0xB3B4B5B6A3LL, 0xB3B4B5B60FLL, 0xB3B4B5B605LL};
+//const uint64_t pipe_addresses[] = {0x7878787878LL, 0xB3B4B5B6F1LL, 0xB3B4B5B6CDLL, 0xB3B4B5B6A3LL, 0xB3B4B5B60FLL, 0xB3B4B5B605LL};
+byte pipe_addresses[][6] = {"1Node","2Node"};
 
 void setup() {
   Serial.begin(9600);
@@ -69,7 +70,7 @@ void loadLargePayloadObjectAndThentransmitItToSlaves() {
   myLargePayload.intemperature = dht.readTemperature();
   myLargePayload.inhumidity = dht.readHumidity();
   radio.stopListening();
-  radio.openWritingPipe(pipe_addresses[1]);
+  radio.openWritingPipe(pipe_addresses[2]);
   radio.write(&myLargePayload, sizeof(myLargePayload));
   radio.startListening();
   Serial.println("Transmitted readings to slaves...");

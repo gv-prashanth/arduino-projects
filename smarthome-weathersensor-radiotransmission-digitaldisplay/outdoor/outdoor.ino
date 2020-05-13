@@ -5,17 +5,19 @@
 #define DHTPIN 4
 #define DHTTYPE DHT22
 
+DHT dht(DHTPIN, DHTTYPE);
 RF24 radio (7, 8);
-//Create up to 6 pipe_addresses;  the "LL" is for LongLong type
-const uint64_t pipe_addresses[] = {0x7878787878LL, 0xB3B4B5B6F1LL, 0xB3B4B5B6CDLL, 0xB3B4B5B6A3LL, 0xB3B4B5B60FLL, 0xB3B4B5B605LL};
-const int led_pin = 13;
+
+//Dont touch below stuff
 struct smallPackage
 {
   float temperature;
   float humidity;
 } myPayload;
-
-DHT dht(DHTPIN, DHTTYPE);
+const int led_pin = 13;
+//Create up to 6 pipe_addresses;  the "LL" is for LongLong type
+//const uint64_t pipe_addresses[] = {0x7878787878LL, 0xB3B4B5B6F1LL, 0xB3B4B5B6CDLL, 0xB3B4B5B6A3LL, 0xB3B4B5B60FLL, 0xB3B4B5B605LL};
+byte pipe_addresses[][6] = {"1Node","2Node"};
 
 void setup()
 {
