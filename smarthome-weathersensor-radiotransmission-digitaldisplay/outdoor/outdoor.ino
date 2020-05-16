@@ -6,7 +6,7 @@
 #define DHTTYPE DHT22
 
 DHT dht(DHTPIN, DHTTYPE);
-RF24 radio (7, 8);
+RF24 radio (9, 10);
 
 //Dont touch below stuff
 struct smallPackage
@@ -25,11 +25,11 @@ void setup()
   pinMode(led_pin, OUTPUT);
   dht.begin();
   radio.begin();
-  radio.setChannel(115);
   radio.setPALevel(RF24_PA_LOW);
-  radio.setDataRate(RF24_250KBPS);
   radio.openWritingPipe(pipe_addresses[1]);
   radio.openReadingPipe(1, pipe_addresses[0]);
+  // Start the radio listening for data
+  radio.startListening();
 }
 
 void loop()

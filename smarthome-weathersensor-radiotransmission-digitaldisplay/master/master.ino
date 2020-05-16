@@ -8,7 +8,7 @@
 #define DHTTYPE DHT22   // DHT Type is DHT 22 (AM2302)
 
 DHT dht(DHTPIN, DHTTYPE);
-LiquidCrystal_I2C lcd(0x27);  // Set the LCD I2C address
+LiquidCrystal_I2C lcd(0x27, 20, 4);  // Set the LCD I2C address
 DS3231  rtc(SDA, SCL);
 RF24 radio(9, 10); // Heard that pin 10 is not adviced to be used.
 
@@ -35,13 +35,14 @@ void setup() {
   Serial.begin(9600);
   rtc.begin();
   lcd.begin(20, 4);
+  lcd.backlight();
   dht.begin();
   radio.begin();
-  radio.setChannel(115);
   radio.setPALevel(RF24_PA_LOW);
-  radio.setDataRate(RF24_250KBPS);
   radio.openWritingPipe(pipe_addresses[0]);
   radio.openReadingPipe(1, pipe_addresses[1]);
+  // Start the radio listening for data
+  radio.startListening();
   cycleStartTime = micros();
 }
 
