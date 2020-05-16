@@ -12,8 +12,12 @@ struct largePackage
   float outhumidity;
   float intemperature;
   float inhumidity;
-  char timechar[8];
 } myLargePayload;
+struct dateTimePackage
+{
+  char datechar[10];
+  char timechar[8];
+} myDateTimePayload;
 unsigned long cycleStartTime;
 int prevMessageIndex = 2;
 //Create up to 6 pipe_addresses;  the "LL" is for LongLong type
@@ -26,17 +30,18 @@ void setup() {
   radio.begin();
   radio.setPALevel(RF24_PA_LOW);
   radio.openReadingPipe(1, pipe_addresses[2]);
+  radio.openReadingPipe(2, pipe_addresses[3]);
   // Start the radio listening for data
   radio.startListening();
   cycleStartTime = micros();
 }
    
 void loop() {
-  waitForResponseAndOnceReceivedLoadLargePayloadObject();
+  waitForResponseAndOnceReceivedLoadPayloadObjects();
   keepRunningTheDisplayCycle();
 }
 
-void waitForResponseAndOnceReceivedLoadLargePayloadObject() {
+void waitForResponseAndOnceReceivedLoadPayloadObjects() {
   boolean timeout = false;
   unsigned long started_waiting_at = micros();
   // While nothing is received
@@ -48,8 +53,16 @@ void waitForResponseAndOnceReceivedLoadLargePayloadObject() {
     }
   }
   if (!timeout) {
-    while (radio.available()) {// While there is data ready
-      radio.read(&myLargePayload, sizeof(myLargePayload));
+    uint8_t pipe_num;
+    while (radio.available(&pipe_num)) {// While there is data ready
+      if(pipe_num==1){
+        radio.read(&myLargePayload, sizeof(myLargePayload));
+      }else if(pipe_num==2){
+        radio.read(&myDateTimePayload, sizeof(myDateTimePayload));
+      }else {
+        Serial.print("Received on unknow pipe...");
+        Serial.println(pipe_num);
+      }
     }
     Serial.println("Received response from master...");
   } else {
@@ -59,7 +72,7 @@ void waitForResponseAndOnceReceivedLoadLargePayloadObject() {
 
 void keepRunningTheDisplayCycle() {
   if (micros() - cycleStartTime < 1 * 3000000) {
-    printMessage(0, "WIRELESS WEATHER", String("DATE : ") + String("NA"), String("TIME : ")+ String(myLargePayload.timechar));
+    printMessage(0, "WIRELESS WEATHER", String("DATE : ") + String(myDateTimePayload.datechar), String("TIME : ")+ String(myDateTimePayload.timechar));
   } else if (micros() - cycleStartTime < 2 * 3000000) {
     printMessage(1, "INDOOR READING", String("TEMP : ") + String(myLargePayload.intemperature) + String((char)223) + String("C"), String("HUMID: ") + String(myLargePayload.inhumidity) + String(" %"));
   } else if (micros() - cycleStartTime < 3 * 3000000) {

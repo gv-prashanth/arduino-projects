@@ -24,8 +24,12 @@ struct largePackage
   float outhumidity;
   float intemperature;
   float inhumidity;
-  char timechar[8];
 } myLargePayload;
+struct dateTimePackage
+{
+  char datechar[10];
+  char timechar[8];
+} myDateTimePayload;
 unsigned long cycleStartTime;
 int prevMessageIndex = 2;
 //Create up to 6 pipe_addresses;  the "LL" is for LongLong type
@@ -48,6 +52,7 @@ void setup() {
 void loop() {
   requestOutdoor();
   waitForResponseAndOnceReceivedLoadSmallPayloadObject();
+  loadDateTimePayloadObjectAndThentransmitItToSlaves();
   loadLargePayloadObjectAndThentransmitItToSlaves();
   keepRunningTheDisplayCycle();
 }
@@ -69,11 +74,21 @@ void loadLargePayloadObjectAndThentransmitItToSlaves() {
   myLargePayload.outhumidity = mySmallPayload.humidity;
   myLargePayload.intemperature = dht.readTemperature();
   myLargePayload.inhumidity = dht.readHumidity();
-  String temp = rtc.getTimeStr();
-  temp.toCharArray(myLargePayload.timechar, 8);
   radio.stopListening();
   radio.openWritingPipe(pipe_addresses[2]);
   radio.write(&myLargePayload, sizeof(myLargePayload));
+  radio.startListening();
+  Serial.println("Transmitted readings to slaves...");
+}
+
+void loadDateTimePayloadObjectAndThentransmitItToSlaves() {
+  String temp = rtc.getDateStr();
+  temp.toCharArray(myDateTimePayload.datechar, 10);
+  temp = rtc.getTimeStr();
+  temp.toCharArray(myDateTimePayload.timechar, 8);
+  radio.stopListening();
+  radio.openWritingPipe(pipe_addresses[3]);
+  radio.write(&myDateTimePayload, sizeof(myDateTimePayload));
   radio.startListening();
   Serial.println("Transmitted readings to slaves...");
 }
