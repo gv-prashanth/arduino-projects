@@ -24,8 +24,7 @@ struct largePackage
   float outhumidity;
   float intemperature;
   float inhumidity;
-  char datechar[];
-  char timechar[];
+  char timechar[8];
 } myLargePayload;
 unsigned long cycleStartTime;
 int prevMessageIndex = 2;
@@ -70,9 +69,7 @@ void loadLargePayloadObjectAndThentransmitItToSlaves() {
   myLargePayload.outhumidity = mySmallPayload.humidity;
   myLargePayload.intemperature = dht.readTemperature();
   myLargePayload.inhumidity = dht.readHumidity();
-  String temp = rtc.getDateStr();
-  temp.toCharArray(myLargePayload.datechar, 10);
-  temp = rtc.getTimeStr();
+  String temp = rtc.getTimeStr();
   temp.toCharArray(myLargePayload.timechar, 8);
   radio.stopListening();
   radio.openWritingPipe(pipe_addresses[2]);
