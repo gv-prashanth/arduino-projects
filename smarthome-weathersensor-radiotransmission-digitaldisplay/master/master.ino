@@ -4,7 +4,7 @@
 #include <DS3231.h> //download from http://www.rinkydinkelectronics.com/library.php?id=73
 #include <LiquidCrystal_I2C.h> //download from https://bitbucket.org/fmalpartida/new-liquidcrystal/downloads/
 
-#define DHTPIN 8       // DHT-22 Output Pin connection
+#define DHTPIN 4       // DHT-22 Output Pin connection
 #define DHTTYPE DHT22   // DHT Type is DHT 22 (AM2302)
 
 DHT dht(DHTPIN, DHTTYPE);
@@ -24,6 +24,8 @@ struct largePackage
   float outhumidity;
   float intemperature;
   float inhumidity;
+  String datestr;
+  String timestr;
 } myLargePayload;
 unsigned long cycleStartTime;
 int prevMessageIndex = 2;
@@ -68,6 +70,8 @@ void loadLargePayloadObjectAndThentransmitItToSlaves() {
   myLargePayload.outhumidity = mySmallPayload.humidity;
   myLargePayload.intemperature = dht.readTemperature();
   myLargePayload.inhumidity = dht.readHumidity();
+  myLargePayload.datestr = rtc.getDateStr();
+  myLargePayload.timestr = rtc.getTimeStr();
   radio.stopListening();
   radio.openWritingPipe(pipe_addresses[2]);
   radio.write(&myLargePayload, sizeof(myLargePayload));
