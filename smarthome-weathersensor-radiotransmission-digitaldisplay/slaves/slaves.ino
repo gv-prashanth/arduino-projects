@@ -28,6 +28,7 @@ void setup() {
   // Start the radio listening for data
   radio.startListening();
   cycleStartTime = micros();
+  printMessage(0, "HELLO", String("WORLD"), String("GJ"));
 }
    
 void loop() {
@@ -51,6 +52,9 @@ void waitForResponseAndOnceReceivedLoadLargePayloadObject() {
       radio.read(&myLargePayload, sizeof(myLargePayload));
     }
     Serial.println("Received response from master...");
+    Serial.print(myLargePayload.intemperature);
+    Serial.print(myLargePayload.inhumidity);
+    Serial.println("indoor readings");
   } else {
     Serial.println("Timeout while waiting for response from outside...");
   }
@@ -58,7 +62,7 @@ void waitForResponseAndOnceReceivedLoadLargePayloadObject() {
 
 void keepRunningTheDisplayCycle() {
   if (micros() - cycleStartTime < 1 * 3000000) {
-    printMessage(0, "WIRELESS WEATHER", String("DATE : ") + String("NA"), String("TIME : ") + String("NA"));
+    printMessage(0, "WIRELESS WEATHER", String("DATE : "), String("TIME : "));
   } else if (micros() - cycleStartTime < 2 * 3000000) {
     printMessage(1, "INDOOR READING", String("TEMP : ") + String(myLargePayload.intemperature) + String((char)223) + String("C"), String("HUMID: ") + String(myLargePayload.inhumidity) + String(" %"));
   } else if (micros() - cycleStartTime < 3 * 3000000) {
