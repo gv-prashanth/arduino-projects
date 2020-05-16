@@ -12,8 +12,8 @@ struct largePackage
   float outhumidity;
   float intemperature;
   float inhumidity;
-  String datestr;
-  String timestr;
+  char datechar[];
+  char timechar[];
 } myLargePayload;
 unsigned long cycleStartTime;
 int prevMessageIndex = 2;
@@ -60,7 +60,7 @@ void waitForResponseAndOnceReceivedLoadLargePayloadObject() {
 
 void keepRunningTheDisplayCycle() {
   if (micros() - cycleStartTime < 1 * 3000000) {
-    printMessage(0, "WIRELESS WEATHER", String("DATE : ") + String(myLargePayload.datestr), String("TIME : ")+ String(myLargePayload.timestr));
+    printMessage(0, "WIRELESS WEATHER", String("DATE : ") + String(myLargePayload.datechar), String("TIME : ")+ String(myLargePayload.timechar));
   } else if (micros() - cycleStartTime < 2 * 3000000) {
     printMessage(1, "INDOOR READING", String("TEMP : ") + String(myLargePayload.intemperature) + String((char)223) + String("C"), String("HUMID: ") + String(myLargePayload.inhumidity) + String(" %"));
   } else if (micros() - cycleStartTime < 3 * 3000000) {
