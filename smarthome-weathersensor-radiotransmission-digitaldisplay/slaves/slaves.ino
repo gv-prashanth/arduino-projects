@@ -2,7 +2,7 @@
 #include <RF24.h>
 #include <LiquidCrystal_I2C.h> //download from https://bitbucket.org/fmalpartida/new-liquidcrystal/downloads/
 
-LiquidCrystal_I2C lcd(0x27);  // Set the LCD I2C address
+LiquidCrystal_I2C lcd(0x27, 20, 4);  // Set the LCD I2C address
 RF24 radio(9, 10); // Heard that pin 10 is not adviced to be used.
 
 //Dont touch below stuff
@@ -16,17 +16,17 @@ struct largePackage
 unsigned long cycleStartTime;
 int prevMessageIndex = 2;
 //Create up to 6 pipe_addresses;  the "LL" is for LongLong type
-//0x7878787878LL, 0xB3B4B5B6F1LL, 0xB3B4B5B6CDLL, 0xB3B4B5B6A3LL, 0xB3B4B5B60FLL, 0xB3B4B5B605LL
-const uint64_t pipe_addresses[] = {0xB3B4B5B6F1LL};//pipe between indoor and slave
+const uint64_t pipe_addresses[] = {0x7878787878LL, 0xB3B4B5B6F1LL, 0xB3B4B5B6CDLL, 0xB3B4B5B6A3LL, 0xB3B4B5B60FLL, 0xB3B4B5B605LL};
 
 void setup() {
   Serial.begin (9600);
-  lcd.begin(20,4);
+  lcd.begin(20, 4);
+  lcd.backlight();
   radio.begin();
-  radio.setChannel(115);
   radio.setPALevel(RF24_PA_LOW);
-  radio.setDataRate(RF24_250KBPS);
-  radio.openReadingPipe(0, pipe_addresses[0]);
+  radio.openReadingPipe(1, pipe_addresses[2]);
+  // Start the radio listening for data
+  radio.startListening();
   cycleStartTime = micros();
 }
    

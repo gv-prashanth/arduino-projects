@@ -28,8 +28,7 @@ struct largePackage
 unsigned long cycleStartTime;
 int prevMessageIndex = 2;
 //Create up to 6 pipe_addresses;  the "LL" is for LongLong type
-//const uint64_t pipe_addresses[] = {0x7878787878LL, 0xB3B4B5B6F1LL, 0xB3B4B5B6CDLL, 0xB3B4B5B6A3LL, 0xB3B4B5B60FLL, 0xB3B4B5B605LL};
-byte pipe_addresses[][6] = {"1Node","2Node"};
+const uint64_t pipe_addresses[] = {0x7878787878LL, 0xB3B4B5B6F1LL, 0xB3B4B5B6CDLL, 0xB3B4B5B6A3LL, 0xB3B4B5B60FLL, 0xB3B4B5B605LL};
 
 void setup() {
   Serial.begin(9600);
@@ -39,7 +38,6 @@ void setup() {
   dht.begin();
   radio.begin();
   radio.setPALevel(RF24_PA_LOW);
-  radio.openWritingPipe(pipe_addresses[0]);
   radio.openReadingPipe(1, pipe_addresses[1]);
   // Start the radio listening for data
   radio.startListening();
@@ -49,7 +47,7 @@ void setup() {
 void loop() {
   requestOutdoor();
   waitForResponseAndOnceReceivedLoadSmallPayloadObject();
-  //loadLargePayloadObjectAndThentransmitItToSlaves();
+  loadLargePayloadObjectAndThentransmitItToSlaves();
   keepRunningTheDisplayCycle();
 }
 
@@ -80,6 +78,7 @@ void loadLargePayloadObjectAndThentransmitItToSlaves() {
 void requestOutdoor() {
   radio.stopListening();
   unsigned char sendChar = 1;
+  radio.openWritingPipe(pipe_addresses[0]);
   radio.write(&sendChar, sizeof(unsigned char));
   radio.startListening();
   Serial.println("Requested outdoor for readings...");
