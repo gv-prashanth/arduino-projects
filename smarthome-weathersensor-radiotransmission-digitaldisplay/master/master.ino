@@ -27,8 +27,8 @@ struct largePackage
 } myLargePayload;
 struct dateTimePackage
 {
-  char datechar[10];
-  char timechar[8];
+  char datechar[11];
+  char timechar[9];
 } myDateTimePayload;
 unsigned long cycleStartTime;
 int prevMessageIndex = 2;
@@ -83,9 +83,9 @@ void loadLargePayloadObjectAndThentransmitItToSlaves() {
 
 void loadDateTimePayloadObjectAndThentransmitItToSlaves() {
   String temp = rtc.getDateStr();
-  temp.toCharArray(myDateTimePayload.datechar, 10);
+  temp.toCharArray(myDateTimePayload.datechar, 11);
   temp = rtc.getTimeStr();
-  temp.toCharArray(myDateTimePayload.timechar, 8);
+  temp.toCharArray(myDateTimePayload.timechar, 9);
   radio.stopListening();
   radio.openWritingPipe(pipe_addresses[3]);
   radio.write(&myDateTimePayload, sizeof(myDateTimePayload));

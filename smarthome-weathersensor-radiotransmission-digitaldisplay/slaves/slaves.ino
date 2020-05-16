@@ -15,8 +15,8 @@ struct largePackage
 } myLargePayload;
 struct dateTimePackage
 {
-  char datechar[10];
-  char timechar[8];
+  char datechar[11];
+  char timechar[9];
 } myDateTimePayload;
 unsigned long cycleStartTime;
 int prevMessageIndex = 2;
