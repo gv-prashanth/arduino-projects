@@ -42,7 +42,9 @@ void setup() {
   lcd.backlight();
   dht.begin();
   radio.begin();
-  radio.setPALevel(RF24_PA_LOW);
+  radio.setChannel(115);
+  radio.setPALevel(RF24_PA_MAX);
+  radio.setDataRate(RF24_250KBPS);
   radio.openReadingPipe(1, pipe_addresses[1]);
   // Start the radio listening for data
   radio.startListening();
