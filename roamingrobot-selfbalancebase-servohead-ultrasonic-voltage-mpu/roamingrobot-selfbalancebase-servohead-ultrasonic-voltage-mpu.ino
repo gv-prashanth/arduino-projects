@@ -106,6 +106,7 @@ void setup(){
 //Main program loop
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void loop(){
+  /*
   if(Serial.available()){                                                   //If there is serial data available
     received_byte = Serial.read();                                          //Load the received serial data in the received_byte variable
     receive_counter = 0;                                                    //Reset the receive_counter variable
@@ -126,6 +127,9 @@ void loop(){
     digitalWrite(13, HIGH);                                                 //Turn on the led if battery voltage is to low
     low_bat = 1;                                                            //Set the low_bat variable to 1
   }
+  */
+
+  received_byte = B00000000;
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //Angle calculations
@@ -298,29 +302,3 @@ ISR(TIMER2_COMPA_vect){
   else if(throttle_counter_right_motor == 1)PORTD |= 0b00010000;            //Set output 4 high to create a pulse for the stepper controller
   else if(throttle_counter_right_motor == 2)PORTD &= 0b11101111;            //Set output 4 low because the pulse only has to last for 20us
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
