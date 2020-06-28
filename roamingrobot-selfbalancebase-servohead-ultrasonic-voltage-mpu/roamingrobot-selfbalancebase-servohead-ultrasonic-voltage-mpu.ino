@@ -7,11 +7,11 @@ const int TRIGGER_PIN = 7; // Arduino pin tied to trigger pin on ping sensor.
 const int ECHO_PIN = 6; // Arduino pin tied to echo pin on ping sensor.
 
 //functional Configuration
-const int avoidableObstacleRange = 60;//cm
-const int emergencyObstacleRange = avoidableObstacleRange / 3; //cm
-const int timeToStickRightLeftDecission = 5000;//milli seconds
+const int avoidableObstacleRange = 80;//cm
+const int emergencyObstacleRange = 30; //cm
+const int timeToStickRightLeftDecission = 12000;//milli seconds
 const unsigned long robotJamCheckTime = 120000; //milli seconds
-const int baseMovementTime = 1500;//milli seconds
+const int baseMovementTime = 500;//milli seconds
 const float sleepVoltage = 3.3;//volts
 const float wakeVoltage = 3.7;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
@@ -20,7 +20,7 @@ float pid_p_gain = 15;                                       //Gain setting for 
 float pid_i_gain = 1.5;                                      //Gain setting for the I-controller (1.5)
 float pid_d_gain = 30;                                       //Gain setting for the D-controller (30)
 float turning_speed = 5;                                    //Turning speed (20)
-float max_target_speed = 5;                                //Max target speed (100)
+float max_target_speed = 1;                                //Max target speed (100)
 int acc_calibration_value = 675;                            //Enter the accelerometer calibration value
 int gyro_address = 0x68;                                     //MPU-6050 I2C address (0x68 or 0x69)
 
@@ -44,7 +44,6 @@ boolean isRightDecidedCached = false;
 float destinationHeading = 0.0;
 float centerReading = 0.0;
 
-byte commandToRun;
 unsigned long commandEndTime, botStartTime, lastSonarSentTime, lastEchoReceivedTime;
 
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
@@ -127,7 +126,9 @@ void markForWakeup() {
 }
 
 void markForForwardOverride(unsigned long overrideTime) {
-  overrideForwardUntill = millis() + overrideTime;
+  if(overrideForwardUntill < millis()){
+    overrideForwardUntill = millis() + overrideTime;
+  }
 }
 
 boolean isForwardOverridden() {
@@ -192,43 +193,55 @@ void doBIOSManoeuvre() {
     loop_timer += 4000;
   }
 
-  /*
-    //left
-    morseCodePlay("L");
+  //left
+  morseCodePlay("L");
+  while (millis() - botStartTime < 15000) {
     baseRotateLeft();
-    delay(baseMovementTime);
-    baseStop();
+    loopBase();
+    while (loop_timer > micros());
+    loop_timer += 4000;
+  }
 
-    //right
-    morseCodePlay("R");
+  //right
+  morseCodePlay("R");
+  while (millis() - botStartTime < 20000) {
     baseRotateRight();
-    delay(baseMovementTime);
-    baseStop();
+    loopBase();
+    while (loop_timer > micros());
+    loop_timer += 4000;
+  }
 
-    //forward
-    morseCodePlay("F");
+  //forward
+  morseCodePlay("F");
+  while (millis() - botStartTime < 22000) {
     baseGoForward();
-    delay(baseMovementTime);
-    baseStop();
+    loopBase();
+    while (loop_timer > micros());
+    loop_timer += 4000;
+  }
 
-    //backward
-    morseCodePlay("B");
+  //backward
+  morseCodePlay("B");
+  while (millis() - botStartTime < 24000) {
     baseGoBackward();
-    delay(baseMovementTime);
-    baseStop();
-  */
+    loopBase();
+    while (loop_timer > micros());
+    loop_timer += 4000;
+  }
+
 }
 
 void rotateOrSteerAndGoTowardsDestination() {
   if (isForwardOverridden()) {
     baseGoBackward();
-  } else if (calculateAngularDifferenceVector() > 0) {
+  } else if (calculateAngularDifferenceVector() > 0 && abs(calculateAngularDifferenceVector()) > 1) {
     baseRotateRight();
-    setRightDestinationByAngle(abs(calculateAngularDifferenceVector()) - 0.00001);
-  } else if (calculateAngularDifferenceVector() < 0) {
+    setRightDestinationByAngle(abs(calculateAngularDifferenceVector()) - 0.01);
+  } else if (calculateAngularDifferenceVector() < 0 && abs(calculateAngularDifferenceVector()) > 1) {
     baseRotateLeft();
-    setLeftDestinationByAngle(abs(calculateAngularDifferenceVector()) + 0.00001);
+    setLeftDestinationByAngle(abs(calculateAngularDifferenceVector()) - 0.01);
   } else {
+    destinationHeading = getHeading();
     baseGoForward();
   }
 }
@@ -255,23 +268,23 @@ void morseCodePlay(String toPlay) {
 }
 
 void baseRotateLeft() {
-  commandToRun = B00000001;
+  received_byte = B00000001;
 }
 
 void baseRotateRight() {
-  commandToRun = B00000010;
+  received_byte = B00000010;
 }
 
 void baseGoForward() {
-  commandToRun = B00000100;
+  received_byte = B00000100;
 }
 
 void baseGoBackward() {
-  commandToRun = B00001000;
+  received_byte = B00001000;
 }
 
 void baseStop() {
-  commandToRun = 0x00;
+  received_byte = 0x00;
 }
 
 float getHeading() {
@@ -293,6 +306,6 @@ void populateUltrasonicReading() {
 
 //Within interrupt. Should run fast.
 void triggerSonarInterrupt() {
-  if(digitalRead(ECHO_PIN) == HIGH)
+  if (digitalRead(ECHO_PIN) == HIGH)
     lastEchoReceivedTime = micros();
 }
