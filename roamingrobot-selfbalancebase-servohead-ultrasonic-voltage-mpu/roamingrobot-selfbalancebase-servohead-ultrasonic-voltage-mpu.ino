@@ -11,7 +11,7 @@ const int avoidableObstacleRange = 80;//cm
 const int emergencyObstacleRange = 30; //cm
 const int timeToStickRightLeftDecission = 12000;//milli seconds
 const unsigned long robotJamCheckTime = 120000; //milli seconds
-const int baseMovementTime = 500;//milli seconds
+const int baseMovementTime = 1000;//milli seconds
 const float sleepVoltage = 3.3;//volts
 const float wakeVoltage = 3.7;//volts. Must be greater than sleepVoltage.
 const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
@@ -20,7 +20,7 @@ float pid_p_gain = 15;                                       //Gain setting for 
 float pid_i_gain = 1.5;                                      //Gain setting for the I-controller (1.5)
 float pid_d_gain = 30;                                       //Gain setting for the D-controller (30)
 float turning_speed = 5;                                    //Turning speed (20)
-float max_target_speed = 1;                                //Max target speed (100)
+float max_target_speed = 5;                                //Max target speed (100)
 int acc_calibration_value = 675;                            //Enter the accelerometer calibration value
 int gyro_address = 0x68;                                     //MPU-6050 I2C address (0x68 or 0x69)
 
@@ -179,9 +179,9 @@ void setJamDestination() {
 
 void setAvoidableObstacleDestination() {
   if (isRightDecided())
-    setRightDestinationByAngle(random(1, 9) * 10);
+    setRightDestinationByAngle(random(1, 36) * 10);
   else
-    setLeftDestinationByAngle(random(1, 9) * 10);
+    setLeftDestinationByAngle(random(1, 36) * 10);
 }
 
 void doBIOSManoeuvre() {
@@ -229,6 +229,15 @@ void doBIOSManoeuvre() {
     loop_timer += 4000;
   }
 
+  //wait
+  morseCodePlay("S");
+  while (millis() - botStartTime < 30000) {
+    baseStop();
+    loopBase();
+    while (loop_timer > micros());
+    loop_timer += 4000;
+  }
+
 }
 
 void rotateOrSteerAndGoTowardsDestination() {
@@ -236,10 +245,10 @@ void rotateOrSteerAndGoTowardsDestination() {
     baseGoBackward();
   } else if (calculateAngularDifferenceVector() > 0 && abs(calculateAngularDifferenceVector()) > 1) {
     baseRotateRight();
-    setRightDestinationByAngle(abs(calculateAngularDifferenceVector()) - 0.01);
+    setRightDestinationByAngle(abs(calculateAngularDifferenceVector()) - 0.001);
   } else if (calculateAngularDifferenceVector() < 0 && abs(calculateAngularDifferenceVector()) > 1) {
     baseRotateLeft();
-    setLeftDestinationByAngle(abs(calculateAngularDifferenceVector()) - 0.01);
+    setLeftDestinationByAngle(abs(calculateAngularDifferenceVector()) - 0.001);
   } else {
     destinationHeading = getHeading();
     baseGoForward();
