@@ -184,12 +184,12 @@ void loopBase(){
   }
 
   if(received_byte & B00000100){                                            //If the third bit of the receive byte is set change the left and right variable to turn the robot to the right
-    if(pid_setpoint > -2.5)pid_setpoint -= 0.05;                            //Slowly change the setpoint angle so the robot starts leaning forewards
+    if(pid_setpoint > -max_target_speed/2)pid_setpoint -= 0.01;                            //Slowly change the setpoint angle so the robot starts leaning forewards
     if(pid_output > max_target_speed * -1)pid_setpoint -= 0.005;            //Slowly change the setpoint angle so the robot starts leaning forewards
   }
   if(received_byte & B00001000){                                            //If the forth bit of the receive byte is set change the left and right variable to turn the robot to the right
-    if(pid_setpoint < 2.5)pid_setpoint += 0.05;                             //Slowly change the setpoint angle so the robot starts leaning backwards
-    if(pid_output < max_target_speed)pid_setpoint += 0.005;                 //Slowly change the setpoint angle so the robot starts leaning backwards
+    if(pid_setpoint < max_target_speed/2)pid_setpoint += 0.01;                             //Slowly change the setpoint angle so the robot starts leaning backwards
+    if(pid_output < max_target_speed/3)pid_setpoint += 0.005;                 //Slowly change the setpoint angle so the robot starts leaning backwards
   }   
 
   if(!(received_byte & B00001100)){                                         //Slowly reduce the setpoint to zero if no foreward or backward command is given
