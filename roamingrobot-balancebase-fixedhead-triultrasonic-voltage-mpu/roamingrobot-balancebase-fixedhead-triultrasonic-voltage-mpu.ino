@@ -7,11 +7,10 @@ const int ECHO_PIN_LEFT = 8; // Arduino pin tied to echo pin on ping sensor.
 const int ECHO_PIN_RIGHT = 9; // Arduino pin tied to echo pin on ping sensor.
 
 //functional Configuration
-const int avoidableObstacleRange = 50;//cm
-const int emergencyObstacleRange = 25; //cm
-const int timeToStickRightLeftDecission = 12000;//milli seconds
-const int backMovementTime = 2000;//milli seconds
-const int rightLeftMovementTime = 3000;//milli seconds
+const int emergencyObstacleRange = 40; //cm
+const int timeToStickRightLeftDecission = 2000;//milli seconds
+const int backMovementTime = 1000;//milli seconds
+const int rightLeftMovementTime = 2000;//milli seconds
 float pid_p_gain = 15;                                       //Gain setting for the P-controller (15)
 float pid_i_gain = 1.5;                                      //Gain setting for the I-controller (1.5)
 float pid_d_gain = 30;                                       //Gain setting for the D-controller (30)
@@ -64,29 +63,27 @@ void loop() {
 
   //incase of emergency
   if (isObstacleWithinEmergencyDistance()) {
-    markForForwardOverride(backMovementTime);
-    if (!isForwardOverridden()) {
-      if (isRightDecided()) {
-        markForRightOverride(backMovementTime+rightLeftMovementTime);
-      } else {
-        markForLeftOverride(backMovementTime+rightLeftMovementTime);
-      }
+    // markForForwardOverride(backMovementTime);
+    if (isRightDecided()) {
+      markForRightOverride(rightLeftMovementTime);
+    } else {
+      markForLeftOverride(rightLeftMovementTime);
     }
   }
 
-  //Only do this when you are moving forward
-  else if (isObstacleWithinAvoidableDistance()) {
-    //below is true means im going forward
-    if (!isForwardOverridden()) {
-      if (isRightDecided()) {
-        markForRightOverride(rightLeftMovementTime);
-      } else {
-        markForLeftOverride(rightLeftMovementTime);
-      }
-    }
+  if (isForwardOverridden()) {
+    baseGoBackward();
+  } else if (isRightOverridden()) {
+    //digitalWrite(13, !digitalRead(13));
+    baseRotateRight();
+  } else if (isLeftOverridden()) {
+    //digitalWrite(13, !digitalRead(13));
+    baseRotateLeft();
+  } else {
+    //digitalWrite(13, LOW);
+    baseGoForward();
   }
 
-  rotateOrSteerAndGoTowardsDestination();
 
   loopBase();
 
@@ -130,21 +127,15 @@ boolean isLeftOverridden() {
   return overrideLeftUntill > millis();
 }
 
-boolean isObstacleWithinAvoidableDistance() {
-  return (centerReading > emergencyObstacleRange && centerReading <= avoidableObstacleRange)
-         || (leftReading > emergencyObstacleRange/2 && leftReading <= avoidableObstacleRange/2)
-         || (rightReading > emergencyObstacleRange/2 && rightReading <= avoidableObstacleRange/2);
-}
-
 boolean isObstacleWithinEmergencyDistance() {
   return (centerReading > 0 && centerReading <= emergencyObstacleRange)
-         || (leftReading > 0 && leftReading <= emergencyObstacleRange/2)
-         || (rightReading > 0 && rightReading <= emergencyObstacleRange/2);
+         || (leftReading > 0 && leftReading <= emergencyObstacleRange / 2)
+         || (rightReading > 0 && rightReading <= emergencyObstacleRange / 2);
 }
 
 boolean isRightDecided() {
   if (millis() - lastRightLeftDecidedTime > timeToStickRightLeftDecission) {
-    isRightDecidedCached = (random(0, 2) < 1);
+    isRightDecidedCached = rightReading > leftReading;
     lastRightLeftDecidedTime = millis();
   }
   return isRightDecidedCached;
@@ -191,17 +182,11 @@ void doBIOSManoeuvre() {
     loop_timer += 4000;
   }
 
-}
-
-void rotateOrSteerAndGoTowardsDestination() {
-  if (isForwardOverridden()) {
-    baseGoBackward();
-  } else if (isRightOverridden()) {
-    baseRotateRight();
-  } else if (isLeftOverridden()) {
-    baseRotateLeft();
-  } else {
-    baseGoForward();
+  while (millis() - botStartTime < 35000) {
+    baseStop();
+    loopBase();
+    while (loop_timer > micros());
+    loop_timer += 4000;
   }
 }
 
@@ -226,11 +211,11 @@ void triggerSonarInterrupt() {
     if (digitalRead(ECHO_PIN_LEFT) == HIGH)
       lastEchoReceivedTimeLeft = micros();
     nextCheckEcho = 0;
-  }else if (nextCheckEcho == 0) {
+  } else if (nextCheckEcho == 0) {
     if (digitalRead(ECHO_PIN_CENTER) == HIGH)
       lastEchoReceivedTimeCenter = micros();
     nextCheckEcho = 1;
-  }else if (nextCheckEcho == 1) {
+  } else if (nextCheckEcho == 1) {
     if (digitalRead(ECHO_PIN_RIGHT) == HIGH)
       lastEchoReceivedTimeRight = micros();
     nextCheckEcho = -1;
