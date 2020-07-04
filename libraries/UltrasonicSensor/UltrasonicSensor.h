@@ -12,11 +12,12 @@
 class UltrasonicSensor
 {
   public:
-    UltrasonicSensor(int ultraTriggerPin, int ultraEchoPin);
-    long obstacleDistance();
+    UltrasonicSensor(int ultraTriggerPin, int ultraEchoPin, int *reading);
+    void populateReading();
   private:
     int _ultraTriggerPin;
 	int _ultraEchoPin;
+	int *_reading;
 };
 
 #endif

@@ -2,7 +2,6 @@
 #include <UltrasonicSensor.h>
 #include <DualWheelBase.h>
 #include <MorseCode.h>
-#include <DeepSleep.h>
 #include <PID_v1.h> //You can download the driver from https://github.com/br3ttb/Arduino-PID-Library/
 
 //Pin Configuration
@@ -33,23 +32,17 @@ const float bigR = 10000.0;//Ohms. It is Voltage sensor bigger Resistance value.
 double Kp = 8.0, Ki = 1.0, Kd = 2.0; //Specify the links and initial tuning parameters
 
 //Dont touch below stuff
-unsigned long lastComandedDirectionChangeTime = 0;
-unsigned long overrideForwardUntill = 0;
-unsigned long lastRightLeftDecidedTime = 0;
-boolean isMarkedForSleep = false;
-boolean isIntruderDetected = false;
-boolean isRightDecidedCached = false;
-float destinationHeading = 0.0;
+unsigned long lastComandedDirectionChangeTime, overrideForwardUntill, lastRightLeftDecidedTime;
+boolean isMarkedForSleep, isIntruderDetected, isRightDecidedCached;
 double Setpoint, Input, Output;//Define Variables we'll be connecting to
-float emergencyPitchOffset = 0;
-float emergencyRollOffset = 0;
+float emergencyPitchOffset, emergencyRollOffset, destinationHeading, currentHeading;
 float ypr[3];// [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
+int centerReading;
 
 VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
-UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin);
+UltrasonicSensor ultrasonicSensor(ultraTriggerPin, ultraEchoPin, &centerReading);
 DualWheelBase base(leftWheelForwardPin, leftWheelBackwardPin, rightWheelForwardPin, rightWheelBackwardPin);
 MorseCode morseCode(speakerPin, talkFrequency, morseUnit);
-DeepSleep deepSleep;
 PID myPID(&Input, &Output, &Setpoint, Kp, Ki, Kd, DIRECT);
 
 void setup() {
@@ -102,6 +95,8 @@ void loop() {
 
     //TODO: Dont quite like it here
     populateYPR();
+    populateHeading();
+    ultrasonicSensor.populateReading();
 
     //check if battery is low and go to sleep
     if (isBatteryDead()) {
@@ -171,7 +166,8 @@ void markForWakeup() {
 }
 
 void markForForwardOverride(unsigned long overrideTime) {
-  overrideForwardUntill = millis() + overrideTime;
+  if (overrideForwardUntill < millis())
+    overrideForwardUntill = millis() + overrideTime;
 }
 
 boolean isClimbingPitch() {
@@ -199,7 +195,6 @@ void intruderDetected() {
 }
 
 boolean isObstacleWithinAvoidableDistance() {
-  int centerReading = (int) ultrasonicSensor.obstacleDistance();
   return (centerReading > emergencyObstacleRange && centerReading <= avoidableObstacleRange);
 }
 
@@ -212,7 +207,6 @@ boolean isEmergencyPitchRollSituation() {
 }
 
 boolean isObstacleWithinEmergencyDistance() {
-  int centerReading = (int) ultrasonicSensor.obstacleDistance();
   return (centerReading > 0 && centerReading <= emergencyObstacleRange);
 }
 
@@ -250,17 +244,6 @@ void doIntruderManoeuvre() {
   isIntruderDetected = false;
 }
 
-void doSleepForEightSeconds() {
-  //Attach the PIR to activate intruder detection
-  isIntruderDetected = false;
-  attachInterrupt(digitalPinToInterrupt(pirInterruptPin), intruderDetected, RISING);
-
-  deepSleep.sleepForEightSecondsUnlessInterrupted();
-
-  //Detach the PIR since we dont need intruder detection anymore
-  detachInterrupt(digitalPinToInterrupt(pirInterruptPin));
-}
-
 void doBIOSManoeuvre() {
   //left
   morseCode.play("L");
@@ -288,7 +271,7 @@ void doBIOSManoeuvre() {
 
 }
 
-float getHeading() {
+float populateHeading() {
   if (ypr[0] > 0)
     return ypr[0];
   else
@@ -332,7 +315,6 @@ void rotateOrSteerAndGoTowardsDestination() {
 
 float calculateAngularDifferenceVector() {
   //The angular error is calculated by actual - required. Further the easisest / closest direction is choosen as part of returning the value.
-  float currentHeading = getHeading();
   if (currentHeading >= destinationHeading) {
     float left = currentHeading - destinationHeading;
     float right = (360.0 - currentHeading) + destinationHeading;
@@ -351,7 +333,6 @@ float calculateAngularDifferenceVector() {
 }
 
 void setLeftDestinationByAngle(int angle) {
-  float currentHeading = getHeading();
   if (currentHeading >= angle) {
     destinationHeading = currentHeading - angle;
   } else {
@@ -361,7 +342,6 @@ void setLeftDestinationByAngle(int angle) {
 }
 
 void setRightDestinationByAngle(int angle) {
-  float currentHeading = getHeading();
   if (currentHeading + angle < 360) {
     destinationHeading = currentHeading + angle;
   } else {

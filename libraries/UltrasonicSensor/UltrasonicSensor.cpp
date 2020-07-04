@@ -7,16 +7,18 @@
 #include "Arduino.h"
 #include "UltrasonicSensor.h"
 
-UltrasonicSensor::UltrasonicSensor(int ultraTriggerPin, int ultraEchoPin)
+UltrasonicSensor::UltrasonicSensor(int ultraTriggerPin, int ultraEchoPin, int *reading)
 {
   pinMode(ultraTriggerPin, OUTPUT);
   pinMode(ultraEchoPin, INPUT);
   _ultraTriggerPin = ultraTriggerPin;
   _ultraEchoPin = ultraEchoPin;
+  *_reading = reading;
 }
 
-long UltrasonicSensor::obstacleDistance() {
-  long duration, distance;
+void UltrasonicSensor::populateReading() {
+  long duration;
+  int distance;
   digitalWrite(_ultraTriggerPin, LOW); 
   delayMicroseconds(2); 
   digitalWrite(_ultraTriggerPin, HIGH);
@@ -25,10 +27,8 @@ long UltrasonicSensor::obstacleDistance() {
   duration = pulseIn(_ultraEchoPin, HIGH, 58200);
   //58200 is the cut off time after which the sensor will stop waiting for response
   distance = duration/58.2;
-  delay(10);
-  if(distance>0){
-    return distance;
+  if(distance<0){
+    distance = 960;//this is half the distance travelled by sound in 58200 microseconds
   }
-  return 960;//cm
-  //this is half the distance travelled by sound in 58200 microseconds
+  _reading =  &distance;
 }
