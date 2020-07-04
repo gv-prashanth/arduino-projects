@@ -1,2 +1,2 @@
 UltrasonicSensor	KEYWORD1
-populateReading		KEYWORD2
+obstacleDistance	KEYWORD2
