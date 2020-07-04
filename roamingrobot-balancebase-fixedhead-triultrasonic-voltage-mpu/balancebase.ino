@@ -261,3 +261,23 @@ ISR(TIMER2_COMPA_vect){
   else if(throttle_counter_right_motor == 2)PORTD &= 0b11101111;            //Set output 4 low because the pulse only has to last for 20us
   triggerSonarInterrupt();
 }
+
+void baseRotateLeft() {
+  received_byte = B00000001;
+}
+
+void baseRotateRight() {
+  received_byte = B00000010;
+}
+
+void baseGoForward() {
+  received_byte = B00000100;
+}
+
+void baseGoBackward() {
+  received_byte = B00001000;
+}
+
+void baseStop() {
+  received_byte = 0x00;
+}
