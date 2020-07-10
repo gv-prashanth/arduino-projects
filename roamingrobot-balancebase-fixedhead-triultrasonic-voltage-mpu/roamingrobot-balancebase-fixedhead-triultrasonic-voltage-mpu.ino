@@ -1,21 +1,16 @@
 #include <Wire.h>                                            //Include the Wire.h library so we can communicate with the gyro
-#include <VoltageSensor.h>
 
 //Pin Configuration
 const int TRIGGER_PIN = 7; // Arduino pin tied to trigger pin on ping sensor.
 const int ECHO_PIN_CENTER = 6; // Arduino pin tied to echo pin on ping sensor.
 const int ECHO_PIN_LEFT = 8; // Arduino pin tied to echo pin on ping sensor.
 const int ECHO_PIN_RIGHT = 9; // Arduino pin tied to echo pin on ping sensor.
-const int batteryVoltageSensePin = A0;//A2 incase you want to detect from dedicated pin. -1 incase you want to detect from vcc.
-const int BUZZER_PIN = 13;
 
 //functional Configuration
 const int emergencyObstacleRange = 40; //cm
 const int timeToStickRightLeftDecission = 2000;//milli seconds
 const int backMovementTime = 1000;//milli seconds
 const int rightLeftMovementTime = 2000;//milli seconds
-const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
-const float bigR = 15000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 float pid_p_gain = 15;                                       //Gain setting for the P-controller (15)
 float pid_i_gain = 1.5;                                      //Gain setting for the I-controller (1.5)
 float pid_d_gain = 30;                                       //Gain setting for the D-controller (30)
@@ -40,19 +35,16 @@ float pid_output_left, pid_output_right;
 unsigned long overrideForwardUntill, overrideRightUntill, overrideLeftUntill, lastRightLeftDecidedTime, lastSonarSentTime;
 volatile unsigned long lastEchoReceivedTimeCenter, lastEchoReceivedTimeLeft, lastEchoReceivedTimeRight;
 volatile int nextCheckEcho = -1;
-boolean isRightDecidedCached, stopEverything;
+boolean isRightDecidedCached = false;
 float centerReading = 0.0;
 float leftReading = 0.0;
 float rightReading = 0.0;
-
-VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
 
 void setup() {
   pinMode(TRIGGER_PIN, OUTPUT);
   pinMode(ECHO_PIN_CENTER, INPUT);
   pinMode(ECHO_PIN_LEFT, INPUT);
   pinMode(ECHO_PIN_RIGHT, INPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
   Serial.begin(115200);
   setupBase();
   lastSonarSentTime = micros();
@@ -66,17 +58,8 @@ void setup() {
 }
 
 void loop() {
-  float batteryVoltage = batteryVoltageSensor.senseVoltage();
-  Serial.println("Battery Voltage: " + String(batteryVoltage));
-  if (batteryVoltage < 10)
-    stopEverything = true;
-  if(stopEverything){
-    digitalWrite(BUZZER_PIN, HIGH);
-    return;
-  }
-
   populateUltrasonicReading();
-  Serial.println("Center Reading: " + String(centerReading));
+  Serial.println(centerReading);
 
   //incase of emergency
   if (isObstacleWithinEmergencyDistance()) {
