@@ -14,8 +14,8 @@ const int emergencyObstacleRange = 40; //cm
 const int timeToStickRightLeftDecission = 2000;//milli seconds
 const int backMovementTime = 1000;//milli seconds
 const int rightLeftMovementTime = 2000;//milli seconds
-const float smallR = 10000.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
-const float bigR = 15000.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
+const float smallR = 2200.0;//Ohms. It is Voltage sensor smaller Resistance value. Usually the one connected to ground.
+const float bigR = 3300.0;//Ohms. It is Voltage sensor bigger Resistance value. Usually the one connected to sense.
 float pid_p_gain = 15;                                       //Gain setting for the P-controller (15)
 float pid_i_gain = 1.5;                                      //Gain setting for the I-controller (1.5)
 float pid_d_gain = 30;                                       //Gain setting for the D-controller (30)
@@ -68,7 +68,7 @@ void setup() {
 void loop() {
   float batteryVoltage = batteryVoltageSensor.senseVoltage();
   Serial.println("Battery Voltage: " + String(batteryVoltage));
-  if (batteryVoltage < 10)
+  if (batteryVoltage < 9)
     stopEverything = true;
   if(stopEverything){
     digitalWrite(BUZZER_PIN, HIGH);
