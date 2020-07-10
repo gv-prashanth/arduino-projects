@@ -80,7 +80,7 @@ void loopBase(){
   }
   if(receive_counter <= 25)receive_counter ++;                              //The received byte will be valid for 25 program loops (100 milliseconds)
   else received_byte = 0x00;                                                //After 100 milliseconds the received byte is deleted
-  
+  */
   //Load the battery voltage to the battery_voltage variable.
   //85 is the voltage compensation for the diode.
   //Resistor voltage divider => (3.3k + 3.3k)/2.2k = 2.5
@@ -89,12 +89,12 @@ void loopBase(){
   //1250 / 1023 = 1.222.
   //The variable battery_voltage holds 1050 if the battery voltage is 10.5V.
   battery_voltage = (analogRead(0) * 1.222) + 85;
-  
-  if(battery_voltage < 1050 && battery_voltage > 800){                      //If batteryvoltage is below 10.5V and higher than 8.0V
+  Serial.println(battery_voltage);
+  if(battery_voltage < 850 && battery_voltage > 700){                      //If batteryvoltage is below 8.5V and higher than 7.0V
     digitalWrite(BUZZER_PIN, HIGH);                                                 //Turn on the led if battery voltage is to low
     low_bat = 1;                                                            //Set the low_bat variable to 1
   }
-  */
+
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //Angle calculations

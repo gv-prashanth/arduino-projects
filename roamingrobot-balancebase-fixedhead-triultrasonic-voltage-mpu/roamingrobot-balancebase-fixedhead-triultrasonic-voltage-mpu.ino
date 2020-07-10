@@ -1,5 +1,4 @@
 #include <Wire.h>                                            //Include the Wire.h library so we can communicate with the gyro
-#include <VoltageSensor.h>
 
 //Pin Configuration
 const int TRIGGER_PIN = 7; // Arduino pin tied to trigger pin on ping sensor.
@@ -10,7 +9,7 @@ const int batteryVoltageSensePin = A0;//A2 incase you want to detect from dedica
 const int BUZZER_PIN = 13;
 
 //functional Configuration
-const int emergencyObstacleRange = 40; //cm
+const int emergencyObstacleRange = 70; //cm
 const int timeToStickRightLeftDecission = 2000;//milli seconds
 const int backMovementTime = 1000;//milli seconds
 const int rightLeftMovementTime = 2000;//milli seconds
@@ -20,7 +19,7 @@ float pid_p_gain = 15;                                       //Gain setting for 
 float pid_i_gain = 1.5;                                      //Gain setting for the I-controller (1.5)
 float pid_d_gain = 30;                                       //Gain setting for the D-controller (30)
 float turning_speed = 5;                                    //Turning speed (20)
-float max_target_speed = 2;                                //Max target speed (100)
+float max_target_speed = 1;                                //Max target speed (100)
 int acc_calibration_value = 675;                            //Enter the accelerometer calibration value
 int gyro_address = 0x68;                                     //MPU-6050 I2C address (0x68 or 0x69)
 
@@ -45,8 +44,6 @@ float centerReading = 0.0;
 float leftReading = 0.0;
 float rightReading = 0.0;
 
-VoltageSensor batteryVoltageSensor(batteryVoltageSensePin, smallR, bigR);
-
 void setup() {
   pinMode(TRIGGER_PIN, OUTPUT);
   pinMode(ECHO_PIN_CENTER, INPUT);
@@ -66,14 +63,6 @@ void setup() {
 }
 
 void loop() {
-  float batteryVoltage = batteryVoltageSensor.senseVoltage();
-  Serial.println("Battery Voltage: " + String(batteryVoltage));
-  if (batteryVoltage < 9)
-    stopEverything = true;
-  if(stopEverything){
-    digitalWrite(BUZZER_PIN, HIGH);
-    return;
-  }
 
   populateUltrasonicReading();
   Serial.println("Center Reading: " + String(centerReading));
