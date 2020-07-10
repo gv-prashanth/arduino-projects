@@ -51,10 +51,9 @@ void setupBase(){
   pinMode(3, OUTPUT);                                                       //Configure digital poort 3 as output
   pinMode(4, OUTPUT);                                                       //Configure digital poort 4 as output
   pinMode(5, OUTPUT);                                                       //Configure digital poort 5 as output
-  pinMode(13, OUTPUT);                                                      //Configure digital poort 6 as output
 
   for(receive_counter = 0; receive_counter < 500; receive_counter++){       //Create 500 loops
-    if(receive_counter % 15 == 0)digitalWrite(13, !digitalRead(13));        //Change the state of the LED every 15 loops to make the LED blink fast
+    if(receive_counter % 15 == 0)digitalWrite(BUZZER_PIN, !digitalRead(BUZZER_PIN));        //Change the state of the LED every 15 loops to make the LED blink fast
     Wire.beginTransmission(gyro_address);                                   //Start communication with the gyro
     Wire.write(0x43);                                                       //Start reading the Who_am_I register 75h
     Wire.endTransmission();                                                 //End the transmission
@@ -92,7 +91,7 @@ void loopBase(){
   battery_voltage = (analogRead(0) * 1.222) + 85;
   
   if(battery_voltage < 1050 && battery_voltage > 800){                      //If batteryvoltage is below 10.5V and higher than 8.0V
-    digitalWrite(13, HIGH);                                                 //Turn on the led if battery voltage is to low
+    digitalWrite(BUZZER_PIN, HIGH);                                                 //Turn on the led if battery voltage is to low
     low_bat = 1;                                                            //Set the low_bat variable to 1
   }
   */
