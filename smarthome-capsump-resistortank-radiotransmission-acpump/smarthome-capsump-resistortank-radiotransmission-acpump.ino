@@ -12,28 +12,24 @@
    sumpMotorTriggerPin driver attached to pin 5  with 10k resistor to ground
    Valid transmition Indicates that the transmitter is alive! attached to pin A0 with 10k resistor to ground
 */
-#include <Capacitor.h> //Download from https://github.com/codewrite/arduino-capacitor
-
 //Pin Configurations
 const int overheadTransmissionBottomPin = 9; // Over head tank water Minimum level
 const int overheadTransmissionTopPin = 10; // Over head tank water Maximum level
 const int overheadTransmissionValidityPin = A0; // Valid transmition  pin
-const int sumpCapacitorSensorPin1 = A5; // Sump camapcitor sensor pin1
-const int sumpCapacitorSensorPin2 = A4; // Sump camapcitor sensor pin2
+const int sumpCapacitorSensorPin = A5; // Sump camapcitor sensor pin
 const int sumpMotorTriggerPin = 8; // sump pump driver pin
 const int SumpLevelIndicatorPin = 11; // Sump water level led pin
 
 //Functional Configurations
-const float MAX_CAP_VALUE_IN_AIR = 3000;//(in pF)
-const unsigned long WAIT_TIME = 10000; // in milliseconds
+const unsigned long TRANSMISSION_TRESHOLD_TIME = 10000; // in milliseconds
+const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000; //in milliseconds
+const float MAX_CAP_ANALOG_READING_IN_WATER = 380;//(in range from 0 to 1024)
 
 //Dont touch below stuff
-unsigned long lastSuccesfulOverheadTransmissionTime;
+unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime;
 boolean cached_doesOverheadBottomHasWater;
 boolean cached_doesOverheadTopHasWater;
-boolean cached_doesSumpHasWater;
-unsigned long mostRecentSumpFluctuationTime;
-Capacitor capSensor(sumpCapacitorSensorPin1,sumpCapacitorSensorPin2);//One Pin should be analog atleast
+boolean firstTimeStarting;
 
 void setup()
 {
@@ -50,46 +46,61 @@ void setup()
 
   // initialize all the necessary readings
   lastSuccesfulOverheadTransmissionTime = millis();
+  lastSwitchOffTime = millis();
   cached_doesOverheadBottomHasWater = true;
   cached_doesOverheadTopHasWater = true;
-  cached_doesSumpHasWater = false;
-  mostRecentSumpFluctuationTime = millis();
-
+  firstTimeStarting = true;
 }
 
 void loop()
 {
   // read values from all sensors
-  float sumpCapacitance = capSensor.Measure();// Measure the capacitance (in pF)
-  Serial.print("Sump capacitance is ");
-  Serial.println(sumpCapacitance);
-  indicateSumpLevel(sumpCapacitance);
-  LoadAndCacheOverheadTransmissions();
+  float sumpCapacitanceReading = analogRead(sumpCapacitorSensorPin);
+  Serial.println("Sump capacitance reading is " + String(sumpCapacitanceReading));
+  indicateSumpLevel(sumpCapacitanceReading);
+  loadAndCacheOverheadTransmissions();
 
   //Based on read values decide to switch on or off
   if (!isConnectionWithinTreshold()) {
     Serial.println("No strong signal from overhead. Shutting down!");
-    digitalWrite(sumpMotorTriggerPin, LOW);
-  } else if (!doesSumpHasWaterConsideringFluctuations(sumpCapacitance)) {
+    switchOffMotor();
+  } else if (!doesSumpHasWater(sumpCapacitanceReading)) {
     Serial.println("Out of water in sump. Shutting down!");
-    digitalWrite(sumpMotorTriggerPin, LOW);
+    switchOffMotor();
   } else if (cached_doesOverheadTopHasWater) {
     Serial.println("Overhead tank is filled. Shutting down!");
-    digitalWrite(sumpMotorTriggerPin, LOW);
+    switchOffMotor();
   } else if (!cached_doesOverheadBottomHasWater) {
-    Serial.println("No water in overhead tank. Switching ON!");
-    digitalWrite(sumpMotorTriggerPin, HIGH);
+    Serial.println("No water in overhead tank. Also sump has water. Switching ON!");
+    switchOnMotor();
   } else {
     Serial.println("Water level is between Bottom & Top. Lets leave the motor is whatever state it is in.");
   }
 }
 
-boolean isConnectionWithinTreshold() {
-  unsigned long currentTime = millis();
-  return currentTime - lastSuccesfulOverheadTransmissionTime < WAIT_TIME ;
+void switchOffMotor() {
+  lastSwitchOffTime = millis();
+  digitalWrite(sumpMotorTriggerPin, LOW);
 }
 
-void LoadAndCacheOverheadTransmissions() {
+void switchOnMotor() {
+  unsigned long currentTime = millis();
+  if (firstTimeStarting) {
+    firstTimeStarting = false;
+    digitalWrite(sumpMotorTriggerPin, HIGH);
+  } else if (currentTime - lastSwitchOffTime < PROTECTION_BETWEEN_SWITCH_OFF_ON) {
+    Serial.println("Very recently switched Off. Please wait for protection time.");
+  } else {
+    digitalWrite(sumpMotorTriggerPin, HIGH);
+  }
+}
+
+boolean isConnectionWithinTreshold() {
+  unsigned long currentTime = millis();
+  return currentTime - lastSuccesfulOverheadTransmissionTime < TRANSMISSION_TRESHOLD_TIME ;
+}
+
+void loadAndCacheOverheadTransmissions() {
   boolean isOverheadTransmissionValid = digitalRead(overheadTransmissionValidityPin);
   if (isOverheadTransmissionValid) {
     cached_doesOverheadBottomHasWater = digitalRead(overheadTransmissionBottomPin);
@@ -101,21 +112,13 @@ void LoadAndCacheOverheadTransmissions() {
 
 }
 
-void indicateSumpLevel(float capacitance) {
-  if (doesSumpHasWaterConsideringFluctuations(capacitance))
+void indicateSumpLevel(float sumpCapacitanceReading) {
+  if (doesSumpHasWater(sumpCapacitanceReading))
     digitalWrite(SumpLevelIndicatorPin, HIGH);
   else
     digitalWrite(SumpLevelIndicatorPin, LOW);
 }
 
-boolean doesSumpHasWaterConsideringFluctuations(float capacitance) {
-  boolean current_doesSumpHasWater = (capacitance > MAX_CAP_VALUE_IN_AIR);
-  if(current_doesSumpHasWater != cached_doesSumpHasWater)
-    mostRecentSumpFluctuationTime = millis(); //there is a fluctuation
-  cached_doesSumpHasWater = current_doesSumpHasWater;
-  unsigned long currentTime = millis();
-  if(currentTime - mostRecentSumpFluctuationTime > WAIT_TIME)
-    return current_doesSumpHasWater;
-  else
-    return false;
+boolean doesSumpHasWater(float sumpCapacitanceReading) {
+  return (sumpCapacitanceReading < MAX_CAP_ANALOG_READING_IN_WATER);
 }
