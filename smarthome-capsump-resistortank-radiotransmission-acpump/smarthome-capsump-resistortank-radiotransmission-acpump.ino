@@ -23,7 +23,7 @@ const int SumpLevelIndicatorPin = 11; // Sump water level led pin
 //Functional Configurations
 const unsigned long TRANSMISSION_TRESHOLD_TIME = 10000; // in milliseconds
 const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000; //in milliseconds
-const float MAX_CAP_ANALOG_READING_IN_WATER = 250;//(in range from 0 to 1024)
+const float MAX_CAP_ANALOG_READING_IN_WATER = 340;//(in range from 0 to 1024)
 
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime;
