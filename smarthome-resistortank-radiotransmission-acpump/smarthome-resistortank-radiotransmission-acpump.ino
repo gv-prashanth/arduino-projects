@@ -26,7 +26,7 @@ const unsigned long PROTECTION_FOR_DRY_RUN = 3600000; //in milliseconds
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime;
 boolean cached_overheadBottomHasWater, cached_overheadTopHasWater;
-boolean firstTimeStarting, motorInDanger, isMotorRunning;
+boolean firstTimeStarting, isMotorRunning;
 
 void setup()
 {
@@ -49,35 +49,37 @@ void setup()
   cached_overheadBottomHasWater = true;
   cached_overheadTopHasWater = true;
   firstTimeStarting = true;
-  motorInDanger = false;
   isMotorRunning = false;
 }
 
 void loop()
 {
   // read values from all sensors
-  loadDangerAttribute();
   loadAndCacheOverheadTransmissions();
-
-  //Based on read values decide to switch on or off
-  if (isMotorRunning && !isConnectionWithinTreshold()) {
-    switchOffMotor();
-    Serial.println("No strong signal from overhead. Shutting down!");
-  } else if (isMotorRunning && motorInDanger) {
-    switchOffMotor();
-    Serial.println("Danger! Out of water in sump. Shutting down!");
-  } else if (isMotorRunning && cached_overheadTopHasWater) {
-    switchOffMotor();
-    Serial.println("Overhead tank is filled. Shutting down!");
-  } else if (!isMotorRunning && !motorInDanger && !cached_overheadBottomHasWater) {
-    if(isRecentlySwitchedOff()){
-      Serial.println("No water in overhead tank. But very recently switched Off. Lets wait for protection time and then check.");
-    }else{
-      switchOnMotor();
-      Serial.println("No water in overhead tank. Also sump has water. Switching ON!");
+  if (isMotorRunning) {
+    if (!isConnectionWithinTreshold()) {
+      switchOffMotor();
+      Serial.println("No strong signal from overhead. Switching OFF!");
+    } else if (isMotorInDanger()) {
+      switchOffMotor();
+      Serial.println("Danger! Out of water in sump. Shutting down!");
+      while(true)
+        digitalWrite(SumpDangerIndicatorPin, HIGH);
+    } else if (cached_overheadTopHasWater) {
+      switchOffMotor();
+      Serial.println("Overhead tank is just filled. Switching OFF!");
+    } else {
+      //Serial.println("Lets leave the motor in ON.");
     }
   } else {
-    //Serial.println("Lets leave the motor in whatever state it is in.");
+    if (!cached_overheadBottomHasWater && !isRecentlySwitchedOff()) {
+      switchOnMotor();
+      Serial.println("No water in overhead tank. Also sump has water. Switching ON!");
+    } else if (!cached_overheadBottomHasWater && isRecentlySwitchedOff()) {
+      Serial.println("No water in overhead tank. But very recently switched Off. Lets wait for protection time and then check.");
+    } else {
+      //Serial.println("Lets leave the motor in OFF.");
+    }
   }
 }
 
@@ -111,13 +113,10 @@ void loadAndCacheOverheadTransmissions() {
   }
 }
 
-boolean loadDangerAttribute() {
-  if(!motorInDanger)
-    motorInDanger = millis()-lastSwitchOnTime > PROTECTION_FOR_DRY_RUN;
-  if (motorInDanger)
-    digitalWrite(SumpDangerIndicatorPin, HIGH);
+boolean isMotorInDanger() {
+  return millis() - lastSwitchOnTime > PROTECTION_FOR_DRY_RUN;
 }
 
-boolean isRecentlySwitchedOff(){
+boolean isRecentlySwitchedOff() {
   return (!firstTimeStarting) && (millis() - lastSwitchOffTime < PROTECTION_BETWEEN_SWITCH_OFF_ON);
 }
