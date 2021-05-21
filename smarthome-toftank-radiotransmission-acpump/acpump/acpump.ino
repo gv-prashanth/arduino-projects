@@ -24,13 +24,14 @@ const int SumpReceiverIndicatorPin = 13; // Sump receiver indication led pin
 const unsigned long TRANSMISSION_TRESHOLD_TIME = 10000; // in milliseconds
 const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000; //in milliseconds
 const unsigned long PROTECTION_FOR_DRY_RUN = 3600000; //in milliseconds
+const unsigned long PROTECTION_TIME_FOR_RATE_CHECK = 300000; //in milliseconds
 const int MAXIMUM_WATER_HEIGHT_ALLOWED = 110; // in centimeters
 const int TANK_TOLERANCE = 30; // in centimeters
 const int HEIGHT_OF_TOF_SENSOR_MEASURED_FROM_MAXIMUM_WATER_HEIGHT_ALLOWED = 5; // in centimeters
 
 //Dont touch below stuff
-unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime;
-float cached_overheadTankWaterLevel;
+unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, lastRateCheckTime;
+float cached_overheadTankWaterLevel, lastRateCheckValue;
 boolean firstTimeStarting, isMotorRunning;
 RH_ASK driver;
 
@@ -57,6 +58,7 @@ void setup()
   lastSuccesfulOverheadTransmissionTime = currentTime;
   lastSwitchOnTime = currentTime;
   lastSwitchOffTime = currentTime;
+  lastRateCheckTime = currentTime;
   firstTimeStarting = true;
   isMotorRunning = false;
 }
@@ -67,7 +69,7 @@ void loop()
   loadAndCacheOverheadTransmissions();
 
   // display connection strength
-  if(isConnectionWithinTreshold())
+  if (isConnectionWithinTreshold())
     digitalWrite(SumpReceiverIndicatorPin, HIGH);
   else
     digitalWrite(SumpReceiverIndicatorPin, LOW);
@@ -88,7 +90,9 @@ void loop()
       //Serial.println("Lets leave the motor in ON.");
     }
   } else {
-    if (!overheadBottomHasWater() && !isRecentlySwitchedOff()) {
+    if (!isConnectionWithinTreshold()) {
+      Serial.println("No strong signal from overhead. Motor is already Switched OFF. Lets not switch ON!");
+    } else if (!overheadBottomHasWater() && !isRecentlySwitchedOff()) {
       switchOnMotor();
       Serial.println("No water in overhead tank. Also sump has water. Switching ON!");
     } else if (!overheadBottomHasWater() && isRecentlySwitchedOff()) {
@@ -111,11 +115,21 @@ void switchOnMotor() {
   lastSwitchOnTime = millis();
   digitalWrite(sumpMotorTriggerPin, HIGH);
   isMotorRunning = true;
+  lastRateCheckTime = lastSwitchOnTime;
+  lastRateCheckValue = cached_overheadTankWaterLevel;
 }
 
 boolean isConnectionWithinTreshold() {
   unsigned long currentTime = millis();
-  return currentTime - lastSuccesfulOverheadTransmissionTime < TRANSMISSION_TRESHOLD_TIME ;
+  if (firstTimeStarting) {
+    if (lastSuccesfulOverheadTransmissionTime > lastSwitchOnTime)
+      return true;
+    else
+      return false;
+  }
+  else {
+    return (currentTime - lastSuccesfulOverheadTransmissionTime < TRANSMISSION_TRESHOLD_TIME);
+  }
 }
 
 void loadAndCacheOverheadTransmissions() {
@@ -134,7 +148,16 @@ void loadAndCacheOverheadTransmissions() {
 }
 
 boolean isMotorInDanger() {
-  return millis() - lastSwitchOnTime > PROTECTION_FOR_DRY_RUN;
+  unsigned long currentTime = millis();
+  boolean isMaxMotorRunTimeReached = currentTime - lastSwitchOnTime > PROTECTION_FOR_DRY_RUN;
+  boolean isDryRunDetected = false;
+  if(currentTime - lastRateCheckTime > PROTECTION_TIME_FOR_RATE_CHECK){
+    if(cached_overheadTankWaterLevel <= lastRateCheckValue)
+      isDryRunDetected = true;
+    lastRateCheckTime = currentTime;
+    lastRateCheckValue = cached_overheadTankWaterLevel;
+  }
+  return isMaxMotorRunTimeReached || isDryRunDetected;
 }
 
 boolean isRecentlySwitchedOff() {
