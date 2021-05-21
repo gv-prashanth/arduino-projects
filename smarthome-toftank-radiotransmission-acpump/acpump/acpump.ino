@@ -26,7 +26,7 @@ const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000; //in millisecond
 const unsigned long PROTECTION_FOR_DRY_RUN = 3600000; //in milliseconds
 const unsigned long PROTECTION_TIME_FOR_RATE_CHECK = 300000; //in milliseconds
 const int MAXIMUM_WATER_HEIGHT_ALLOWED = 110; // in centimeters
-const int TANK_TOLERANCE = 30; // in centimeters
+const int TANK_TOLERANCE = 10; // in centimeters
 const int HEIGHT_OF_TOF_SENSOR_MEASURED_FROM_MAXIMUM_WATER_HEIGHT_ALLOWED = 5; // in centimeters
 
 //Dont touch below stuff
@@ -142,6 +142,8 @@ void loadAndCacheOverheadTransmissions() {
     //driver.printBuffer("Got:", buf, buflen);
     String respString = (char*)buf;
     cached_overheadTankWaterLevel = (MAXIMUM_WATER_HEIGHT_ALLOWED + HEIGHT_OF_TOF_SENSOR_MEASURED_FROM_MAXIMUM_WATER_HEIGHT_ALLOWED) - respString.toFloat();
+    if (cached_overheadTankWaterLevel < 30)
+      cached_overheadTankWaterLevel = 30;
     Serial.print("Tank water: "); Serial.print(cached_overheadTankWaterLevel); Serial.println(" cm");
     lastSuccesfulOverheadTransmissionTime = millis();
   }
@@ -151,12 +153,12 @@ boolean isMotorInDanger() {
   unsigned long currentTime = millis();
   boolean isMaxMotorRunTimeReached = currentTime - lastSwitchOnTime > PROTECTION_FOR_DRY_RUN;
   boolean isDryRunDetected = false;
-  if(currentTime - lastRateCheckTime > PROTECTION_TIME_FOR_RATE_CHECK){
-    if(cached_overheadTankWaterLevel <= lastRateCheckValue)
-      isDryRunDetected = true;
-    lastRateCheckTime = currentTime;
-    lastRateCheckValue = cached_overheadTankWaterLevel;
-  }
+//  if (currentTime - lastRateCheckTime > PROTECTION_TIME_FOR_RATE_CHECK) {
+//    if (cached_overheadTankWaterLevel <= lastRateCheckValue)
+//      isDryRunDetected = true;
+//    lastRateCheckTime = currentTime;
+//    lastRateCheckValue = cached_overheadTankWaterLevel;
+//  }
   return isMaxMotorRunTimeReached || isDryRunDetected;
 }
 
