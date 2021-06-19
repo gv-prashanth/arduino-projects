@@ -17,8 +17,8 @@
 #include <DeepSleep.h>
 #include <NewPing.h>
 
-#define TRIGGER_PIN  12  // Arduino pin tied to trigger pin on the ultrasonic sensor.
-#define ECHO_PIN     11  // Arduino pin tied to echo pin on the ultrasonic sensor.
+#define TRIGGER_PIN  7  // Arduino pin tied to trigger pin on the ultrasonic sensor.
+#define ECHO_PIN     8  // Arduino pin tied to echo pin on the ultrasonic sensor.
 #define MAX_DISTANCE 200 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
 
 RH_ASK driver;
@@ -48,12 +48,10 @@ void loop()
   const char *msg = distanceString.c_str();
   driver.send((uint8_t *)msg, strlen(msg));
   driver.waitPacketSent();
-  Serial.print(distance); Serial.println(" cm");
+  //Serial.print(distance); Serial.println(" cm");delay(100);
 
-  //sleep for aprox 1 min
-  for (int i = 0; i < 8; i++) {
-    deepSleep.sleepForEightSecondsUnlessInterrupted();
-  }
+  //sleep for 8 sec
+  deepSleep.sleepForEightSecondsUnlessInterrupted();
 }
 
 float getMeanDistance() {
