@@ -30,12 +30,11 @@ const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 118.0; // in centimeters
 const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0; // in centimeters
 const float DIAMETER_OF_TANK = 108.0;//in centimers
 const float TANK_TOLERANCE = 20.0; // in centimeters
-const float RATE_OF_PUMPING = (10 * PI * (DIAMETER_OF_TANK / 2) * (DIAMETER_OF_TANK / 2) / 1000) / (15 * 60) ; //liters per second
 // initialize the library by associating any needed LCD interface pin with the arduino pin number it is connected to
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 
 //Dont touch below stuff
-unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, lastRateCheckTime, volumePumpedSoFar;
+unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, lastRateCheckTime, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight;
 float cached_overheadTankWaterLevel, lastRateCheckValue;
 boolean firstTimeStarting, isMotorRunning;
 RH_ASK driver;
@@ -112,7 +111,6 @@ void switchOffMotor() {
   lastSwitchOffTime = millis();
   digitalWrite(sumpMotorTriggerPin, LOW);
   isMotorRunning = false;
-  volumePumpedSoFar += ((lastSwitchOffTime - lastSwitchOnTime) / 1000) * RATE_OF_PUMPING;
 }
 
 void switchOnMotor() {
@@ -123,6 +121,7 @@ void switchOnMotor() {
   isMotorRunning = true;
   lastRateCheckTime = lastSwitchOnTime;
   lastRateCheckValue = cached_overheadTankWaterLevel;
+  todayTracker_volume = calculateVolumeConsumedSoFar();
 }
 
 boolean isConnectionWithinTreshold() {
@@ -180,13 +179,25 @@ boolean overheadTopHasWater() {
 
 void displayLCDInfo() {
   lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(calculateTankPercentage()) + String("%)"));
-  lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(volumePumpedSoFar) + String("L/") + String(calculateHoursSinceStart()) + String("H"));
+  lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H"));
 }
 
 int calculateTankPercentage() {
   return (cached_overheadTankWaterLevel / HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND) * 100;
 }
 
-int calculateHoursSinceStart() {
-  return millis() / (1000 * 60 * 60);
+int calculateHoursConsumedSoFar() {
+  unsigned long currentTime = millis();
+  int toReturn = (currentTime - todayTracker_time ) / (1000.0 * 60.0 * 60.0);
+  if (toReturn >= 24) {
+    todayTracker_volume = 0;
+    todayTracker_time = currentTime;
+  }
+  return toReturn + 1;
+}
+
+unsigned long calculateVolumeConsumedSoFar() {
+  if (todayTracker_switchOffHeight < cached_overheadTankWaterLevel)
+    todayTracker_switchOffHeight = cached_overheadTankWaterLevel;
+  return todayTracker_volume + (2 * (todayTracker_switchOffHeight - cached_overheadTankWaterLevel) * PI * (DIAMETER_OF_TANK / 2) * (DIAMETER_OF_TANK / 2) * 0.001);
 }
