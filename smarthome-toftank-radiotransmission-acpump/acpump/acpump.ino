@@ -21,13 +21,13 @@ const int SumpDangerIndicatorPin = 6; // Sump danger level led pin
 const int SumpReceiverIndicatorPin = 13; // Sump receiver indication led pin
 
 //Functional Configurations
-const unsigned long TRANSMISSION_TRESHOLD_TIME = 10000; // in milliseconds
+const unsigned long TRANSMISSION_TRESHOLD_TIME = 24000; // in milliseconds
 const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000; //in milliseconds
-const unsigned long PROTECTION_FOR_DRY_RUN = 3600000; //in milliseconds
-const unsigned long PROTECTION_TIME_FOR_RATE_CHECK = 300000; //in milliseconds
-const int MAXIMUM_WATER_HEIGHT_ALLOWED = 110; // in centimeters
-const int TANK_TOLERANCE = 10; // in centimeters
-const int HEIGHT_OF_TOF_SENSOR_MEASURED_FROM_MAXIMUM_WATER_HEIGHT_ALLOWED = 5; // in centimeters
+const unsigned long MAX_ALLOWED_RUNTIME_OF_MOTOR = 3600000; //in milliseconds
+const unsigned long PROTECTION_TIME_FOR_RATE_CHECK = 120000; //in milliseconds
+const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 118.0; // in centimeters
+const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0; // in centimeters
+const float TANK_TOLERANCE = 20.0; // in centimeters
 
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, lastRateCheckTime;
@@ -81,8 +81,6 @@ void loop()
     } else if (isMotorInDanger()) {
       switchOffMotor();
       Serial.println("Danger! Out of water in sump. Shutting down!");
-      while (true)
-        digitalWrite(SumpDangerIndicatorPin, HIGH);
     } else if (overheadTopHasWater()) {
       switchOffMotor();
       Serial.println("Overhead tank is just filled. Switching OFF!");
@@ -141,9 +139,7 @@ void loadAndCacheOverheadTransmissions() {
     // Message with a good checksum received, dump it.
     //driver.printBuffer("Got:", buf, buflen);
     String respString = (char*)buf;
-    cached_overheadTankWaterLevel = (MAXIMUM_WATER_HEIGHT_ALLOWED + HEIGHT_OF_TOF_SENSOR_MEASURED_FROM_MAXIMUM_WATER_HEIGHT_ALLOWED) - respString.toFloat();
-    if (cached_overheadTankWaterLevel < 30)
-      cached_overheadTankWaterLevel = 30;
+    cached_overheadTankWaterLevel = HEIGHT_OF_TOF_SENSOR_FROM_GROUND - respString.toFloat();
     Serial.print("Tank water: "); Serial.print(cached_overheadTankWaterLevel); Serial.println(" cm");
     lastSuccesfulOverheadTransmissionTime = millis();
   }
@@ -151,14 +147,14 @@ void loadAndCacheOverheadTransmissions() {
 
 boolean isMotorInDanger() {
   unsigned long currentTime = millis();
-  boolean isMaxMotorRunTimeReached = currentTime - lastSwitchOnTime > PROTECTION_FOR_DRY_RUN;
+  boolean isMaxMotorRunTimeReached = currentTime - lastSwitchOnTime > MAX_ALLOWED_RUNTIME_OF_MOTOR;
   boolean isDryRunDetected = false;
-//  if (currentTime - lastRateCheckTime > PROTECTION_TIME_FOR_RATE_CHECK) {
-//    if (cached_overheadTankWaterLevel <= lastRateCheckValue)
-//      isDryRunDetected = true;
-//    lastRateCheckTime = currentTime;
-//    lastRateCheckValue = cached_overheadTankWaterLevel;
-//  }
+  if (currentTime - lastRateCheckTime > PROTECTION_TIME_FOR_RATE_CHECK) {
+    if (cached_overheadTankWaterLevel <= lastRateCheckValue)
+      isDryRunDetected = true;
+    lastRateCheckTime = currentTime;
+    lastRateCheckValue = cached_overheadTankWaterLevel;
+  }
   return isMaxMotorRunTimeReached || isDryRunDetected;
 }
 
@@ -167,9 +163,9 @@ boolean isRecentlySwitchedOff() {
 }
 
 boolean overheadBottomHasWater() {
-  return cached_overheadTankWaterLevel > (MAXIMUM_WATER_HEIGHT_ALLOWED - TANK_TOLERANCE);
+  return cached_overheadTankWaterLevel > (HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND - TANK_TOLERANCE);
 }
 
 boolean overheadTopHasWater() {
-  return cached_overheadTankWaterLevel > MAXIMUM_WATER_HEIGHT_ALLOWED;
+  return cached_overheadTankWaterLevel > HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND;
 }
