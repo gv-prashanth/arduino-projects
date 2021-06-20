@@ -14,6 +14,7 @@
 #ifdef RH_HAVE_HARDWARE_SPI
 #include <SPI.h> // Not actually used but needed to compile
 #endif
+#include <LiquidCrystal.h>
 
 //Pin Configurations
 const int sumpMotorTriggerPin = 8; // sump pump driver pin
@@ -28,25 +29,26 @@ const unsigned long PROTECTION_TIME_FOR_RATE_CHECK = 120000; //in milliseconds
 const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 118.0; // in centimeters
 const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0; // in centimeters
 const float TANK_TOLERANCE = 20.0; // in centimeters
+const float RATE_OF_PUMPING = (10 * 3.14 * 54 * 54) / (15 * 60); //cubic centimers per second
+// initialize the library by associating any needed LCD interface pin with the arduino pin number it is connected to
+const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 
 //Dont touch below stuff
-unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, lastRateCheckTime;
+unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, lastRateCheckTime, volumePumpedSoFar;
 float cached_overheadTankWaterLevel, lastRateCheckValue;
 boolean firstTimeStarting, isMotorRunning;
 RH_ASK driver;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 void setup()
 {
   // initialize serial communication with computer:
-#ifdef RH_HAVE_SERIAL
   Serial.begin(9600);    // Debugging only
-#endif
+
   if (!driver.init())
-#ifdef RH_HAVE_SERIAL
     Serial.println("init failed");
-#else
-    ;
-#endif
+
+  lcd.begin(16, 2);
 
   // initialize the sumpMotorTriggerPin pin, SumpDangerIndicatorPin as Output
   pinMode(sumpMotorTriggerPin, OUTPUT);
@@ -73,6 +75,10 @@ void loop()
     digitalWrite(SumpReceiverIndicatorPin, HIGH);
   else
     digitalWrite(SumpReceiverIndicatorPin, LOW);
+
+  // display lcd
+  lcd.setCursor(0, 0); lcd.print(cached_overheadTankWaterLevel);
+  lcd.setCursor(0, 1); lcd.print(volumePumpedSoFar / 1000);
 
   if (isMotorRunning) {
     if (!isConnectionWithinTreshold()) {
@@ -105,6 +111,7 @@ void switchOffMotor() {
   lastSwitchOffTime = millis();
   digitalWrite(sumpMotorTriggerPin, LOW);
   isMotorRunning = false;
+  volumePumpedSoFar += (lastSwitchOffTime - lastSwitchOnTime) * 1000 * RATE_OF_PUMPING;
 }
 
 void switchOnMotor() {
