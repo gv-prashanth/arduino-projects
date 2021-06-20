@@ -28,10 +28,11 @@ const unsigned long MAX_ALLOWED_RUNTIME_OF_MOTOR = 3600000; //in milliseconds
 const unsigned long PROTECTION_TIME_FOR_RATE_CHECK = 120000; //in milliseconds
 const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 118.0; // in centimeters
 const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0; // in centimeters
+const float DIAMETER_OF_TANK = 108.0;//in centimers
 const float TANK_TOLERANCE = 20.0; // in centimeters
-const float RATE_OF_PUMPING = (10 * 3.14 * 54 * 54) / (15 * 60); //cubic centimers per second
+const float RATE_OF_PUMPING = (10 * PI * (DIAMETER_OF_TANK / 2) * (DIAMETER_OF_TANK / 2) / 1000) / (15 * 60) ; //liters per second
 // initialize the library by associating any needed LCD interface pin with the arduino pin number it is connected to
-const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, lastRateCheckTime, volumePumpedSoFar;
@@ -63,6 +64,7 @@ void setup()
   lastRateCheckTime = currentTime;
   firstTimeStarting = true;
   isMotorRunning = false;
+
 }
 
 void loop()
@@ -77,8 +79,7 @@ void loop()
     digitalWrite(SumpReceiverIndicatorPin, LOW);
 
   // display lcd
-  lcd.setCursor(0, 0); lcd.print(cached_overheadTankWaterLevel);
-  lcd.setCursor(0, 1); lcd.print(volumePumpedSoFar / 1000);
+  displayLCDInfo();
 
   if (isMotorRunning) {
     if (!isConnectionWithinTreshold()) {
@@ -111,7 +112,7 @@ void switchOffMotor() {
   lastSwitchOffTime = millis();
   digitalWrite(sumpMotorTriggerPin, LOW);
   isMotorRunning = false;
-  volumePumpedSoFar += (lastSwitchOffTime - lastSwitchOnTime) * 1000 * RATE_OF_PUMPING;
+  volumePumpedSoFar += ((lastSwitchOffTime - lastSwitchOnTime) / 1000) * RATE_OF_PUMPING;
 }
 
 void switchOnMotor() {
@@ -175,4 +176,17 @@ boolean overheadBottomHasWater() {
 
 boolean overheadTopHasWater() {
   return cached_overheadTankWaterLevel > HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND;
+}
+
+void displayLCDInfo() {
+  lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(calculateTankPercentage()) + String("%)"));
+  lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(volumePumpedSoFar) + String("L/") + String(calculateHoursSinceStart()) + String("H"));
+}
+
+int calculateTankPercentage() {
+  return (cached_overheadTankWaterLevel / HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND) * 100;
+}
+
+int calculateHoursSinceStart() {
+  return millis() / (1000 * 60 * 60);
 }
