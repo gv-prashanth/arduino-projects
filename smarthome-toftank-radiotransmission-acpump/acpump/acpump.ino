@@ -71,15 +71,6 @@ void loop()
   // read values from all sensors
   loadAndCacheOverheadTransmissions();
 
-  // display connection strength
-  if (isConnectionWithinTreshold())
-    digitalWrite(SumpReceiverIndicatorPin, HIGH);
-  else
-    digitalWrite(SumpReceiverIndicatorPin, LOW);
-
-  // display lcd
-  displayLCDInfo();
-
   if (isMotorRunning) {
     if (!isConnectionWithinTreshold()) {
       switchOffMotor();
@@ -105,15 +96,28 @@ void loop()
       //Serial.println("Lets leave the motor in OFF.");
     }
   }
+
+  //do all displays
+  displayLCDInfo();
+  displayConnectionStrength();
+}
+
+void displayConnectionStrength() {
+  if (isConnectionWithinTreshold())
+    digitalWrite(SumpReceiverIndicatorPin, HIGH);
+  else
+    digitalWrite(SumpReceiverIndicatorPin, LOW);
 }
 
 void switchOffMotor() {
   lastSwitchOffTime = millis();
   digitalWrite(sumpMotorTriggerPin, LOW);
   isMotorRunning = false;
+  todayTracker_switchOffHeight = cached_overheadTankWaterLevel;
 }
 
 void switchOnMotor() {
+  todayTracker_volume = calculateVolumeConsumedSoFar();//have to be first line since firstTimeStarting will get changed later
   if (firstTimeStarting)
     firstTimeStarting = false;
   lastSwitchOnTime = millis();
@@ -121,7 +125,6 @@ void switchOnMotor() {
   isMotorRunning = true;
   rateCheck_lastTimestamp = lastSwitchOnTime;
   rateCheck_lastValue = cached_overheadTankWaterLevel;
-  todayTracker_volume = calculateVolumeConsumedSoFar();
 }
 
 boolean isConnectionWithinTreshold() {
@@ -197,7 +200,11 @@ int calculateHoursConsumedSoFar() {
 }
 
 unsigned long calculateVolumeConsumedSoFar() {
-  if (todayTracker_switchOffHeight < cached_overheadTankWaterLevel)
-    todayTracker_switchOffHeight = cached_overheadTankWaterLevel;
-  return todayTracker_volume + (2 * (todayTracker_switchOffHeight - cached_overheadTankWaterLevel) * PI * (DIAMETER_OF_TANK / 2) * (DIAMETER_OF_TANK / 2) * 0.001);
-}
+  if (isMotorRunning)
+    return todayTracker_volume;
+  else {
+    if (todayTracker_switchOffHeight < cached_overheadTankWaterLevel)
+      todayTracker_switchOffHeight = cached_overheadTankWaterLevel;
+    return todayTracker_volume + (2 * (todayTracker_switchOffHeight - cached_overheadTankWaterLevel) * PI * (DIAMETER_OF_TANK / 2) * (DIAMETER_OF_TANK / 2) * 0.001);
+    ]
+  }
