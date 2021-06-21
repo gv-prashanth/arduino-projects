@@ -34,8 +34,8 @@ const float TANK_TOLERANCE = 20.0; // in centimeters
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 
 //Dont touch below stuff
-unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, lastRateCheckTime, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight;
-float cached_overheadTankWaterLevel, lastRateCheckValue;
+unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, rateCheck_lastTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight;
+float cached_overheadTankWaterLevel, rateCheck_lastValue;
 boolean firstTimeStarting, isMotorRunning;
 RH_ASK driver;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
@@ -60,7 +60,7 @@ void setup()
   lastSuccesfulOverheadTransmissionTime = currentTime;
   lastSwitchOnTime = currentTime;
   lastSwitchOffTime = currentTime;
-  lastRateCheckTime = currentTime;
+  rateCheck_lastTimestamp = currentTime;
   firstTimeStarting = true;
   isMotorRunning = false;
 
@@ -119,8 +119,8 @@ void switchOnMotor() {
   lastSwitchOnTime = millis();
   digitalWrite(sumpMotorTriggerPin, HIGH);
   isMotorRunning = true;
-  lastRateCheckTime = lastSwitchOnTime;
-  lastRateCheckValue = cached_overheadTankWaterLevel;
+  rateCheck_lastTimestamp = lastSwitchOnTime;
+  rateCheck_lastValue = cached_overheadTankWaterLevel;
   todayTracker_volume = calculateVolumeConsumedSoFar();
 }
 
@@ -156,11 +156,11 @@ boolean isMotorInDanger() {
   unsigned long currentTime = millis();
   boolean isMaxMotorRunTimeReached = currentTime - lastSwitchOnTime > MAX_ALLOWED_RUNTIME_OF_MOTOR;
   boolean isDryRunDetected = false;
-  if (currentTime - lastRateCheckTime > PROTECTION_TIME_FOR_RATE_CHECK) {
-    if (cached_overheadTankWaterLevel <= lastRateCheckValue)
+  if (currentTime - rateCheck_lastTimestamp > PROTECTION_TIME_FOR_RATE_CHECK) {
+    if (cached_overheadTankWaterLevel <= rateCheck_lastValue)
       isDryRunDetected = true;
-    lastRateCheckTime = currentTime;
-    lastRateCheckValue = cached_overheadTankWaterLevel;
+    rateCheck_lastTimestamp = currentTime;
+    rateCheck_lastValue = cached_overheadTankWaterLevel;
   }
   return isMaxMotorRunTimeReached || isDryRunDetected;
 }
@@ -178,9 +178,8 @@ boolean overheadTopHasWater() {
 }
 
 void displayLCDInfo() {
-  lcd.clear();
-  lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(calculateTankPercentage()) + String("%)"));
-  lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H"));
+  lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(calculateTankPercentage()) + String("%)          "));
+  lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
 }
 
 int calculateTankPercentage() {
