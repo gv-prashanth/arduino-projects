@@ -178,6 +178,7 @@ boolean overheadTopHasWater() {
 }
 
 void displayLCDInfo() {
+  lcd.clear();
   lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(calculateTankPercentage()) + String("%)"));
   lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H"));
 }
