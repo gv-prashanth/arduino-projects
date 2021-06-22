@@ -22,7 +22,7 @@ const int SumpDangerIndicatorPin = 6; // Sump danger level led pin
 const int SumpReceiverIndicatorPin = 13; // Sump receiver indication led pin
 
 //Functional Configurations
-const unsigned long TRANSMISSION_TRESHOLD_TIME = 24000; // in milliseconds
+const unsigned long TRANSMISSION_TRESHOLD_TIME = 36000; // in milliseconds
 const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000; //in milliseconds
 const unsigned long MAX_ALLOWED_RUNTIME_OF_MOTOR = 3600000; //in milliseconds
 const unsigned long PROTECTION_TIME_FOR_RATE_CHECK = 120000; //in milliseconds
@@ -181,7 +181,7 @@ boolean overheadTopHasWater() {
 }
 
 void displayLCDInfo() {
-  lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(calculateTankPercentage()) + String("%)          "));
+  lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String(calculateTankPercentage()) + String("%(") + String((int)cached_overheadTankWaterLevel) + String("cm)          "));
   lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
 }
 
@@ -204,7 +204,7 @@ unsigned long calculateVolumeConsumedSoFar() {
     return todayTracker_volume;
   else {
     if (todayTracker_switchOffHeight < cached_overheadTankWaterLevel)
-      todayTracker_switchOffHeight = cached_overheadTankWaterLevel;
+      todayTracker_switchOffHeight = cached_overheadTankWaterLevel+1;
     return todayTracker_volume + (2 * (todayTracker_switchOffHeight - cached_overheadTankWaterLevel) * PI * (DIAMETER_OF_TANK / 2) * (DIAMETER_OF_TANK / 2) * 0.001);
-    ]
   }
+}
