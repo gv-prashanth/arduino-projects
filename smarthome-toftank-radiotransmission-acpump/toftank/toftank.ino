@@ -21,6 +21,8 @@
 #define ECHO_PIN     8  // Arduino pin tied to echo pin on the ultrasonic sensor.
 #define MAX_DISTANCE 200 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
 
+const int RETRY_ATTEMPTS = 20;
+
 RH_ASK driver;
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); // NewPing setup of pins and maximum distance.
 DeepSleep deepSleep;
@@ -46,10 +48,11 @@ void loop()
   //send the message
   String distanceString = String(distance);
   const char *msg = distanceString.c_str();
-  driver.send((uint8_t *)msg, strlen(msg));
-  driver.waitPacketSent();
-  //Serial.print(distance); Serial.println(" cm");delay(100);
-
+  for (int i = 0; i < RETRY_ATTEMPTS; i++) {
+    driver.send((uint8_t *)msg, strlen(msg));
+    driver.waitPacketSent();
+    //Serial.print(distance); Serial.println(" cm");delay(100);
+  }
   //sleep for 8 sec
   deepSleep.sleepForEightSecondsUnlessInterrupted();
 }
