@@ -1,8 +1,7 @@
 /*
- * Make sure you configure your wifi SSID & Password before loading
- * Make sure you use Board version 2.5.0
- * For two knobs to work use ZeroCross pin as 3. Although the PCB is designed with ZeroCross as zero pin.
- */ 
+   Make sure you configure your wifi SSID & Password before loading
+   Make sure you use Board version 2.5.0
+*/
 #ifdef ARDUINO_ARCH_ESP32
 #include <WiFi.h>
 #else
@@ -11,27 +10,27 @@
 //#define ESPALEXA_ASYNC            //uncomment for async operation (can fix empty body issue)
 //#define ESPALEXA_NO_SUBPAGE       //disable /espalexa status page
 //#define ESPALEXA_DEBUG            //activate debug serial logging
-//#define ESPALEXA_MAXDEVICES 15    //set maximum devices add-able to Espalexa
+#define ESPALEXA_MAXDEVICES 1    //set maximum devices add-able to Espalexa
 #include <Espalexa.h>  // you can download the library from https://github.com/Aircoookie/Espalexa
+#include <IRsend.h>
 
 // Change this!!
 const char* ssid = "XXXXXX";
 const char* password = "YYYYYY";
 
-//Percentage initialization
-uint8_t percentA = 100;
-uint8_t percentB = 100;
+const int irLed = 2;
 
 // prototypes
 bool connectWifi();
 
 //callback functions
 void knobCallbackA(EspalexaDevice* dev);
-void knobCallbackB(EspalexaDevice* dev);
 
 bool wifiConnected = false;
 
 Espalexa espalexa;
+
+IRsend irsend(irLed);
 
 void setup()
 {
@@ -39,22 +38,22 @@ void setup()
 
   // Initialise wifi connection
   wifiConnected = connectWifi();
-  if(!wifiConnected){
+  if (!wifiConnected) {
     while (1) {
       Serial.println("Cannot connect to WiFi. Please check data and reset the ESP.");
       delay(2500);
     }
   }
-  
+
   // Define your first device here.
-  espalexa.addDevice("Fan", knobCallbackA, EspalexaDeviceType::dimmable, 127); //Dimmable device, optional 4th parameter is beginning state (here fully on)
-  espalexa.addDevice("Light", knobCallbackB, EspalexaDeviceType::dimmable, 127); //Dimmable device, optional 4th parameter is beginning state (here fully on)
+  espalexa.addDevice("AC", knobCallbackA, EspalexaDeviceType::dimmable, 127); //Dimmable device, optional 4th parameter is beginning state (here fully on)
   espalexa.begin();
+  irsend.begin();
 }
- 
+
 void loop()
 {
- espalexa.loop();
+  espalexa.loop();
 
 }
 
@@ -62,63 +61,31 @@ void loop()
 void knobCallbackA(EspalexaDevice* d) {
   if (d == nullptr) return;
 
-  uint8_t brightness = d->getValue();
-  percentA = d->getPercent();
-  uint8_t degrees = d->getDegrees(); //for heaters, HVAC, ...
-
-  if(d->getLastChangedProperty()== EspalexaDeviceProperty::off){
+  if (d->getLastChangedProperty() == EspalexaDeviceProperty::off) {
     Serial.println("Looks like switch off command was invoked");
+    irsend.sendLG(0x88C0051);
   } else {
-    if(d->getLastChangedProperty()== EspalexaDeviceProperty::on){
+    if (d->getLastChangedProperty() == EspalexaDeviceProperty::on) {
       Serial.println("Looks like switch on command was invoked");
+      irsend.sendLG(0x8800707);
     }
-    if(d->getLastChangedProperty()== EspalexaDeviceProperty::bri){
-      Serial.println("Looks like percentage command was invoked");
+    if (d->getLastChangedProperty() == EspalexaDeviceProperty::bri) {
+      uint8_t brightness = d->getValue();
+      uint8_t percent = d->getPercent();
+      uint8_t degrees = d->getDegrees(); //for heaters, HVAC, ...
+      Serial.println("Looks like brightness command was invoked either with value or percentage or degree");
+      Serial.print("Received value from alexa "); Serial.print(brightness); Serial.println(".");
+      Serial.print("Received percentage from alexa "); Serial.print(percent); Serial.println("%");
+      Serial.print("Received degree from alexa "); Serial.print(degrees); Serial.println("C");
     }
   }
-
-  Serial.print("Received value from alexa ");
-  Serial.print(brightness);
-  Serial.println(".");
-
-  Serial.print("Received percentage from alexa ");
-  Serial.print(percentA);
-  Serial.println("%");
-}
-
-//our callback functions
-void knobCallbackB(EspalexaDevice* d) {
-  if (d == nullptr) return;
-
-  uint8_t brightness = d->getValue();
-  percentB = d->getPercent();
-  uint8_t degrees = d->getDegrees(); //for heaters, HVAC, ...
-
-  if(d->getLastChangedProperty()== EspalexaDeviceProperty::off){
-    Serial.println("Looks like switch off command was invoked");
-  } else {
-    if(d->getLastChangedProperty()== EspalexaDeviceProperty::on){
-      Serial.println("Looks like switch on command was invoked");
-    }
-    if(d->getLastChangedProperty()== EspalexaDeviceProperty::bri){
-      Serial.println("Looks like percentage command was invoked");
-    }
-  }
-
-  Serial.print("Received value from alexa ");
-  Serial.print(brightness);
-  Serial.println(".");
-
-  Serial.print("Received percentage from alexa ");
-  Serial.print(percentB);
-  Serial.println("%");
 }
 
 // connect to wifi – returns true if successful or false if not
-bool connectWifi(){
+bool connectWifi() {
   bool state = true;
   int i = 0;
-  
+
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.println("");
@@ -129,13 +96,13 @@ bool connectWifi(){
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
-    if (i > 20){
+    if (i > 20) {
       state = false; break;
     }
     i++;
   }
   Serial.println("");
-  if (state){
+  if (state) {
     Serial.print("Connected to ");
     Serial.println(ssid);
     Serial.print("IP address: ");
