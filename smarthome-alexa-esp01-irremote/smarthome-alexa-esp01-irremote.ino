@@ -9,8 +9,8 @@
 #include <IRsend.h>
 
 #define SERIAL_BAUDRATE     115200
-#define WIFI_SSID           "GTS"
-#define WIFI_PASS           "0607252609"
+#define WIFI_SSID           "XXXXXX"
+#define WIFI_PASS           "YYYYYY"
 #define DEVICE_ONE          "AC"
 
 const uint16_t irLed = 2;
