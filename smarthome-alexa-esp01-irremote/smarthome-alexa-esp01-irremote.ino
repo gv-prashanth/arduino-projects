@@ -7,24 +7,27 @@
 #include "fauxmoESP.h"
 #include <IRremoteESP8266.h>
 #include <IRsend.h>
+#include <ir_Daikin.h>
 
 #define SERIAL_BAUDRATE     115200
 #define WIFI_SSID           "XXXXXX"
 #define WIFI_PASS           "YYYYYY"
 #define DEVICE_ONE          "AC"
-
+const int MIN_TEMPERATURE = 18;
+const int MAX_TEMPERATURE = 32;
 const uint16_t irLed = 2;
-
-fauxmoESP fauxmo;
-IRsend irsend(irLed);
 
 //Dont touch below stuff
 volatile boolean takeActionToSwitchOnDeviceOne = false;
 volatile boolean takeActionToSwitchOffDeviceOne = false;
+volatile int temp = 18;
+fauxmoESP fauxmo;
+//IRsend irsend(irLed);
+IRDaikinESP irsend(irLed);
 
 void setup() {
   Serial.begin(SERIAL_BAUDRATE);
-  
+
   wifiSetup();
   fauxmoSetup();
 
@@ -35,9 +38,16 @@ void setup() {
     // Just remember not to delay too much here, this is a callback, exit as soon as possible.
     Serial.printf("[MAIN] Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
     if (strcmp(device_name, DEVICE_ONE) == 0) {
-      if (state == HIGH)
+      if (state == HIGH) {
+        int receivedTemp = (100.0 / 255.0) * ((int)value);
+        if (receivedTemp < MIN_TEMPERATURE)
+          temp = MIN_TEMPERATURE;
+        else if (receivedTemp > MAX_TEMPERATURE)
+          temp = MAX_TEMPERATURE;
+        else
+          temp = receivedTemp;
         takeActionToSwitchOnDeviceOne = true;
-      else
+      } else
         takeActionToSwitchOffDeviceOne = true;
     }
   });
@@ -59,12 +69,32 @@ void loop() {
 
 void triggerDeviceOneOn() {
   Serial.println("DEVICE_ONE SWITCHING ON");
-  irsend.sendLG(0x8800707);
+  //irsend.sendLG(0x8800707);
+  irsend.on();
+  irsend.setMode(kDaikinCool);
+  irsend.setTemp(temp);
+  irsend.setFan(kDaikinFanAuto);
+  irsend.setSwingVertical(false);
+  irsend.setSwingHorizontal(false);
+  irsend.setQuiet(false);
+  irsend.setPowerful(false);
+  Serial.println(irsend.toString());
+  irsend.send();
 }
 
 void triggerDeviceOneOff() {
   Serial.println("DEVICE_ONE SWITCHING OFF");
-  irsend.sendLG(0x88C0051);
+  //irsend.sendLG(0x88C0051);
+  irsend.off();
+  irsend.setMode(kDaikinCool);
+  irsend.setTemp(18);
+  irsend.setFan(kDaikinFanAuto);
+  irsend.setSwingVertical(false);
+  irsend.setSwingHorizontal(false);
+  irsend.setQuiet(false);
+  irsend.setPowerful(false);
+  Serial.println(irsend.toString());
+  irsend.send();
 }
 
 void wifiSetup() {
