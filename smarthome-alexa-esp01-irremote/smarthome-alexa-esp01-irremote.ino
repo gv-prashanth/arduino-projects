@@ -18,9 +18,6 @@ const int MAX_TEMPERATURE = 32;
 const uint16_t irLed = 2;
 
 //Dont touch below stuff
-volatile boolean takeActionToSwitchOnDeviceOne = false;
-volatile boolean takeActionToSwitchOffDeviceOne = false;
-volatile int temp = 18;
 fauxmoESP fauxmo;
 //IRsend irsend(irLed);
 IRDaikinESP irsend(irLed);
@@ -38,17 +35,11 @@ void setup() {
     // Just remember not to delay too much here, this is a callback, exit as soon as possible.
     Serial.printf("[MAIN] Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
     if (strcmp(device_name, DEVICE_ONE) == 0) {
+      int temp = convertValueToTemperature(value);
       if (state == HIGH) {
-        int receivedTemp = (100.0 / 255.0) * ((int)value);
-        if (receivedTemp < MIN_TEMPERATURE)
-          temp = MIN_TEMPERATURE;
-        else if (receivedTemp > MAX_TEMPERATURE)
-          temp = MAX_TEMPERATURE;
-        else
-          temp = receivedTemp;
-        takeActionToSwitchOnDeviceOne = true;
+        triggerDeviceOneOn(temp);
       } else
-        takeActionToSwitchOffDeviceOne = true;
+        triggerDeviceOneOff(temp);
     }
   });
   irsend.begin();
@@ -57,17 +48,9 @@ void setup() {
 void loop() {
   fauxmo.handle();
   // fauxmo.setState(ID_YELLOW, true, 255);
-  if (takeActionToSwitchOnDeviceOne) {
-    triggerDeviceOneOn();
-    takeActionToSwitchOnDeviceOne = false;
-  }
-  if (takeActionToSwitchOffDeviceOne) {
-    triggerDeviceOneOff();
-    takeActionToSwitchOffDeviceOne = false;
-  }
 }
 
-void triggerDeviceOneOn() {
+void triggerDeviceOneOn(int temp) {
   Serial.println("DEVICE_ONE SWITCHING ON");
   //irsend.sendLG(0x8800707);
   irsend.on();
@@ -82,12 +65,12 @@ void triggerDeviceOneOn() {
   irsend.send();
 }
 
-void triggerDeviceOneOff() {
+void triggerDeviceOneOff(int temp) {
   Serial.println("DEVICE_ONE SWITCHING OFF");
   //irsend.sendLG(0x88C0051);
   irsend.off();
   irsend.setMode(kDaikinCool);
-  irsend.setTemp(18);
+  irsend.setTemp(temp);
   irsend.setFan(kDaikinFanAuto);
   irsend.setSwingVertical(false);
   irsend.setSwingHorizontal(false);
@@ -95,6 +78,15 @@ void triggerDeviceOneOff() {
   irsend.setPowerful(false);
   Serial.println(irsend.toString());
   irsend.send();
+}
+
+int convertValueToTemperature(unsigned char value) {
+  int temp = (100.0 / 255.0) * ((int)value);
+  if (temp < MIN_TEMPERATURE)
+    temp = MIN_TEMPERATURE;
+  if (temp > MAX_TEMPERATURE)
+    temp = MAX_TEMPERATURE;
+  return temp;
 }
 
 void wifiSetup() {
