@@ -25,7 +25,7 @@ const int SumpReceiverIndicatorPin = 13; // Sump receiver indication led pin
 const unsigned long TRANSMISSION_TRESHOLD_TIME = 36000; // in milliseconds
 const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000; //in milliseconds
 const unsigned long MAX_ALLOWED_RUNTIME_OF_MOTOR = 3600000; //in milliseconds
-const unsigned long PROTECTION_TIME_FOR_RATE_CHECK = 120000; //in milliseconds
+const unsigned long BATCH_DURATION = 120000; //in milliseconds
 const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 118.0; // in centimeters
 const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0; // in centimeters
 const float DIAMETER_OF_TANK = 108.0;//in centimers
@@ -34,8 +34,8 @@ const float TANK_TOLERANCE = 20.0; // in centimeters
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 
 //Dont touch below stuff
-unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, rateCheck_lastTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight;
-float cached_overheadTankWaterLevel, rateCheck_lastValue;
+unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter;
+float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage;
 boolean firstTimeStarting, isMotorRunning;
 RH_ASK driver;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
@@ -60,9 +60,12 @@ void setup()
   lastSuccesfulOverheadTransmissionTime = currentTime;
   lastSwitchOnTime = currentTime;
   lastSwitchOffTime = currentTime;
-  rateCheck_lastTimestamp = currentTime;
+  batchTimestamp = currentTime;
   firstTimeStarting = true;
   isMotorRunning = false;
+  cached_overheadTankWaterLevel_prevBatchAverage = -1;
+  cached_overheadTankWaterLevel_prevprevBatchAverage = -1;
+  batchCounter = 0;
 
 }
 
@@ -100,6 +103,14 @@ void loop()
   //do all displays
   displayLCDInfo();
   displayConnectionStrength();
+  displayDangerStatus();
+}
+
+void displayDangerStatus() {
+  if (isMotorInDanger())
+    digitalWrite(SumpDangerIndicatorPin, HIGH);
+  else
+    digitalWrite(SumpDangerIndicatorPin, LOW);
 }
 
 void displayConnectionStrength() {
@@ -123,8 +134,6 @@ void switchOnMotor() {
   lastSwitchOnTime = millis();
   digitalWrite(sumpMotorTriggerPin, HIGH);
   isMotorRunning = true;
-  rateCheck_lastTimestamp = lastSwitchOnTime;
-  rateCheck_lastValue = cached_overheadTankWaterLevel;
 }
 
 boolean isConnectionWithinTreshold() {
@@ -143,6 +152,7 @@ boolean isConnectionWithinTreshold() {
 void loadAndCacheOverheadTransmissions() {
   uint8_t buf[RH_ASK_MAX_MESSAGE_LEN];
   uint8_t buflen = sizeof(buf);
+  unsigned long currentTime = millis();
   if (driver.recv(buf, &buflen)) // Non-blocking
   {
     int i;
@@ -150,22 +160,31 @@ void loadAndCacheOverheadTransmissions() {
     //driver.printBuffer("Got:", buf, buflen);
     String respString = (char*)buf;
     cached_overheadTankWaterLevel = HEIGHT_OF_TOF_SENSOR_FROM_GROUND - respString.toFloat();
-    Serial.print("Tank water: "); Serial.print(cached_overheadTankWaterLevel); Serial.println(" cm");
-    lastSuccesfulOverheadTransmissionTime = millis();
+    Serial.print("Tank water: "); Serial.print(cached_overheadTankWaterLevel); Serial.println(" cm.");
+    lastSuccesfulOverheadTransmissionTime = currentTime;
   }
+
+  cached_overheadTankWaterLevel_thisBatchAverage = ((batchCounter * cached_overheadTankWaterLevel_thisBatchAverage) / (batchCounter + 1)) + (cached_overheadTankWaterLevel / (batchCounter + 1));
+  batchCounter++;
+  if (currentTime - batchTimestamp > BATCH_DURATION) {
+    batchTimestamp = currentTime;
+    cached_overheadTankWaterLevel_prevprevBatchAverage = cached_overheadTankWaterLevel_prevBatchAverage;
+    cached_overheadTankWaterLevel_prevBatchAverage = cached_overheadTankWaterLevel_thisBatchAverage;
+    batchCounter = 0;
+  }
+  Serial.print("Prev: "); Serial.print(cached_overheadTankWaterLevel_prevBatchAverage); Serial.print(" cm. ");Serial.print("PrevPrev: "); Serial.print(cached_overheadTankWaterLevel_prevprevBatchAverage); Serial.println(" cm.");
 }
 
 boolean isMotorInDanger() {
   unsigned long currentTime = millis();
-  boolean isMaxMotorRunTimeReached = currentTime - lastSwitchOnTime > MAX_ALLOWED_RUNTIME_OF_MOTOR;
-  boolean isDryRunDetected = false;
-  if (currentTime - rateCheck_lastTimestamp > PROTECTION_TIME_FOR_RATE_CHECK) {
-    if (cached_overheadTankWaterLevel <= rateCheck_lastValue)
-      isDryRunDetected = true;
-    rateCheck_lastTimestamp = currentTime;
-    rateCheck_lastValue = cached_overheadTankWaterLevel;
-  }
-  return isMaxMotorRunTimeReached || isDryRunDetected;
+  if (!isMotorRunning)
+    return false;
+  else if (currentTime - lastSwitchOnTime > MAX_ALLOWED_RUNTIME_OF_MOTOR)
+    return true; //Motor running for too long time. Its in danger.
+  else if (cached_overheadTankWaterLevel_prevBatchAverage != -1 && cached_overheadTankWaterLevel_prevprevBatchAverage != -1 && cached_overheadTankWaterLevel_prevBatchAverage < cached_overheadTankWaterLevel_prevprevBatchAverage)
+    return true; //Motor is dry. Its in danger.
+  else
+    return false;
 }
 
 boolean isRecentlySwitchedOff() {
@@ -204,7 +223,7 @@ unsigned long calculateVolumeConsumedSoFar() {
     return todayTracker_volume;
   else {
     if (todayTracker_switchOffHeight < cached_overheadTankWaterLevel)
-      todayTracker_switchOffHeight = cached_overheadTankWaterLevel+1;
+      todayTracker_switchOffHeight = cached_overheadTankWaterLevel + 1;
     return todayTracker_volume + (2 * (todayTracker_switchOffHeight - cached_overheadTankWaterLevel) * PI * (DIAMETER_OF_TANK / 2) * (DIAMETER_OF_TANK / 2) * 0.001);
   }
 }
