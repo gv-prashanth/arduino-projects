@@ -5,56 +5,54 @@
    Turns ON and OFF a sumpMotor pump Automtically by sensing presense of water in Overhead Tank.
    Using 433MHz RF Transmitter and Receiver modules for wireless link, along with RH_ASK to transmit the water level reading.
    Make sure you connect the RF Receiver to PIN 11 & RF Transmitter to PIN 12
-   Arduino as logic controller to drive a sumpMotor Pump. Pump is  connected EM Relay mounted on Power supply unit.
+   ESP as logic controller to drive a sumpMotor Pump. Pump is  connected EM Relay mounted on Power supply unit.
    Overhed tank is connected to a TOF distance sensor (Ultrasonic sensor)
    sumpMotorTriggerPin driver attached to pin 5  with 10k resistor to ground
 */
 
-#include <RH_ASK.h>
-#ifdef RH_HAVE_HARDWARE_SPI
-#include <SPI.h> // Not actually used but needed to compile
-#endif
-#include <DeepSleep.h>
-#include <NewPing.h>
+#include <ESP8266WiFi.h>
+#include <NewPingESP8266.h>
 
-#define TRIGGER_PIN  7  // Arduino pin tied to trigger pin on the ultrasonic sensor.
-#define ECHO_PIN     8  // Arduino pin tied to echo pin on the ultrasonic sensor.
+#define TRIGGER_PIN  4  // ESP pin tied to trigger pin on the ultrasonic sensor.
+#define ECHO_PIN     5  // ESP pin tied to echo pin on the ultrasonic sensor.
 #define MAX_DISTANCE 200 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
 
 const int RETRY_ATTEMPTS = 20;
+const int sleepTimeSeconds = 8;// Configure deep sleep in between measurements
 
-RH_ASK driver;
-NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); // NewPing setup of pins and maximum distance.
-DeepSleep deepSleep;
+//Functional Configurations
+const char* ssid = "ESP12E";
+const char* password = "1111111111";
+const char* host = "192.168.11.4"; // as specified in server
+
+//Dont touch below stuff
+NewPingESP8266 sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); // NewPingESP8266 setup of pins and maximum distance.
+WiFiClient client;
 
 void setup()
 {
-#ifdef RH_HAVE_SERIAL
-  Serial.begin(9600);    // Debugging only
-#endif
-  if (!driver.init())
-#ifdef RH_HAVE_SERIAL
-    Serial.println("init failed");
-#else
-    ;
-#endif
-}
+  Serial.begin(9600);
+  // Connect to the server
+  connectToServer();
 
-void loop()
-{
   //get average distance
   float distance = getMeanDistance();
 
   //send the message
-  String distanceString = String(distance);
-  const char *msg = distanceString.c_str();
   for (int i = 0; i < RETRY_ATTEMPTS; i++) {
-    driver.send((uint8_t *)msg, strlen(msg));
-    driver.waitPacketSent();
-    //Serial.print(distance); Serial.println(" cm");delay(100);
+    //send to server
+    sendMessageToServer(distance);
+    Serial.print(distance); Serial.println(" cm"); delay(100);
   }
+
   //sleep for 8 sec
-  deepSleep.sleepForEightSecondsUnlessInterrupted();
+  Serial.println("ESP8266 in sleep mode");
+  ESP.deepSleep(sleepTimeSeconds * 1e6);
+}
+
+void loop()
+{
+
 }
 
 float getMeanDistance() {
@@ -72,4 +70,32 @@ float getMeanDistance() {
     return toAverageDistance / validCounts;
   else
     return 0;
+}
+
+void connectToServer() {
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  Serial.println();
+  Serial.print("IP Address (AP): "); Serial.println(WiFi.localIP());
+}
+
+void sendMessageToServer(float distance) {
+  if (client.connect(host, 80)) {
+    String url = "/update?value=";
+    url += String(distance);
+    client.print(String("GET ") + url + " HTTP/1.1\r\n" + "Host: " + host +  "\r\n" +
+                 "Connection: keep-alive\r\n\r\n"); // minimum set of required URL headers
+    delay(10);
+    // Read all the lines of the response and print them to Serial
+    Serial.println("Response: ");
+    while (client.available()) {
+      String line = client.readStringUntil('\r');
+      Serial.print(line);
+    }
+  }else{
+    Serial.println("Failed to establish connection");
+  }
 }
