@@ -4,21 +4,21 @@
   The concept:
    Turns ON and OFF a sumpMotor pump Automtically by sensing presense of water in Overhead Tank.
    Using 433MHz ASK RF Transmitter and Receiver modules for wireless link, along with RH_ASK to transmit the water level reading.
-   Make sure you connect the RF Receiver to PIN 11 & RF Transmitter to PIN 12
-   Arduino as logic controller to drive a sumpMotor Pump. Pump is  connected EM Relay mounted on Power supply unit.
-   Overhed tank is connected to a PWM based TOF distance sensor
+   Make sure you connect the RF Receiver to PIN 11 & RF Transmitter to PIN 12 of Arduino
+   Arduino as logic controller to drive a sumpMotor Pump. Pump is  connected through EM Relay mounted on Power supply unit.
+   At Overhed tank Arduino along with RF Transmitter is connected to a PWM based TOF distance sensor OR Ultrasonic distance sensor
    sumpMotorTriggerPin driver attached to pin 8 with 10k resistor to ground
+   SumpDangerIndicatorPin  9 connected with Red LED through 150E resistor to ground, indicating Dry Run
+   SumpReceiverIndicatorPin  13 connected with Red LED through 150E resistor to ground indicating RF Link.
 */
 
-#include <RH_ASK.h>
-#ifdef RH_HAVE_HARDWARE_SPI
-#include <SPI.h> // Not actually used but needed to compile
-#endif
+#include <ESP8266WiFi.h>
+#include <ESP8266WebServer.h>
 #include <LiquidCrystal.h>
 
 //Pin Configurations
 const int sumpMotorTriggerPin = 8; // sump pump driver pin
-const int SumpDangerIndicatorPin = 6; // Sump danger level led pin
+const int SumpDangerIndicatorPin = 9; // Sump danger level led pin
 const int SumpReceiverIndicatorPin = 13; // Sump receiver indication led pin
 
 //Functional Configurations
@@ -30,14 +30,19 @@ const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 118.0; // in centimeters
 const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0; // in centimeters
 const float DIAMETER_OF_TANK = 108.0;//in centimers
 const float TANK_TOLERANCE = 20.0; // in centimeters
+char * ssid_ap = "ESP12E";
+char * password_ap = "1111111111";
 // initialize the library by associating any needed LCD interface pin with the arduino pin number it is connected to
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter;
 float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage;
-boolean firstTimeStarting, isMotorRunning;
-RH_ASK driver;
+boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun;
+IPAddress ip(192, 168, 11, 4); // arbitrary IP address (doesn't conflict w/ local network)
+IPAddress gateway(192, 168, 11, 1);
+IPAddress subnet(255, 255, 255, 0);
+ESP8266WebServer server;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 void setup()
@@ -45,8 +50,15 @@ void setup()
   // initialize serial communication with computer:
   Serial.begin(9600);    // Debugging only
 
-  if (!driver.init())
-    Serial.println("init failed");
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(ip, gateway, subnet);
+  WiFi.softAP(ssid_ap, password_ap);
+  Serial.println();
+  Serial.print("IP Address: "); Serial.println(WiFi.localIP());
+  // Configure the server's routes
+  server.on("/", handleIndex); // use the top root path to report the last sensor value
+  server.on("/update", loadAndCacheOverheadTransmissions); // use this route to update the sensor value
+  server.begin();
 
   lcd.begin(16, 2);
 
@@ -63,6 +75,7 @@ void setup()
   batchTimestamp = currentTime;
   firstTimeStarting = true;
   isMotorRunning = false;
+  wasMotorInDangerInLastRun = false;
   cached_overheadTankWaterLevel_prevBatchAverage = -1;
   cached_overheadTankWaterLevel_prevprevBatchAverage = -1;
   batchCounter = 0;
@@ -71,16 +84,14 @@ void setup()
 
 void loop()
 {
-  // read values from all sensors
-  loadAndCacheOverheadTransmissions();
-
   if (isMotorRunning) {
     if (!isConnectionWithinTreshold()) {
       switchOffMotor();
       Serial.println("No strong signal from overhead. Switching OFF!");
     } else if (isMotorInDanger()) {
       switchOffMotor();
-      Serial.println("Danger! Out of water in sump. Shutting down!");
+      wasMotorInDangerInLastRun = true;
+      Serial.println("Danger! Sump motor might be at risk. Shutting down!");
     } else if (overheadTopHasWater()) {
       switchOffMotor();
       Serial.println("Overhead tank is just filled. Switching OFF!");
@@ -91,7 +102,10 @@ void loop()
     if (!isConnectionWithinTreshold()) {
       Serial.println("No strong signal from overhead. Motor is already Switched OFF. Lets not switch ON!");
     } else if (!overheadBottomHasWater() && !isRecentlySwitchedOff()) {
+      cached_overheadTankWaterLevel_prevBatchAverage = -1;
+      cached_overheadTankWaterLevel_prevprevBatchAverage = -1;
       switchOnMotor();
+      wasMotorInDangerInLastRun = false;
       Serial.println("No water in overhead tank. Also sump has water. Switching ON!");
     } else if (!overheadBottomHasWater() && isRecentlySwitchedOff()) {
       Serial.println("No water in overhead tank. But very recently switched Off. Lets wait for protection time and then check.");
@@ -103,11 +117,11 @@ void loop()
   //do all displays
   displayLCDInfo();
   displayConnectionStrength();
-  displayDangerStatus();
+  displaySumpDangerIndicator();
 }
 
-void displayDangerStatus() {
-  if (isMotorInDanger())
+void displaySumpDangerIndicator() {
+  if (wasMotorInDangerInLastRun)
     digitalWrite(SumpDangerIndicatorPin, HIGH);
   else
     digitalWrite(SumpDangerIndicatorPin, LOW);
@@ -150,19 +164,11 @@ boolean isConnectionWithinTreshold() {
 }
 
 void loadAndCacheOverheadTransmissions() {
-  uint8_t buf[RH_ASK_MAX_MESSAGE_LEN];
-  uint8_t buflen = sizeof(buf);
   unsigned long currentTime = millis();
-  if (driver.recv(buf, &buflen)) // Non-blocking
-  {
-    int i;
-    // Message with a good checksum received, dump it.
-    //driver.printBuffer("Got:", buf, buflen);
-    String respString = (char*)buf;
-    cached_overheadTankWaterLevel = HEIGHT_OF_TOF_SENSOR_FROM_GROUND - respString.toFloat();
-    Serial.print("Tank water: "); Serial.print(cached_overheadTankWaterLevel); Serial.println(" cm.");
-    lastSuccesfulOverheadTransmissionTime = currentTime;
-  }
+
+  cached_overheadTankWaterLevel = HEIGHT_OF_TOF_SENSOR_FROM_GROUND - server.arg("value").toFloat();
+  server.send(200, "text/plain", "Updated");
+  lastSuccesfulOverheadTransmissionTime = currentTime;
 
   cached_overheadTankWaterLevel_thisBatchAverage = ((batchCounter * cached_overheadTankWaterLevel_thisBatchAverage) / (batchCounter + 1)) + (cached_overheadTankWaterLevel / (batchCounter + 1));
   batchCounter++;
@@ -172,7 +178,7 @@ void loadAndCacheOverheadTransmissions() {
     cached_overheadTankWaterLevel_prevBatchAverage = cached_overheadTankWaterLevel_thisBatchAverage;
     batchCounter = 0;
   }
-  Serial.print("Prev: "); Serial.print(cached_overheadTankWaterLevel_prevBatchAverage); Serial.print(" cm. ");Serial.print("PrevPrev: "); Serial.print(cached_overheadTankWaterLevel_prevprevBatchAverage); Serial.println(" cm.");
+  Serial.print("Tank water: "); Serial.print(cached_overheadTankWaterLevel); Serial.print(" cm. "); Serial.print("Prev: "); Serial.print(cached_overheadTankWaterLevel_prevBatchAverage); Serial.print(" cm. "); Serial.print("PrevPrev: "); Serial.print(cached_overheadTankWaterLevel_prevprevBatchAverage); Serial.println(" cm.");
 }
 
 boolean isMotorInDanger() {
@@ -181,7 +187,7 @@ boolean isMotorInDanger() {
     return false;
   else if (currentTime - lastSwitchOnTime > MAX_ALLOWED_RUNTIME_OF_MOTOR)
     return true; //Motor running for too long time. Its in danger.
-  else if (cached_overheadTankWaterLevel_prevBatchAverage != -1 && cached_overheadTankWaterLevel_prevprevBatchAverage != -1 && cached_overheadTankWaterLevel_prevBatchAverage < cached_overheadTankWaterLevel_prevprevBatchAverage)
+  else if (cached_overheadTankWaterLevel_prevBatchAverage != -1 && cached_overheadTankWaterLevel_prevprevBatchAverage != -1 && cached_overheadTankWaterLevel_prevBatchAverage <= cached_overheadTankWaterLevel_prevprevBatchAverage)
     return true; //Motor is dry. Its in danger.
   else
     return false;
@@ -226,4 +232,8 @@ unsigned long calculateVolumeConsumedSoFar() {
       todayTracker_switchOffHeight = cached_overheadTankWaterLevel + 1;
     return todayTracker_volume + (2 * (todayTracker_switchOffHeight - cached_overheadTankWaterLevel) * PI * (DIAMETER_OF_TANK / 2) * (DIAMETER_OF_TANK / 2) * 0.001);
   }
+}
+
+void handleIndex() {
+  server.send(200, "text/plain", String(cached_overheadTankWaterLevel)); // we'll need to refresh the page for getting the latest value
 }
