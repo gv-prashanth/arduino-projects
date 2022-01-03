@@ -3,11 +3,10 @@
 
   The concept:
    Turns ON and OFF a sumpMotor pump Automtically by sensing presense of water in Overhead Tank.
-   Using 433MHz RF Transmitter and Receiver modules for wireless link, along with RH_ASK to transmit the water level reading.
-   Make sure you connect the RF Receiver to PIN 11 & RF Transmitter to PIN 12
+   Using ESP8266 WIFI used as Transmitter and Receiver modules for wireless link, along with HC-SR04 ultrasonic sensor sense the water level reading.
    ESP as logic controller to drive a sumpMotor Pump. Pump is  connected EM Relay mounted on Power supply unit.
    Overhed tank is connected to a TOF distance sensor (Ultrasonic sensor)
-   sumpMotorTriggerPin driver attached to pin 5  with 10k resistor to ground
+   sumpMotorTriggerPin driver attached to ESP8266 receiver pin 5  with 10k resistor to ground
 */
 
 #include <ESP8266WiFi.h>
@@ -22,7 +21,7 @@ const int sleepTimeSeconds = 8;// Configure deep sleep in between measurements
 
 //Functional Configurations
 const char* ssid = "ESP12E";
-const char* password = "1111111111";
+const char* password = "0607252609";
 const char* host = "192.168.11.4"; // as specified in server
 
 //Dont touch below stuff
@@ -31,16 +30,14 @@ WiFiClient client;
 
 void setup()
 {
-  Serial.begin(9600);
+  Serial.begin(74880);
   // Connect to the server
   connectToServer();
 
-  //get average distance
-  float distance = getMeanDistance();
-
-  //send the message
-  for (int i = 0; i < RETRY_ATTEMPTS; i++) {
-    //send to server
+  //send the message to server
+  if (WiFi.status() == WL_CONNECTED) {
+    //get average distance
+    float distance = getMeanDistance();
     sendMessageToServer(distance);
     Serial.print(distance); Serial.println(" cm"); delay(100);
   }
@@ -73,13 +70,18 @@ float getMeanDistance() {
 }
 
 void connectToServer() {
+  int i = 0;
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED && i < RETRY_ATTEMPTS) {
+    i++;
     Serial.print(".");
     delay(500);
   }
   Serial.println();
-  Serial.print("IP Address (AP): "); Serial.println(WiFi.localIP());
+  if (WiFi.status() == WL_CONNECTED){
+    Serial.print("IP Address (AP): "); Serial.println(WiFi.localIP());
+  }else
+    Serial.println("Unable to reach the sump in this session. Will try again later.");
 }
 
 void sendMessageToServer(float distance) {
@@ -95,7 +97,7 @@ void sendMessageToServer(float distance) {
       String line = client.readStringUntil('\r');
       Serial.print(line);
     }
-  }else{
+  } else {
     Serial.println("Failed to establish connection");
   }
 }
