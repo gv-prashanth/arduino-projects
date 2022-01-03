@@ -14,12 +14,14 @@
 
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
-#include <LiquidCrystal.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 //Pin Configurations
-const int sumpMotorTriggerPin = 8; // sump pump driver pin
-const int SumpDangerIndicatorPin = 9; // Sump danger level led pin
-const int SumpReceiverIndicatorPin = 13; // Sump receiver indication led pin
+const int sumpMotorTriggerPin = 14; // sump pump driver pin
+const int SumpDangerIndicatorPin = 13; // Sump danger level led pin
+const int SumpReceiverIndicatorPin = 12; // Sump receiver indication led pin
 
 //Functional Configurations
 const unsigned long TRANSMISSION_TRESHOLD_TIME = 36000; // in milliseconds
@@ -31,9 +33,10 @@ const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0; // in centimeters
 const float DIAMETER_OF_TANK = 108.0;//in centimers
 const float TANK_TOLERANCE = 20.0; // in centimeters
 char * ssid_ap = "ESP12E";
-char * password_ap = "1111111111";
-// initialize the library by associating any needed LCD interface pin with the arduino pin number it is connected to
-const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+char * password_ap = "0607252609";
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter;
@@ -43,12 +46,12 @@ IPAddress ip(192, 168, 11, 4); // arbitrary IP address (doesn't conflict w/ loca
 IPAddress gateway(192, 168, 11, 1);
 IPAddress subnet(255, 255, 255, 0);
 ESP8266WebServer server;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 void setup()
 {
   // initialize serial communication with computer:
-  Serial.begin(9600);    // Debugging only
+  Serial.begin(74880);    // Debugging only
 
   WiFi.mode(WIFI_AP);
   WiFi.softAPConfig(ip, gateway, subnet);
@@ -60,7 +63,13 @@ void setup()
   server.on("/update", loadAndCacheOverheadTransmissions); // use this route to update the sensor value
   server.begin();
 
-  lcd.begin(16, 2);
+  Wire.begin (4, 5);
+  // Address 0x3C for 128x64, you might need to change this value (use an I2C scanner)
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;); // Don't proceed, loop forever
+  }
+  Serial.println(F("display is success"));
 
   // initialize the sumpMotorTriggerPin pin, SumpDangerIndicatorPin as Output
   pinMode(sumpMotorTriggerPin, OUTPUT);
@@ -84,6 +93,9 @@ void setup()
 
 void loop()
 {
+  //receive any message from toftank
+  server.handleClient();
+
   if (isMotorRunning) {
     if (!isConnectionWithinTreshold()) {
       switchOffMotor();
@@ -206,8 +218,22 @@ boolean overheadTopHasWater() {
 }
 
 void displayLCDInfo() {
-  lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String(calculateTankPercentage()) + String("%(") + String((int)cached_overheadTankWaterLevel) + String("cm)          "));
-  lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
+  // display Distance
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.print("LEVEL: ");
+  display.setTextSize(2);
+  display.setCursor(0, 12);
+  display.print(String(calculateTankPercentage()) + String("% ") + String((int)cached_overheadTankWaterLevel) + String("cm"));
+  display.setTextSize(1);
+  display.setCursor(0, 30);
+  display.print("USAGE: ");
+  display.setTextSize(2);
+  display.setCursor(0, 40);
+  display.print(String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H"));
+  display.display();
 }
 
 int calculateTankPercentage() {
