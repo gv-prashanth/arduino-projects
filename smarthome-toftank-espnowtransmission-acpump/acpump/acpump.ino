@@ -16,6 +16,10 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <PCF8574_PCD8544.h>
+
+#include <ESP8266HTTPClient.h>
+#include <WiFiClientSecure.h>
+
 PCF8574_PCD8544 display = PCF8574_PCD8544(0x27, 7, 6, 5, 4, 2);
 
 int contrastValue = 55; /* Default Contrast Value */
@@ -38,9 +42,9 @@ const float TANK_TOLERANCE = 20.0;                               // in centimete
 
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter, todayTracker_signal, signalLostStartTime;
-float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage;
-boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun, prevLoopIsConnectionWithinTreshold;
-
+float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage, overheadVoltage;
+boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun, prevLoopIsConnectionWithinTreshold, sendToAlexa;
+int prevTankPercentage;
 
 // Structure example to receive data
 // Must match the sender structure
@@ -49,23 +53,13 @@ typedef struct struct_message {
   float vcc;
 } struct_message;
 
-// Create a struct_message called myData
-struct_message myData;
-volatile int f_int;
-volatile double vcc;
-boolean signalPresent = true;
-
-
 // Callback function that will be executed when data is received
 void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
+  // Create a struct_message called myData
+  struct_message myData;
   memcpy(&myData, incomingData, sizeof(myData));
-  Serial.print("Bytes received: ");
-  Serial.println(len);
-  Serial.print(" TANK LEVEL: ");
-  f_int = myData.f;
-  vcc = myData.vcc;
   // read values from all sensors
-  loadAndCacheOverheadTransmissions();
+  loadAndCacheOverheadTransmissions(myData.f, myData.vcc);
 }
 
 void setup() {
@@ -97,6 +91,7 @@ void setup() {
   batchTimestamp = currentTime;
   signalLostStartTime = currentTime;
   firstTimeStarting = true;
+  sendToAlexa = false;
   isMotorRunning = false;
   wasMotorInDangerInLastRun = false;
   prevLoopIsConnectionWithinTreshold = false;
@@ -155,6 +150,7 @@ void loop() {
   displayLCDInfo();
   trackAndDisplayConnectionStrength();
   displaySumpDangerIndicator();
+  checkAndSendToAlexa();
 }
 
 void displaySumpDangerIndicator() {
@@ -172,12 +168,14 @@ void trackAndDisplayConnectionStrength() {
       //we just got the signal
       unsigned long currentTime = millis();
       todayTracker_signal = todayTracker_signal + (currentTime - signalLostStartTime);
+      sendToAlexa = true;
     }
   } else {
     digitalWrite(SumpReceiverIndicatorPin, LOW);
     if (prevLoopIsConnectionWithinTreshold) {
       //we just lost the signal
       signalLostStartTime = millis();
+      sendToAlexa = true;
     }
   }
   prevLoopIsConnectionWithinTreshold = currentLoopIsConnectionWithinTreshold;
@@ -188,6 +186,7 @@ void switchOffMotor() {
   digitalWrite(sumpMotorTriggerPin, LOW);
   isMotorRunning = false;
   todayTracker_switchOffHeight = cached_overheadTankWaterLevel;
+  sendToAlexa = true;
 }
 
 void switchOnMotor() {
@@ -197,6 +196,7 @@ void switchOnMotor() {
   lastSwitchOnTime = millis();
   digitalWrite(sumpMotorTriggerPin, HIGH);
   isMotorRunning = true;
+  sendToAlexa = true;
 }
 
 boolean isConnectionWithinTreshold() {
@@ -208,7 +208,7 @@ boolean isConnectionWithinTreshold() {
   }
 }
 
-void loadAndCacheOverheadTransmissions() {
+void loadAndCacheOverheadTransmissions(float overheadSensorReading, float overheadVcc) {
 
   unsigned long currentTime = millis();
   if (true)  // Non-blocking
@@ -216,8 +216,10 @@ void loadAndCacheOverheadTransmissions() {
     int i;
     // Message with a good checksum received, dump it.
     //driver.printBuffer("Got:", buf, buflen);
-    cached_overheadTankWaterLevel = HEIGHT_OF_TOF_SENSOR_FROM_GROUND - f_int;
+    cached_overheadTankWaterLevel = HEIGHT_OF_TOF_SENSOR_FROM_GROUND - overheadSensorReading;
     lastSuccesfulOverheadTransmissionTime = currentTime;
+
+    overheadVoltage = overheadVcc;
 
     cached_overheadTankWaterLevel_thisBatchAverage = ((batchCounter * cached_overheadTankWaterLevel_thisBatchAverage) / (batchCounter + 1)) + (cached_overheadTankWaterLevel / (batchCounter + 1));
     batchCounter++;
@@ -231,6 +233,9 @@ void loadAndCacheOverheadTransmissions() {
     Serial.print("Tank water: ");
     Serial.print(cached_overheadTankWaterLevel);
     Serial.print(" cm. ");
+    Serial.print("Tank voltage: ");
+    Serial.print(overheadVoltage);
+    Serial.print(" V. ");
     Serial.print("Prev: ");
     Serial.print(cached_overheadTankWaterLevel_prevBatchAverage);
     Serial.print(" cm. ");
@@ -265,12 +270,6 @@ boolean overheadTopHasWater() {
 }
 
 void displayLCDInfo() {
-
-  Serial.print(118 - f_int);
-  Serial.print(" vcc:");
-  Serial.println(vcc);
-
-
   // display usage
 
   display.clearDisplay();
@@ -283,11 +282,11 @@ void displayLCDInfo() {
   if (isConnectionWithinTreshold()) {
     display.setCursor(0, 24);
     display.setTextSize(1);
-    display.println("TANK");
+    display.print(String(calculateTankPercentage()));
+    display.println("%");
     display.setCursor(30, 16);
-    display.setTextSize(2);
-    display.print(118 - f_int);
     display.setTextSize(1);
+    display.print(String((int)cached_overheadTankWaterLevel));
     display.println("cm");
   } else {
     display.setCursor(0, 16);
@@ -302,7 +301,7 @@ void displayLCDInfo() {
   display.println("BATT");
   display.setCursor(30, 34);
   display.setTextSize(2);
-  display.print(myData.vcc);
+  display.print(overheadVoltage);
   display.setTextSize(1);
   display.println("V");
   display.display();
@@ -310,8 +309,6 @@ void displayLCDInfo() {
 
 
   //lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String(calculateTankPercentage()) + String("%(") + String((int)cached_overheadTankWaterLevel) + String("cm)          "));
-
-  //lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String((int)cached_overheadTankWaterLevel) + String("(") + String(calculateSignalConsumedSoFar()) + String(")"));
   //lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
 }
 
@@ -340,7 +337,52 @@ unsigned long calculateVolumeConsumedSoFar() {
   }
 }
 
-int calculateSignalConsumedSoFar() {
-  int toReturn = (todayTracker_signal) / (1000.0 * 60.0);
-  return toReturn;
+void sendSensorValueToAlexa(String name, String reading) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  String fullUrl = "https://home-automation.vadrin.com/upsert/intent/" + name + "/reading/" + reading;
+  Serial.println("Requesting " + fullUrl);
+  if (https.begin(client, fullUrl)) {
+    int httpCode = https.GET();
+    Serial.println("============== Response code: " + String(httpCode));
+    if (httpCode > 0) {
+      Serial.println(https.getString());
+    }
+    https.end();
+  } else {
+    Serial.printf("[HTTPS] Unable to connect\n");
+  }
+}
+
+void checkAndSendToAlexa() {
+  if (prevTankPercentage != calculateTankPercentage()) {
+    sendToAlexa = true;
+    prevTankPercentage = calculateTankPercentage();
+  }
+  if (sendToAlexa) {
+    Serial.println("sendToAlexa is invoked. Are you sure its worth invoking?");
+    if (!isConnectionWithinTreshold()) {
+      sendSensorValueToAlexa("WaterTankStatus", "unknown%2E%20Since%20tank%20is%20not%20transmitting%2E");
+    } else {
+      char destination[6];
+      dtostrf(overheadVoltage,3,2,destination);
+      //String voltageInEncodedString = String((int)overheadVoltage);
+      String voltageInEncodedString = String(destination);
+      if (isMotorRunning) {
+        if (wasMotorInDangerInLastRun) {
+          sendSensorValueToAlexa("WaterTankStatus", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20There%20was%20dry%20run%2E");
+        } else {
+          sendSensorValueToAlexa("WaterTankStatus", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20No%20dry%20run%2E");
+        }
+      } else {
+        if (wasMotorInDangerInLastRun) {
+          sendSensorValueToAlexa("WaterTankStatus", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20off%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20There%20was%20dry%20run%2E");
+        } else {
+          sendSensorValueToAlexa("WaterTankStatus", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20off%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20No%20dry%20run%2E");
+        }
+      }
+    }
+    sendToAlexa = false;
+  }
 }
