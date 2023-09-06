@@ -7,7 +7,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <Adafruit_Sensor.h>
-#include "Adafruit_BME680.h"
+#include <Adafruit_BME280.h>
 #include "Adafruit_INA219.h"
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -16,10 +16,10 @@
 #define WIFI_SSID "XXXXXX"
 #define WIFI_PASS "YYYYYY"
 
-Adafruit_BME680 bme; // I2C
+Adafruit_BME280 bme;
 Adafruit_INA219 ina219;
 ADC_MODE(ADC_VCC);
-const String DROID_ID = "N5X9";
+const String DROID_ID = "C3PO";
 const int TIME_BETWEEN_SAMPLING = 120000;//ms
 
 void setup() {
@@ -30,16 +30,8 @@ void setup() {
   wifiSetup();
 
   Serial.println(F("BME680 Initializing..."));
-  if (!bme.begin()) {
-    Serial.println("Could not find a valid BME680 sensor, check wiring!");
-    while (1);
-  }
-  // Set up oversampling and filter initialization
-  bme.setTemperatureOversampling(BME680_OS_8X);
-  bme.setHumidityOversampling(BME680_OS_2X);
-  bme.setPressureOversampling(BME680_OS_4X);
-  bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
-  bme.setGasHeater(320, 150); // 320*C for 150 ms
+  Wire.begin(0, 2);  // SDA, SCL
+  bme.begin(0x76);
 
   Serial.println(F("INA219 Initializing..."));
   if (!ina219.begin()) {
@@ -53,15 +45,7 @@ void setup() {
 void loop() {
   sendToAlexaBMEReadings();
   sendToAlexaINAReadings();
-  printESPReadings();
   delay(TIME_BETWEEN_SAMPLING);
-}
-
-void printESPReadings() {
-  float espVoltage = ESP.getVcc() / 1000.00;
-  Serial.print("ESP Voltage = ");
-  Serial.print(espVoltage);
-  Serial.println(" V");
 }
 
 void sendToAlexaINAReadings() {
@@ -70,7 +54,12 @@ void sendToAlexaINAReadings() {
   float current_mA = ina219.getCurrent_mA();
   float power_mW = ina219.getPower_mW();
   float loadvoltage = busvoltage + (shuntvoltage / 1000);
-
+  float espVoltage = ESP.getVcc() / 1000.00;
+  
+  Serial.print("ESP Voltage = ");
+  Serial.print(espVoltage);
+  Serial.println(" V");
+  
   Serial.print("Bus Voltage = ");
   Serial.print(busvoltage);
   Serial.println(" V");
@@ -91,35 +80,27 @@ void sendToAlexaINAReadings() {
   Serial.print(power_mW);
   Serial.println(" mW");
 
-  sendSensorValueToAlexa("SolarPanel", "%20at%20"+String(busvoltage)+"%20Volts");
+  sendSensorValueToAlexa("SolarPanel", "load%20voltage%20is%20"+String(loadvoltage)+"%20volts%2C%20load%20current%20is%20"+String(current_mA)+"%20milli%20amperes%2C%20load%20power%20is%20"+String(power_mW)+"%20milli%20watts%2E%20ESP%20voltage%20is%20"+String(espVoltage)+"%20volts");
 }
 
 void sendToAlexaBMEReadings() {
-  if (! bme.performReading()) {
-    Serial.println("Failed to perform reading :(");
-    return;
-  }
   Serial.print("Temperature = ");
-  Serial.print(bme.temperature);
+  Serial.print(bme.readTemperature());
   Serial.println(" *C");
 
   Serial.print("Pressure = ");
-  Serial.print(bme.pressure / 100.0);
+  Serial.print(bme.readPressure() / 100.0F);
   Serial.println(" hPa");
 
   Serial.print("Humidity = ");
-  Serial.print(bme.humidity);
+  Serial.print(bme.readHumidity());
   Serial.println(" %");
-
-  Serial.print("Gas = ");
-  Serial.print(bme.gas_resistance / 1000.0);
-  Serial.println(" KOhms");
 
   Serial.print("Approx. Altitude = ");
   Serial.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
   Serial.println(" m");
   
-  sendSensorValueToAlexa("Weather", "%20at%20"+String(bme.temperature)+"%20Centigrade%20and%20"+String()+"%25%20humidity");
+  sendSensorValueToAlexa("Weather", String(bme.readTemperature())+"%20degree%20celsius%2C%20humidity%20is%20"+String(bme.readHumidity())+"%25%2C%20pressure%20is%20"+String(bme.readPressure() / 100.0F)+"%20hectopascal%2C%20altitude%20is%20"+String(bme.readAltitude(SEALEVELPRESSURE_HPA))+"%20meters");
 }
 
 void sendSensorValueToAlexa(String name, String reading) {
