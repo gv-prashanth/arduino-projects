@@ -22,6 +22,7 @@
 #define MAX_DISTANCE 200 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
 
 const int RETRY_ATTEMPTS = 20;
+float battVolts;   // made global for wider avaliblity throughout a sketch if needed, example for a low voltage alarm, etc value is volts X 100, 5 vdc = 500
 
 RH_ASK driver;
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); // NewPing setup of pins and maximum distance.
@@ -30,7 +31,9 @@ DeepSleep deepSleep;
 void setup()
 {
 #ifdef RH_HAVE_SERIAL
-  Serial.begin(9600);    // Debugging only
+  Serial.begin(38400);    // Debugging only
+  Serial.print("volts X 100");
+  Serial.println( "\r\n\r\n" );
 #endif
   if (!driver.init())
 #ifdef RH_HAVE_SERIAL
@@ -42,12 +45,24 @@ void setup()
 
 void loop()
 {
-  //get average distance
+  for (int i = 0; i <= 3; i++) battVolts = getBandgap(); //4 readings required for best stable value?
+  Serial.print("Battery Vcc volts =  ");
+  Serial.println(battVolts / 100);
+  Serial.print("Analog pin 0 voltage = ");
+  Serial.println(map(analogRead(0), 0, 1023, 0, battVolts));
+  Serial.println();
+
+  //get average distance and VCC
   float distance = getMeanDistance();
+  float battVolts = getMeanVcc();
+
 
   //send the message
   String distanceString = String(distance);
-  const char *msg = distanceString.c_str();
+  //const char *msg = distanceString.c_str();
+  String VccString = String(battVolts);
+  String totalMessage = distanceString +","+VccString;
+  const char *msg = totalMessage.c_str();
   for (int i = 0; i < RETRY_ATTEMPTS; i++) {
     driver.send((uint8_t *)msg, strlen(msg));
     driver.waitPacketSent();
@@ -72,4 +87,39 @@ float getMeanDistance() {
     return toAverageDistance / validCounts;
   else
     return 0;
+}
+
+
+float getMeanVcc() {
+  float toAverageVcc = 0;
+  int validCounts = 0;
+  for (int i = 0; i < 5; i++) {
+    float thisVcc = battVolts;
+    if (thisVcc != 0) {
+      toAverageVcc = toAverageVcc + thisVcc;
+      validCounts++;
+    }
+    delay(50);
+  }
+  if (validCounts > 0)
+    return toAverageVcc / validCounts;
+  else
+    return 0;
+}
+
+int getBandgap(void)
+{
+  // For 168/328 boards
+  const long InternalReferenceVoltage = 1050L;  // Adust this value to your boards specific internal BG voltage x1000
+  // REFS1 REFS0          --> 0 1, AVcc internal ref.
+  // MUX3 MUX2 MUX1 MUX0  --> 1110 1.1V (VBG)
+  ADMUX = (0 << REFS1) | (1 << REFS0) | (0 << ADLAR) | (1 << MUX3) | (1 << MUX2) | (1 << MUX1) | (0 << MUX0);
+
+  // Start a conversion
+  ADCSRA |= _BV( ADSC );
+  // Wait for it to complete
+  while ( ( (ADCSRA & (1 << ADSC)) != 0 ) );
+  // Scale the value
+  int results = (((InternalReferenceVoltage * 1024L) / ADC) + 5L) / 10L;
+  return results;
 }

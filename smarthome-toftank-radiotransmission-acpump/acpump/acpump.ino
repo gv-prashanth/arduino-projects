@@ -8,7 +8,7 @@
    Arduino as logic controller to drive a sumpMotor Pump. Pump is  connected through EM Relay mounted on Power supply unit.
    At Overhed tank Arduino along with RF Transmitter is connected to a PWM based TOF distance sensor OR Ultrasonic distance sensor
    sumpMotorTriggerPin driver attached to pin 8 with 10k resistor to ground
-   SumpDangerIndicatorPin  9 connected with Red LED through 150E resistor to ground, indicating Dry Run  
+   SumpDangerIndicatorPin  9 connected with Red LED through 150E resistor to ground, indicating Dry Run
    SumpReceiverIndicatorPin  13 connected with Red LED through 150E resistor to ground indicating RF Link.
 */
 
@@ -26,9 +26,9 @@ const int SumpReceiverIndicatorPin = 13; // Sump receiver indication led pin
 //Functional Configurations
 const unsigned long TRANSMISSION_TRESHOLD_TIME = 36000; // in milliseconds
 const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000; //in milliseconds
-const unsigned long MAX_ALLOWED_RUNTIME_OF_MOTOR = 3600000; //in milliseconds
+const unsigned long MAX_ALLOWED_RUNTIME_OF_MOTOR = 1800000; //in milliseconds
 const unsigned long BATCH_DURATION = 120000; //in milliseconds
-const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 118.0; // in centimeters
+const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 115.0; // in centimeters
 const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0; // in centimeters
 const float DIAMETER_OF_TANK = 108.0;//in centimers
 const float TANK_TOLERANCE = 20.0; // in centimeters
@@ -37,7 +37,7 @@ const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter;
-float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage;
+float cached_transmitterVcc, cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage;
 boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun;
 RH_ASK driver;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
@@ -145,11 +145,8 @@ void switchOnMotor() {
 
 boolean isConnectionWithinTreshold() {
   unsigned long currentTime = millis();
-  if (firstTimeStarting) {
-    if (lastSuccesfulOverheadTransmissionTime > lastSwitchOnTime)
-      return true;
-    else
-      return false;
+  if (firstTimeStarting && (currentTime - lastSwitchOnTime < TRANSMISSION_TRESHOLD_TIME)) {
+    return false;
   }
   else {
     return (currentTime - lastSuccesfulOverheadTransmissionTime < TRANSMISSION_TRESHOLD_TIME);
@@ -165,7 +162,11 @@ void loadAndCacheOverheadTransmissions() {
     int i;
     // Message with a good checksum received, dump it.
     //driver.printBuffer("Got:", buf, buflen);
-    String respString = (char*)buf;
+    String fullString = (char*)buf;
+    int index = fullString.indexOf(',');
+    String respString = fullString.substring(0, index);
+    String vccString = fullString.substring(index + 1);
+    cached_transmitterVcc = vccString.toFloat() / 100;
     cached_overheadTankWaterLevel = HEIGHT_OF_TOF_SENSOR_FROM_GROUND - respString.toFloat();
     lastSuccesfulOverheadTransmissionTime = currentTime;
 
@@ -208,8 +209,16 @@ boolean overheadTopHasWater() {
 }
 
 void displayLCDInfo() {
-  lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String(calculateTankPercentage()) + String("%(") + String((int)cached_overheadTankWaterLevel) + String("cm)          "));
-  lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
+  if (isConnectionWithinTreshold()) {
+    lcd.setCursor(0, 0); lcd.print(String("Lvl:") + String(calculateTankPercentage()) + String("%") + String((int)cached_overheadTankWaterLevel) + String("cm") + String(cached_transmitterVcc) + String("v"));
+    //lcd.setCursor(0, 0); lcd.print(String("Lvl:") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(cached_transmitterVcc) + String("v)          "));
+    //lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String((int)cached_overheadTankWaterLevel) + String("(") + String(calculateSignalConsumedSoFar()) + String(")            "));
+    lcd.setCursor(0, 1); lcd.print(String("Use:") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
+    //lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(cached_transmitterVcc) + String("V/") + String(calculateHoursConsumedSoFar()) + String("H            "));
+  } else {
+    lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String("NoSig") + String("(") + String(cached_transmitterVcc) + String("v)         "));
+    lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
+  }
 }
 
 int calculateTankPercentage() {
@@ -235,3 +244,4 @@ unsigned long calculateVolumeConsumedSoFar() {
     return todayTracker_volume + (2 * (todayTracker_switchOffHeight - cached_overheadTankWaterLevel) * PI * (DIAMETER_OF_TANK / 2) * (DIAMETER_OF_TANK / 2) * 0.001);
   }
 }
+
