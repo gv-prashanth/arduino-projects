@@ -9,12 +9,12 @@
 #include <IRsend.h>
 #include <ir_Daikin.h>
 
-#define SERIAL_BAUDRATE     115200
-#define WIFI_SSID           "XXXXXX"
-#define WIFI_PASS           "YYYYYY"
-#define DEVICE_ONE          "AC"
+#define SERIAL_BAUDRATE     74880
+#define WIFI_SSID           "GTS"
+#define WIFI_PASS           "0607252609"
+#define DEVICE_ONE          "Daikin"
 const int MIN_TEMPERATURE = 18;
-const int MAX_TEMPERATURE = 32;
+const int MAX_TEMPERATURE = 24;
 const uint16_t irLed = 2;
 
 //Dont touch below stuff
@@ -59,8 +59,7 @@ void triggerDeviceOneOn(int temp) {
   irsend.setFan(kDaikinFanAuto);
   irsend.setSwingVertical(false);
   irsend.setSwingHorizontal(false);
-  irsend.setQuiet(false);
-  irsend.setPowerful(false);
+  irsend.setPowerful(true);//irsend.setQuiet(false);// Powerful, Quiet, & Econo mode being on are mutually exclusive.  Serial.println(irsend.toString());
   Serial.println(irsend.toString());
   irsend.send();
 }
@@ -74,18 +73,17 @@ void triggerDeviceOneOff(int temp) {
   irsend.setFan(kDaikinFanAuto);
   irsend.setSwingVertical(false);
   irsend.setSwingHorizontal(false);
-  irsend.setQuiet(false);
-  irsend.setPowerful(false);
+  irsend.setPowerful(true);//irsend.setQuiet(false);// Powerful, Quiet, & Econo mode being on are mutually exclusive.  Serial.println(irsend.toString());
   Serial.println(irsend.toString());
   irsend.send();
 }
 
 int convertValueToTemperature(unsigned char value) {
   int temp = (100.0 / 255.0) * ((int)value);
-  if (temp < MIN_TEMPERATURE)
+  if (temp <= MIN_TEMPERATURE)
     temp = MIN_TEMPERATURE;
-  if (temp > MAX_TEMPERATURE)
-    temp = MAX_TEMPERATURE;
+  if (temp >= MAX_TEMPERATURE)
+    temp = MIN_TEMPERATURE;
   return temp;
 }
 
