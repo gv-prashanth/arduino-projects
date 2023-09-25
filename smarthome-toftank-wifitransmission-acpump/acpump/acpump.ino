@@ -17,6 +17,13 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiClientSecure.h>
+
+#define WIFI_SSID "GTS"
+#define WIFI_PASS "0607252609"
+
+const String DROID_ID = "C3PO";
 
 //Pin Configurations
 const int sumpMotorTriggerPin = 14; // sump pump driver pin
@@ -39,7 +46,7 @@ char * password_ap = "0607252609";
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 
 //Dont touch below stuff
-unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter;
+unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter, lastSendCloudTime;
 float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage;
 boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun;
 IPAddress ip(192, 168, 11, 4); // arbitrary IP address (doesn't conflict w/ local network)
@@ -52,16 +59,7 @@ void setup()
 {
   // initialize serial communication with computer:
   Serial.begin(74880);    // Debugging only
-
-  WiFi.mode(WIFI_AP);
-  WiFi.softAPConfig(ip, gateway, subnet);
-  WiFi.softAP(ssid_ap, password_ap);
-  Serial.println();
-  Serial.print("IP Address: "); Serial.println(WiFi.localIP());
-  // Configure the server's routes
-  server.on("/", handleIndex); // use the top root path to report the last sensor value
-  server.on("/update", loadAndCacheOverheadTransmissions); // use this route to update the sensor value
-  server.begin();
+  APwifiSetup();
 
   Wire.begin (4, 5);
   // Address 0x3C for 128x64, you might need to change this value (use an I2C scanner)
@@ -130,6 +128,7 @@ void loop()
   displayLCDInfo();
   displayConnectionStrength();
   displaySumpDangerIndicator();
+  turnOffAPTurnOnSTAndThenSendToCloud();
 }
 
 void displaySumpDangerIndicator() {
@@ -262,4 +261,68 @@ unsigned long calculateVolumeConsumedSoFar() {
 
 void handleIndex() {
   server.send(200, "text/plain", String(cached_overheadTankWaterLevel)); // we'll need to refresh the page for getting the latest value
+}
+
+void STAwifiSetup() {
+  WiFi.mode(WIFI_STA);
+  Serial.printf("[WIFI] Connecting to %s ", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(100);
+  }
+  Serial.println();
+  // Connected!
+  Serial.printf("[WIFI] STATION Mode, SSID: %s, IP address: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
+}
+
+void APwifiSetup(){
+  WiFi.mode(WIFI_AP);
+  WiFi.softAPConfig(ip, gateway, subnet);
+  WiFi.softAP(ssid_ap, password_ap);
+  Serial.println();
+  Serial.print("IP Address: "); Serial.println(WiFi.localIP());
+  // Configure the server's routes
+  server.on("/", handleIndex); // use the top root path to report the last sensor value
+  server.on("/update", loadAndCacheOverheadTransmissions); // use this route to update the sensor value
+  server.begin();
+}
+
+
+void sendSensorValueToAlexa(String name, String reading) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  String fullUrl = "https://home-automation.vadrin.com/droid/" + DROID_ID + "/upsert/intent/" + name + "/reading/" + reading;
+  Serial.println("Requesting " + fullUrl);
+  if (https.begin(client, fullUrl)) {
+    int httpCode = https.GET();
+    Serial.println("============== Response code: " + String(httpCode));
+    if (httpCode > 0) {
+      Serial.println(https.getString());
+    }
+    https.end();
+  } else {
+    Serial.printf("[HTTPS] Unable to connect\n");
+  }
+}
+
+
+void turnOffAPTurnOnSTAndThenSendToCloud(){
+  unsigned long currentTime = millis();
+  if(currentTime-lastSendCloudTime > 30000){
+    Serial.printf("Sending to Cloud");
+    STAwifiSetup();
+    if(wasMotorInDangerInLastRun || !isConnectionWithinTreshold())
+      sendSensorValueToAlexa("WaterTank", "in%20danger%2E%20Please%20check%20motor%2E");
+    else{
+      if(isMotorRunning)
+        sendSensorValueToAlexa("WaterTank", "ON%2E%20It%20is%20at%20"+String(calculateTankPercentage())+"%25%2E%20"+String(calculateVolumeConsumedSoFar())+"%20liters%20is%20consumed%20in%20last%20"+String(calculateHoursConsumedSoFar())+"%20hours%2E");
+      else
+        sendSensorValueToAlexa("WaterTank", "OFF%2E%20It%20is%20at%20"+String(calculateTankPercentage())+"%25%2E%20"+String(calculateVolumeConsumedSoFar())+"%20liters%20is%20consumed%20in%20last%20"+String(calculateHoursConsumedSoFar())+"%20hours%2E");
+    }
+    APwifiSetup();
+    lastSendCloudTime = currentTime;
+    Serial.printf("Sent to Cloud");
+  }
 }
