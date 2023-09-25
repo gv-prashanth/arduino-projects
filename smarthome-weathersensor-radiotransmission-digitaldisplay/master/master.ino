@@ -38,7 +38,7 @@ const uint64_t pipe_addresses[] = {0x7878787878LL, 0xB3B4B5B6F1LL, 0xB3B4B5B6CDL
 void setup() {
   Serial.begin(9600);
   rtc.begin();
-  lcd.begin(20, 4);
+  lcd.begin();
   lcd.backlight();
   dht.begin();
   radio.begin();
