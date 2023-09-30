@@ -20,6 +20,10 @@
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
 
+// Replace with your network credentials (STATION)
+const char* ssid = "GTS";
+const char* password = "0607252609";
+
 PCF8574_PCD8544 display = PCF8574_PCD8544(0x27, 7, 6, 5, 4, 2);
 
 int contrastValue = 55; /* Default Contrast Value */
@@ -38,6 +42,7 @@ const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 115.0;            // in centimete
 const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0;        // in centimeters
 const float DIAMETER_OF_TANK = 108.0;                            //in centimers
 const float TANK_TOLERANCE = 20.0;                               // in centimeters
+const String DROID_ID = "C3PO";
 
 
 //Dont touch below stuff
@@ -64,7 +69,7 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
 
 void setup() {
   // initialize serial communication with computer:
-  Serial.begin(9600);  // Debugging only
+  Serial.begin(74880);  // Debugging only
 
   // initialize the sumpMotorTriggerPin pin, SumpDangerIndicatorPin as Output
   pinMode(sumpMotorTriggerPin, OUTPUT);
@@ -99,18 +104,28 @@ void setup() {
   cached_overheadTankWaterLevel_prevprevBatchAverage = -1;
   batchCounter = 0;
 
+  // Set the device as a Station and Soft Access Point simultaneously
+  WiFi.mode(WIFI_AP_STA);
+  
   // Set device as a Wi-Fi Station
-  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Setting as a Wi-Fi Station..");
+  }
+  Serial.print("Station IP Address: ");
+  Serial.println(WiFi.localIP());
+  Serial.print("Wi-Fi Channel: ");
+  Serial.println(WiFi.channel());
 
   // Init ESP-NOW
   if (esp_now_init() != 0) {
     Serial.println("Error initializing ESP-NOW");
     return;
   }
-
+  
   // Once ESPNow is successfully Init, we will register for recv CB to
   // get recv packer info
-  esp_now_set_self_role(ESP_NOW_ROLE_SLAVE);
   esp_now_register_recv_cb(OnDataRecv);
 }
 
@@ -341,7 +356,7 @@ void sendSensorValueToAlexa(String name, String reading) {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
-  String fullUrl = "https://home-automation.vadrin.com/upsert/intent/" + name + "/reading/" + reading;
+  String fullUrl = "https://home-automation.vadrin.com/droid/" + DROID_ID + "/upsert/intent/" + name + "/reading/" + reading;
   Serial.println("Requesting " + fullUrl);
   if (https.begin(client, fullUrl)) {
     int httpCode = https.GET();
@@ -363,7 +378,7 @@ void checkAndSendToAlexa() {
   if (sendToAlexa) {
     Serial.println("sendToAlexa is invoked. Are you sure its worth invoking?");
     if (!isConnectionWithinTreshold()) {
-      sendSensorValueToAlexa("WaterTankStatus", "unknown%2E%20Since%20tank%20is%20not%20transmitting%2E");
+      sendSensorValueToAlexa("WaterTank", "unknown%2E%20Since%20tank%20is%20not%20transmitting%2E");
     } else {
       char destination[6];
       dtostrf(overheadVoltage,3,2,destination);
@@ -371,15 +386,15 @@ void checkAndSendToAlexa() {
       String voltageInEncodedString = String(destination);
       if (isMotorRunning) {
         if (wasMotorInDangerInLastRun) {
-          sendSensorValueToAlexa("WaterTankStatus", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20There%20was%20dry%20run%2E");
+          sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20There%20was%20dry%20run%2E");
         } else {
-          sendSensorValueToAlexa("WaterTankStatus", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20No%20dry%20run%2E");
+          sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20No%20dry%20run%2E");
         }
       } else {
         if (wasMotorInDangerInLastRun) {
-          sendSensorValueToAlexa("WaterTankStatus", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20off%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20There%20was%20dry%20run%2E");
+          sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20off%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20There%20was%20dry%20run%2E");
         } else {
-          sendSensorValueToAlexa("WaterTankStatus", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20off%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20No%20dry%20run%2E");
+          sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20off%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20No%20dry%20run%2E");
         }
       }
     }
