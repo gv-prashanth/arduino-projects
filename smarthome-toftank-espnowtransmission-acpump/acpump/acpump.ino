@@ -13,18 +13,16 @@
 #include <ESP8266WiFi.h>
 #include <espnow.h>
 
-#include <SPI.h>
-#include <Adafruit_GFX.h>
-#include <PCF8574_PCD8544.h>
-
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
+
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 20, 4);
 
 // Replace with your network credentials (STATION)
 const char* ssid = "GTS";
 const char* password = "0607252609";
 
-PCF8574_PCD8544 display = PCF8574_PCD8544(0x27, 7, 6, 5, 4, 2);
 
 int contrastValue = 55; /* Default Contrast Value */
 
@@ -54,39 +52,32 @@ int prevTankPercentage;
 // Structure example to receive data
 // Must match the sender structure
 typedef struct struct_message {
-  float f;
-  float vcc;
+  int id;
+  float Dist;
+  float Vcc;
+  int readingId;
 } struct_message;
 
 // Callback function that will be executed when data is received
-void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
+void OnDataRecv(uint8_t* mac, uint8_t* incomingData, uint8_t len) {
   // Create a struct_message called myData
   struct_message myData;
   memcpy(&myData, incomingData, sizeof(myData));
   // read values from all sensors
-  loadAndCacheOverheadTransmissions(myData.f, myData.vcc);
+  loadAndCacheOverheadTransmissions(myData.Dist, myData.Vcc);
 }
 
 void setup() {
   // initialize serial communication with computer:
   Serial.begin(74880);  // Debugging only
+  Wire.begin();
+  lcd.init();  // initialize the lcd
+  lcd.backlight();
 
   // initialize the sumpMotorTriggerPin pin, SumpDangerIndicatorPin as Output
   pinMode(sumpMotorTriggerPin, OUTPUT);
   pinMode(SumpDangerIndicatorPin, OUTPUT);
   pinMode(SumpReceiverIndicatorPin, OUTPUT);
-
-  /* Initialize the Display*/
-  display.begin();
-
-  /* Change the contrast using the following API*/
-  display.setContrast(contrastValue);
-
-  /* Clear the buffer */
-  display.clearDisplay();
-  display.display();
-  delay(100);
-
 
   // initialize all the necessary readings
   unsigned long currentTime = millis();
@@ -106,7 +97,7 @@ void setup() {
 
   // Set the device as a Station and Soft Access Point simultaneously
   WiFi.mode(WIFI_AP_STA);
-  
+
   // Set device as a Wi-Fi Station
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
@@ -123,7 +114,7 @@ void setup() {
     Serial.println("Error initializing ESP-NOW");
     return;
   }
-  
+
   // Once ESPNow is successfully Init, we will register for recv CB to
   // get recv packer info
   esp_now_register_recv_cb(OnDataRecv);
@@ -286,7 +277,7 @@ boolean overheadTopHasWater() {
 
 void displayLCDInfo() {
   // display usage
-
+  /*
   display.clearDisplay();
   display.setTextColor(BLACK);
   display.setTextSize(1);
@@ -320,11 +311,15 @@ void displayLCDInfo() {
   display.setTextSize(1);
   display.println("V");
   display.display();
-
-
-
-  //lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String(calculateTankPercentage()) + String("%(") + String((int)cached_overheadTankWaterLevel) + String("cm)          "));
-  //lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
+*/
+  if (isConnectionWithinTreshold()) {
+    lcd.setCursor(0, 0); lcd.print(String("Lvl:") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(overheadVoltage) + String("v)"));
+  } 
+  else 
+  {
+    lcd.setCursor(0, 0); lcd.print(String(" NO SIGNAL !!!"));
+  }
+  lcd.setCursor(0, 1); lcd.print(String("Use:") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
 }
 
 int calculateTankPercentage() {
@@ -381,7 +376,7 @@ void checkAndSendToAlexa() {
       sendSensorValueToAlexa("WaterTank", "unknown%2E%20Since%20tank%20is%20not%20transmitting%2E");
     } else {
       char destination[6];
-      dtostrf(overheadVoltage,3,2,destination);
+      dtostrf(overheadVoltage, 3, 2, destination);
       //String voltageInEncodedString = String((int)overheadVoltage);
       String voltageInEncodedString = String(destination);
       if (isMotorRunning) {
