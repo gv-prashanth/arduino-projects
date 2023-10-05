@@ -20,7 +20,7 @@ Adafruit_BME280 bme;
 Adafruit_INA219 ina219;
 ADC_MODE(ADC_VCC);
 const String DROID_ID = "C3PO";
-const int TIME_BETWEEN_SAMPLING = 120000;//ms
+const int TIME_BETWEEN_SAMPLING = 900000;//ms
 
 void setup() {
   Serial.begin(9600);
@@ -80,7 +80,8 @@ void sendToAlexaINAReadings() {
   Serial.print(power_mW);
   Serial.println(" mW");
 
-  sendSensorValueToAlexa("SolarPanel", "load%20voltage%20is%20"+String(loadvoltage)+"%20volts%2C%20load%20current%20is%20"+String(current_mA)+"%20milli%20amperes%2C%20load%20power%20is%20"+String(power_mW)+"%20milli%20watts%2E%20ESP%20voltage%20is%20"+String(espVoltage)+"%20volts");
+  //sendSensorValueToAlexa("SolarPanel", "load%20voltage%20is%20"+String(loadvoltage)+"%20volts%2C%20load%20current%20is%20"+String(current_mA)+"%20milli%20amperes%2C%20load%20power%20is%20"+String(power_mW)+"%20milli%20watts%2E%20ESP%20voltage%20is%20"+String(espVoltage)+"%20volts");
+  sendSensorValueToAlexa("SolarPanel", "generating%20"+String((int)(power_mW/1000))+"%20watts%20at%20"+String((int)loadvoltage)+"%20volts");
 }
 
 void sendToAlexaBMEReadings() {
@@ -100,7 +101,8 @@ void sendToAlexaBMEReadings() {
   Serial.print(bme.readAltitude(SEALEVELPRESSURE_HPA));
   Serial.println(" m");
   
-  sendSensorValueToAlexa("Weather", String(bme.readTemperature())+"%20degree%20celsius%2C%20humidity%20is%20"+String(bme.readHumidity())+"%25%2C%20pressure%20is%20"+String(bme.readPressure() / 100.0F)+"%20hectopascal%2C%20altitude%20is%20"+String(bme.readAltitude(SEALEVELPRESSURE_HPA))+"%20meters");
+  //sendSensorValueToAlexa("Weather", String(bme.readTemperature())+"%20degree%20celsius%2C%20humidity%20is%20"+String(bme.readHumidity())+"%25%2C%20pressure%20is%20"+String(bme.readPressure() / 100.0F)+"%20hectopascal%2C%20altitude%20is%20"+String(bme.readAltitude(SEALEVELPRESSURE_HPA))+"%20meters");
+  sendSensorValueToAlexa("Weather", String((int)bme.readTemperature())+"%20degree%20celsius%20at%20"+String((int)bme.readHumidity())+"%25%20humidity");
 }
 
 void sendSensorValueToAlexa(String name, String reading) {
