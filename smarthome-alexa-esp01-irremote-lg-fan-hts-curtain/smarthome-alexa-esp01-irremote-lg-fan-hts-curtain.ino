@@ -180,11 +180,6 @@ void triggerDeviceThreeOff() {
 void triggerDeviceFourOn() {
   //Toggles: Create a rountine for ON action
   toggleCurtain();
-  if (!curtainIsOpen) {
-    sendSensorValueToAlexa("BackCurtain", "open");
-  } else {
-    sendSensorValueToAlexa("BackCurtain", "closed");
-  }
 }
 
 void triggerDeviceFourOff() {
@@ -230,6 +225,17 @@ int convertValueToSpeed(int value) {
     return 2;
   else
     return 1;
+}
+
+void toggleCurtain() {
+  if (!curtainIsOpen) {
+    openCurtain();
+    sendSensorValueToAlexa("BackCurtain", "open");
+  } else {
+    closeCurtain();
+    sendSensorValueToAlexa("BackCurtain", "closed");
+  }
+  curtainIsOpen = !curtainIsOpen;
 }
 
 void sendSensorValueToAlexa(String name, String reading) {

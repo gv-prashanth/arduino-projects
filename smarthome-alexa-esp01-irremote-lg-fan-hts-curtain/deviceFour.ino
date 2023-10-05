@@ -1,11 +1,3 @@
-void toggleCurtain() {
-  if (!curtainIsOpen)
-    openCurtain();
-  else
-    closeCurtain();
-  curtainIsOpen = !curtainIsOpen;
-}
-
 void openCurtain() {
   Serial.println("CURTAIN OPENING");
   // Put the motor in forward:
