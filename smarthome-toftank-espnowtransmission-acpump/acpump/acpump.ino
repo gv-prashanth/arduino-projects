@@ -36,7 +36,7 @@ const unsigned long TRANSMISSION_TRESHOLD_TIME = 36000;          // in milliseco
 const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000;  //in milliseconds
 const unsigned long MAX_ALLOWED_RUNTIME_OF_MOTOR = 1800000;      //in milliseconds
 const unsigned long BATCH_DURATION = 120000;                     //in milliseconds
-const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 115.0;            // in centimeters
+const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 114.0;            // in centimeters
 const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0;        // in centimeters
 const float DIAMETER_OF_TANK = 108.0;                            //in centimers
 const float TANK_TOLERANCE = 20.0;                               // in centimeters
@@ -45,7 +45,7 @@ const String DROID_ID = "C3PO";
 
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter, todayTracker_signal, signalLostStartTime;
-float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage, overheadVoltage;
+float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage, overheadVoltage, prevOverheadVoltage;
 boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun, prevLoopIsConnectionWithinTreshold, sendToAlexa;
 int prevTankPercentage;
 
@@ -87,7 +87,7 @@ void setup() {
   batchTimestamp = currentTime;
   signalLostStartTime = currentTime;
   firstTimeStarting = true;
-  sendToAlexa = false;
+  sendToAlexa = true;
   isMotorRunning = false;
   wasMotorInDangerInLastRun = false;
   prevLoopIsConnectionWithinTreshold = false;
@@ -313,13 +313,14 @@ void displayLCDInfo() {
   display.display();
 */
   if (isConnectionWithinTreshold()) {
-    lcd.setCursor(0, 0); lcd.print(String("Lvl:") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(overheadVoltage) + String("v)"));
-  } 
-  else 
-  {
-    lcd.setCursor(0, 0); lcd.print(String(" NO SIGNAL !!!"));
+    lcd.setCursor(0, 0);
+    lcd.print(String("Lvl:") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(overheadVoltage) + String("v)"));
+  } else {
+    lcd.setCursor(0, 0);
+    lcd.print(String(" NO SIGNAL !!!"));
   }
-  lcd.setCursor(0, 1); lcd.print(String("Use:") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
+  lcd.setCursor(0, 1);
+  lcd.print(String("Use:") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
 }
 
 int calculateTankPercentage() {
@@ -370,27 +371,29 @@ void checkAndSendToAlexa() {
     sendToAlexa = true;
     prevTankPercentage = calculateTankPercentage();
   }
+  if (abs(prevOverheadVoltage - overheadVoltage) > 0.1) {
+    sendToAlexa = true;
+    prevOverheadVoltage = overheadVoltage;
+  }
   if (sendToAlexa) {
     Serial.println("sendToAlexa is invoked. Are you sure its worth invoking?");
-    if (!isConnectionWithinTreshold()) {
-      sendSensorValueToAlexa("WaterTank", "unknown%2E%20Since%20tank%20is%20not%20transmitting%2E");
-    } else {
-      char destination[6];
-      dtostrf(overheadVoltage, 3, 2, destination);
-      //String voltageInEncodedString = String((int)overheadVoltage);
-      String voltageInEncodedString = String(destination);
-      if (isMotorRunning) {
-        if (wasMotorInDangerInLastRun) {
-          sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20There%20was%20dry%20run%2E");
-        } else {
-          sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20No%20dry%20run%2E");
-        }
+    char destination[5];
+    dtostrf(overheadVoltage, 3, 1, destination);
+    //String voltageInEncodedString = String((int)overheadVoltage);
+    String voltageInEncodedString = String(destination);
+    if (isMotorRunning) {
+      if (wasMotorInDangerInLastRun) {
+        sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20Voltage%20is%20" + voltageInEncodedString + "%20volts%2E%20There%20was%20dry%20run%2E");
       } else {
-        if (wasMotorInDangerInLastRun) {
-          sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20off%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20There%20was%20dry%20run%2E");
-        } else {
-          sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20off%2E%20Voltage%20is%20" + voltageInEncodedString + "%2E%20No%20dry%20run%2E");
-        }
+        sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20");
+      }
+    } else {
+      if (wasMotorInDangerInLastRun) {
+        sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20off%2E%20Voltage%20is%20" + voltageInEncodedString + "%20volts%2E%20There%20was%20dry%20run%2E");
+      } else if (!isConnectionWithinTreshold()) {
+        sendSensorValueToAlexa("WaterTank", "not%20receiving%20from%20overhead%20tank%2E%20Last%20received%20Voltage%20is%20" + voltageInEncodedString + "%20volts%2E");
+      } else {
+        sendSensorValueToAlexa("WaterTank", "at%20" + String(calculateTankPercentage()) + "%25%2E%20");
       }
     }
     sendToAlexa = false;
