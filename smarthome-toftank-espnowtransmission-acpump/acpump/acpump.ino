@@ -3,13 +3,13 @@
 
   The concept:
    Turns ON and OFF a sumpMotor pump Automtically by sensing presense of water level in Overhead Tank.
-   Using ESP 8266 modules with ESP-NOW protocall for wireless link, along with Time of Light sensor to sense the water level.
-   ESP-12E as logic controller to drive a sumpMotor Pump. Pump is  connected through EM Relay mounted on Power supply unit.
-   At Overhed tank ESP-01 along with  TOFL distance sensor OR Ultrasonic distance sensor
+   Using ESP 8266 modules as transmitter with ESP-NOW protocall for transmitting distance, along with TOFL  OR Ultrasonic distance sensor to sense the water level.
+   ESP-12E as receiver with ESP=NOW protocall and as logic controller to drive a sumpMotor Pump. Pump is  connected through EM Relay mounted on Power supply unit.
    sumpMotorTriggerPin driver attached to pin 14 with LED indication
    SumpDangerIndicatorPin  12 connected with Red LED through 150E resistor to ground, indicating Dry Run
    SumpReceiverIndicatorPin  13 connected with Red LED through 150E resistor to ground indicating wireless Link.
 */
+
 #include <ESP8266WiFi.h>
 #include <espnow.h>
 
@@ -20,11 +20,8 @@
 LiquidCrystal_I2C lcd(0x27, 20, 4);
 
 // Replace with your network credentials (STATION)
-const char* ssid = "GTS";
-const char* password = "0607252609";
-
-
-int contrastValue = 55; /* Default Contrast Value */
+const char* ssid = "XXXXXXXXXX";
+const char* password = "YYYYYYYYY";
 
 //Pin Configurations
 const int sumpMotorTriggerPin = 14;       // sump pump driver pin
@@ -41,13 +38,13 @@ const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0;        // in centimete
 const float DIAMETER_OF_TANK = 108.0;                            //in centimers
 const float TANK_TOLERANCE = 20.0;                               // in centimeters
 const String DROID_ID = "C3PO";
-
+const unsigned long DISPLAY_DURATION = 10000;                    //in milliseconds
 
 //Dont touch below stuff
-unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter, todayTracker_signal, signalLostStartTime;
+unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter, todayTracker_signal, signalLostStartTime, displayChange;
 float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage, overheadVoltage, prevOverheadVoltage;
 boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun, prevLoopIsConnectionWithinTreshold, sendToAlexa;
-int prevTankPercentage;
+int prevTankPercentage, displayScreen;
 
 // Structure example to receive data
 // Must match the sender structure
@@ -69,7 +66,7 @@ void OnDataRecv(uint8_t* mac, uint8_t* incomingData, uint8_t len) {
 
 void setup() {
   // initialize serial communication with computer:
-  Serial.begin(74880);  // Debugging only
+  // Serial.begin(74880);  // Debugging only
   Wire.begin();
   lcd.init();  // initialize the lcd
   lcd.backlight();
@@ -276,51 +273,29 @@ boolean overheadTopHasWater() {
 }
 
 void displayLCDInfo() {
-  // display usage
-  /*
-  display.clearDisplay();
-  display.setTextColor(BLACK);
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.println(String("Use:") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H"));
-
-  // display tank level
-  if (isConnectionWithinTreshold()) {
-    display.setCursor(0, 24);
-    display.setTextSize(1);
-    display.print(String(calculateTankPercentage()));
-    display.println("%");
-    display.setCursor(30, 16);
-    display.setTextSize(1);
-    display.print(String((int)cached_overheadTankWaterLevel));
-    display.println("cm");
-  } else {
-    display.setCursor(0, 16);
-    display.setTextSize(2);
-    display.println("NO SIG");
-  }
-
-  // display BATTERY LEVEL
-
-  display.setCursor(0, 40);
-  display.setTextSize(1);
-  display.println("BATT");
-  display.setCursor(30, 34);
-  display.setTextSize(2);
-  display.print(overheadVoltage);
-  display.setTextSize(1);
-  display.println("V");
-  display.display();
-*/
-  if (isConnectionWithinTreshold()) {
+  if (isConnectionWithinTreshold() && displayScreen==1) {
     lcd.setCursor(0, 0);
-    lcd.print(String("Lvl:") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(overheadVoltage) + String("v)"));
+    lcd.print(String("Capacity: ") + String((int)cached_overheadTankWaterLevel) + String("%                                 "));
+    lcd.setCursor(0, 1);
+    lcd.print(String("Usage: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
+  } else if(isConnectionWithinTreshold() && displayScreen==2) {
+    lcd.setCursor(0, 0);
+    lcd.print(String("Level: ") + String((int)cached_overheadTankWaterLevel) + String("cm                             "));
+    lcd.setCursor(0, 1);
+    lcd.print(String("Battery: ") + String(overheadVoltage) + String("v                                    "));
   } else {
     lcd.setCursor(0, 0);
-    lcd.print(String(" NO SIGNAL !!!"));
+    lcd.print(String("NO SIGNAL!!!                        "));
+    lcd.setCursor(0, 1);
+    lcd.print(String("Battery: ") + String(overheadVoltage) + String("v                    "));
   }
-  lcd.setCursor(0, 1);
-  lcd.print(String("Use:") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
+  unsigned long currentTime = millis();
+  if(currentTime - displayChange > DISPLAY_DURATION){
+    displayScreen++;
+    if(displayScreen > 2)
+      displayScreen = 1;
+    displayChange = currentTime;
+  }
 }
 
 int calculateTankPercentage() {
