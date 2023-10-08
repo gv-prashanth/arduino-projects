@@ -275,7 +275,7 @@ boolean overheadTopHasWater() {
 void displayLCDInfo() {
   if (isConnectionWithinTreshold() && displayScreen==1) {
     lcd.setCursor(0, 0);
-    lcd.print(String("Capacity: ") + String((int)cached_overheadTankWaterLevel) + String("%                                 "));
+    lcd.print(String("Capacity: ") + String((int)calculateTankPercentage()) + String("%                                 "));
     lcd.setCursor(0, 1);
     lcd.print(String("Usage: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
   } else if(isConnectionWithinTreshold() && displayScreen==2) {
