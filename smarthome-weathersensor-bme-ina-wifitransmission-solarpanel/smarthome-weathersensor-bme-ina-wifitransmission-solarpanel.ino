@@ -47,8 +47,8 @@ unsigned long turnOnBatteryAccessAt;  //milliSeconds
 void setup() {
   //IF YOU WANT TO ENABLE SERIAL MONITOR THEN DONT USE GPIO 1
   //Serial.begin(74880);
-  while (!Serial)
-    ;
+  //while (!Serial)
+  //  ;
   pinMode(OUTPUT_PIN, OUTPUT);
 
   // Wi-Fi connection
