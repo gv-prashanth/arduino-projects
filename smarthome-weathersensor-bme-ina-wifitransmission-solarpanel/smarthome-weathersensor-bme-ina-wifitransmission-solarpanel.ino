@@ -16,19 +16,22 @@
 #define WIFI_SSID "GTS"
 #define WIFI_PASS "0607252609"
 
+const String DROID_ID = "C3PO";
+float CUTOFF_VOLTAGE = 10.8;            //volts
+float BATTERY_RATED_VOLTAGE = 12.0;     //volts
+float BATTERY_RATED_CAPACITY = 7000.0;  //mah
+float CUTOFF_CURRENT = 3000;            //milliAmps
+float MIN_LOAD_CURRENT = 50;           //ma
+int OUTPUT_PIN = 1;                     //pin 1
+unsigned long COOLDOWN_TIME = 7200000;  //milliSeconds
+float PRECISSION_POWER = 1.0;           //w
+float PRECISSION_VOLTAGE = 0.1;         //v
+
+//Dont touch below
 Adafruit_BME280 bme;
 Adafruit_INA219 ina219_A;        //ina connected to solar panel output
 Adafruit_INA219 ina219_B(0x41);  //ina connected to battery output
 ADC_MODE(ADC_VCC);
-const String DROID_ID = "C3PO";
-float CUTOFF_VOLTAGE = 10.9;            //volts
-float BATTERY_RATED_VOLTAGE = 12.3;     //volts
-float BATTERY_RATED_CAPACITY = 7000.0;  //mah
-float CUTOFF_CURRENT = 3000;            //milliAmps
-int OUTPUT_PIN = 1;                     //pin 1
-unsigned long COOLDOWN_TIME = 300000;   //milliSeconds
-float PRECISSION_POWER = 1.0;           //w
-float PRECISSION_VOLTAGE = 0.1;         //v
 
 //Ina readings
 float A_shuntvoltage, A_busvoltage, A_current_mA, A_power_W, A_loadvoltage, B_shuntvoltage, B_busvoltage, B_current_mA, B_power_W, B_loadvoltage;
@@ -98,16 +101,18 @@ void TakeActionBasedOnBatteryStatus() {
     //Battery Just got out of Danger.
     INAChangeDetected = true;
   }
-  if (isBatterInDangerInThisLoop()) {
+  if (isBatterInDangerInThisLoop())
     digitalWrite(OUTPUT_PIN, LOW);
-  } else {
-    if (currentTime > turnOnBatteryAccessAt)
-      digitalWrite(OUTPUT_PIN, HIGH);
-    else {
-      digitalWrite(OUTPUT_PIN, LOW);
-    }
-  }
+  else if (isBatteryInCoolOffPeriod())
+    digitalWrite(OUTPUT_PIN, LOW);
+  else
+    digitalWrite(OUTPUT_PIN, HIGH);
   prevLoopBatterInDanger = isBatterInDangerInThisLoop();
+}
+
+boolean isBatteryInCoolOffPeriod() {
+  unsigned long currentTime = millis();
+  return (!isBatterInDangerInThisLoop() && (currentTime < turnOnBatteryAccessAt));
 }
 
 boolean isBatterInDangerInThisLoop() {
@@ -145,7 +150,7 @@ void loadINAReadings() {
 }
 
 int calculateBatteryPercentage() {
-  int batteryPercentage = ((100.0 - 20.0) / (BATTERY_RATED_VOLTAGE - CUTOFF_VOLTAGE)) * B_loadvoltage + (20.0 - ((100.0 - 20.0) / (BATTERY_RATED_VOLTAGE - CUTOFF_VOLTAGE)) * CUTOFF_VOLTAGE);
+  int batteryPercentage = ((100.0 - 0.0) / (BATTERY_RATED_VOLTAGE - CUTOFF_VOLTAGE)) * B_loadvoltage + (0.0 - ((100.0 - 0.0) / (BATTERY_RATED_VOLTAGE - CUTOFF_VOLTAGE)) * CUTOFF_VOLTAGE);
   if (batteryPercentage > 100)
     batteryPercentage = 100;
   return batteryPercentage;
@@ -162,7 +167,7 @@ String timeForFullDrainInHours() {
   float hoursToDrain = availableMAH / (B_current_mA - A_current_mA);
   if (hoursToDrain > 23)
     return String("really%20long");
-  if (hoursToDrain == 0)
+  if (hoursToDrain <= 0)
     return String("less%20than%20one");
   return String((int)hoursToDrain);
 }
@@ -175,7 +180,7 @@ String timeForFullChargeInHours() {
   int hoursToCharge = requiredAH / (A_current_mA - B_current_mA);
   if (hoursToCharge > 23)
     return String("really%20long");
-  if (hoursToCharge == 0)
+  if (hoursToCharge <= 0)
     return String("less%20than%20one");
   return String((int)hoursToCharge);
 }
@@ -224,24 +229,32 @@ void checkAndsendToAlexaINAReadings() {
     Serial.print(B_power_W);
     Serial.println(" W");
 
-    //sendSensorValueToAlexa("SolarPanel", "load%20voltage%20is%20"+String(loadvoltage)+"%20volts%2C%20load%20current%20is%20"+String(current_mA)+"%20milli%20amperes%2C%20load%20power%20is%20"+String(power_mW)+"%20milli%20watts%2E%20ESP%20voltage%20is%20"+String(espVoltage)+"%20volts");
     if (isBatterInDangerInThisLoop()) {
-      //Serial.println("Battery in cooloff period. So Wait " + String((turnOnBatteryAccessAt - currentTime) / 1000) + " seconds.");
-      //sendSensorValueToAlexa("SolarPanel", "generating%20" + String((float)(A_power_W)) + "%20watts%20at%20" + String((float)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20in%20danger%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E");
-      sendSensorValueToAlexa("SolarPanel", "Battery%20in%20danger%20at%20" + String((float)B_loadvoltage) + "%20volts%2E%20System%20is%20shutdown%2E");
+      sendSensorValueToAlexa("SolarPanel", "in%20danger%20at%20" + String((float)B_loadvoltage) + "%20volts%2E%20System%20is%20shutdown%2E");
+    } else if (isBatteryInCoolOffPeriod()) {
+      sendSensorValueToAlexa("SolarPanel", "in%20cool%20off%20at%20" + String((float)B_loadvoltage) + "%20volts%2E%20System%20will%20attempt%20recovery%20in%20" + String((int)calculateCoolOffRemainingTimeInMinutes()) + "%20minutes%2E");
+    } else if (isUnderLoad() && isBatteryDraining()) {
+      sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20It%20is%20expected%20to%20drain%20in%20" + timeForFullDrainInHours() + "%20hours%2E");
+    } else if (isUnderLoad() && !isBatteryDraining()) {
+      sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20It%20is%20expected%20to%20charge%20in%20" + timeForFullDrainInHours() + "%20hours%2E");
+    } else if (isUnderLoad()) {
+      sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E");
+    } else if (!isUnderLoad()) {
+      sendSensorValueToAlexa("SolarPanel", "at%20" + String((int)A_loadvoltage) + "%20volts%2C%20with%20no%20considerable%20drain%2E%20Battery%20is%20at%20" + String((float)B_loadvoltage) + "%20volts%2E");
     } else {
-      if (calculateBatteryPercentage() < 100) {
-        if (isBatteryDraining()) {
-          sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20It%20is%20expected%20to%20drain%20in%20" + timeForFullDrainInHours() + "%20hours%2E");
-        } else {
-          sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20It%20is%20expected%20to%20charge%20in%20" + timeForFullDrainInHours() + "%20hours%2E");
-        }
-      } else {
-        sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E");
-      }
+      //Donoo what to send to alexa
     }
     INAChangeDetected = false;
   }
+}
+
+boolean isUnderLoad() {
+  return B_current_mA - MIN_LOAD_CURRENT > 0;
+}
+
+int calculateCoolOffRemainingTimeInMinutes() {
+  unsigned long currentTime = millis();
+  return (turnOnBatteryAccessAt - currentTime) / (1000 * 60);
 }
 
 void loadBMEReadings() {
