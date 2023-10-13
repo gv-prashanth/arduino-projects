@@ -18,14 +18,18 @@
 
 const String DROID_ID = "C3PO";
 float CUTOFF_VOLTAGE = 10.8;            //volts
-float BATTERY_RATED_VOLTAGE = 12.0;     //volts
+float BATTERY_RATED_VOLTAGE = 12.4;     //volts
 float BATTERY_RATED_CAPACITY = 7000.0;  //mah
 float CUTOFF_CURRENT = 3000;            //milliAmps
-float MIN_LOAD_CURRENT = 50;           //ma
+float MIN_LOAD_CURRENT = 50;            //ma
 int OUTPUT_PIN = 1;                     //pin 1
 unsigned long COOLDOWN_TIME = 7200000;  //milliSeconds
-float PRECISSION_POWER = 1.0;           //w
-float PRECISSION_VOLTAGE = 0.1;         //v
+float PRECISSION_POWER_A = 3.0;         //w
+float PRECISSION_VOLTAGE_A = 1.0;       //v
+float PRECISSION_POWER_B = 1.0;         //w
+float PRECISSION_VOLTAGE_B = 0.1;       //v
+float PRECISSION_TEMP = 1.0;            //degrees
+float PRECISSION_HUMID = 2.0;           //percentage
 
 //Dont touch below
 Adafruit_BME280 bme;
@@ -140,10 +144,13 @@ void loadINAReadings() {
   B_current_mA = ina219_B.getCurrent_mA();
   B_power_W = ina219_B.getPower_mW() / 1000;
   B_loadvoltage = B_busvoltage + (B_shuntvoltage / 1000);
-  if (abs(A_power_W - prev_A_power_W) > PRECISSION_POWER || abs(A_loadvoltage - prev_A_loadvoltage) > PRECISSION_VOLTAGE || abs(B_power_W - prev_B_power_W) > PRECISSION_POWER || abs(B_loadvoltage - prev_B_loadvoltage) > PRECISSION_VOLTAGE) {
+  if (abs(A_power_W - prev_A_power_W) > PRECISSION_POWER_A || abs(A_loadvoltage - prev_A_loadvoltage) > PRECISSION_VOLTAGE_A) {
     INAChangeDetected = true;
     prev_A_power_W = A_power_W;
     prev_A_loadvoltage = A_loadvoltage;
+  }
+  if (abs(B_power_W - prev_B_power_W) > PRECISSION_POWER_B || abs(B_loadvoltage - prev_B_loadvoltage) > PRECISSION_VOLTAGE_B) {
+    INAChangeDetected = true;
     prev_B_power_W = B_power_W;
     prev_B_loadvoltage = B_loadvoltage;
   }
@@ -151,8 +158,8 @@ void loadINAReadings() {
 
 int calculateBatteryPercentage() {
   int batteryPercentage = ((100.0 - 0.0) / (BATTERY_RATED_VOLTAGE - CUTOFF_VOLTAGE)) * B_loadvoltage + (0.0 - ((100.0 - 0.0) / (BATTERY_RATED_VOLTAGE - CUTOFF_VOLTAGE)) * CUTOFF_VOLTAGE);
-  if (batteryPercentage > 100)
-    batteryPercentage = 100;
+  if (batteryPercentage >= 100)
+    batteryPercentage = 99;
   return batteryPercentage;
 }
 
@@ -167,7 +174,7 @@ String timeForFullDrainInHours() {
   float hoursToDrain = availableMAH / (B_current_mA - A_current_mA);
   if (hoursToDrain > 23)
     return String("really%20long");
-  if (hoursToDrain <= 0)
+  if ((int)hoursToDrain == 0)
     return String("less%20than%20one");
   return String((int)hoursToDrain);
 }
@@ -180,7 +187,7 @@ String timeForFullChargeInHours() {
   int hoursToCharge = requiredAH / (A_current_mA - B_current_mA);
   if (hoursToCharge > 23)
     return String("really%20long");
-  if (hoursToCharge <= 0)
+  if ((int)hoursToCharge == 0)
     return String("less%20than%20one");
   return String((int)hoursToCharge);
 }
@@ -236,7 +243,7 @@ void checkAndsendToAlexaINAReadings() {
     } else if (isUnderLoad() && isBatteryDraining()) {
       sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20It%20is%20expected%20to%20drain%20in%20" + timeForFullDrainInHours() + "%20hours%2E");
     } else if (isUnderLoad() && !isBatteryDraining()) {
-      sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20It%20is%20expected%20to%20charge%20in%20" + timeForFullDrainInHours() + "%20hours%2E");
+      sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20It%20is%20expected%20to%20charge%20in%20" + timeForFullChargeInHours() + "%20hours%2E");
     } else if (isUnderLoad()) {
       sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E");
     } else if (!isUnderLoad()) {
@@ -262,7 +269,7 @@ void loadBMEReadings() {
   bme_readPressure = bme.readPressure() / 100.0F;
   bme_readHumidity = bme.readHumidity();
   bme_readAltitude = bme.readAltitude(SEALEVELPRESSURE_HPA);
-  if ((int)bme_readTemperature != (int)prev_bme_readTemperature || (int)bme_readHumidity != (int)prev_bme_readHumidity) {
+  if ((abs(bme_readTemperature - prev_bme_readTemperature) > PRECISSION_TEMP) || (abs(bme_readHumidity - prev_bme_readHumidity) > PRECISSION_HUMID)) {
     BMEChangeDetected = true;
     prev_bme_readTemperature = bme_readTemperature;
     prev_bme_readHumidity = bme_readHumidity;
