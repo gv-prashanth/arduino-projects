@@ -16,7 +16,8 @@
 #include <Adafruit_SSD1306.h>
 
 #include <EEPROM.h>
-#include "bsec.h"
+#include "bsec.h" //USE V1.6.x version of BSEC Library. HIGHER VERSION WONT WORK
+
 /* Configure the BSEC library with information about the sensor
     18v/33v = Voltage at Vdd. 1.8V or 3.3V
     3s/300s = BSEC operating mode, BSEC_SAMPLE_RATE_LP or BSEC_SAMPLE_RATE_ULP
