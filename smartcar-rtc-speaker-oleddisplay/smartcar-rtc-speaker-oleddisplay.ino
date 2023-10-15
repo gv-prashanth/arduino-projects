@@ -22,11 +22,11 @@
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
 #define OLED_RESET -1  // Reset pin # (or -1 if sharing ESP reset pin)
 const int NO_OF_TIMES_TO_REPEAT_ALERT = 3;
-const int HEAD_LIGHTS_BEFORE = 6;           //AM
-const int HEAD_LIGHTS_AFTER = 18;           //PM
-const int AUDIO_END_DELAY = 2000;           //ms
+const int HEAD_LIGHTS_BEFORE = 6;          //AM
+const int HEAD_LIGHTS_AFTER = 18;          //PM
+const int AUDIO_END_DELAY = 2000;          //ms
 const int DISPLAY_SWITCH_DURATION = 2000;  //ms
-const int MAX_SCREENS = 4;                  //time, temp, humidity, aqi
+const int MAX_SCREENS = 4;                 //time, temp, humidity, aqi
 
 Bsec iaqSensor;
 RTC_DS3231 rtc;
@@ -46,7 +46,7 @@ void setup() {
     ;  // wait for serial port to connect. Needed for native USB
 #endif
   Serial.begin(115200);
-  Wire.begin(4,5); // Wire.begin(SDA,SCL);
+  Wire.begin(4, 5);  // Wire.begin(SDA,SCL);
   audioPlaying = false;
   rtcError = false;
   displayError = false;
@@ -81,32 +81,29 @@ void setup() {
     displayError = true;
   }
 
-  iaqSensor.begin(BME68X_I2C_ADDR_LOW, Wire);
+  iaqSensor.begin(BME680_I2C_ADDR_PRIMARY, Wire);
   String output = "\nBSEC library version " + String(iaqSensor.version.major) + "." + String(iaqSensor.version.minor) + "." + String(iaqSensor.version.major_bugfix) + "." + String(iaqSensor.version.minor_bugfix);
   Serial.println(output);
   checkIaqSensorStatus();
 
-  bsec_virtual_sensor_t sensorList[13] = {
-    BSEC_OUTPUT_IAQ,
-    BSEC_OUTPUT_STATIC_IAQ,
-    BSEC_OUTPUT_CO2_EQUIVALENT,
-    BSEC_OUTPUT_BREATH_VOC_EQUIVALENT,
+  bsec_virtual_sensor_t sensorList[10] = {
     BSEC_OUTPUT_RAW_TEMPERATURE,
     BSEC_OUTPUT_RAW_PRESSURE,
     BSEC_OUTPUT_RAW_HUMIDITY,
     BSEC_OUTPUT_RAW_GAS,
-    BSEC_OUTPUT_STABILIZATION_STATUS,
-    BSEC_OUTPUT_RUN_IN_STATUS,
+    BSEC_OUTPUT_IAQ,
+    BSEC_OUTPUT_STATIC_IAQ,
+    BSEC_OUTPUT_CO2_EQUIVALENT,
+    BSEC_OUTPUT_BREATH_VOC_EQUIVALENT,
     BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE,
     BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY,
-    BSEC_OUTPUT_GAS_PERCENTAGE
   };
 
-  iaqSensor.updateSubscription(sensorList, 13, BSEC_SAMPLE_RATE_LP);
+  iaqSensor.updateSubscription(sensorList, 10, BSEC_SAMPLE_RATE_LP);
   checkIaqSensorStatus();
 
   // Print the header
-  output = "Timestamp [ms], IAQ, IAQ accuracy, Static IAQ, CO2 equivalent, breath VOC equivalent, raw temp[°C], pressure [hPa], raw relative humidity [%], gas [Ohm], Stab Status, run in status, comp temp[°C], comp humidity [%], gas percentage";
+  output = "Timestamp [ms], raw temperature [°C], pressure [hPa], raw relative humidity [%], gas [Ohm], IAQ, IAQ accuracy, temperature [°C], relative humidity [%], Static IAQ, CO2 equivalent, breath VOC equivalent";
   Serial.println(output);
 }
 
@@ -227,21 +224,18 @@ void displayAQI() {
   display.display();
 }
 
-void gatherBMEReadings(){
+void gatherBMEReadings() {
   unsigned long time_trigger = millis();
-  if (iaqSensor.run()) { // If new data is available
+  if (iaqSensor.run()) {  // If new data is available
     String output = String(time_trigger);
     output += ", " + String(iaqSensor.rawTemperature);
     output += ", " + String(iaqSensor.pressure);
     output += ", " + String(iaqSensor.rawHumidity);
     output += ", " + String(iaqSensor.gasResistance);
     output += ", " + String(iaqSensor.iaq);
-    aqi = iaqSensor.iaq;
     output += ", " + String(iaqSensor.iaqAccuracy);
     output += ", " + String(iaqSensor.temperature);
-    temperature = iaqSensor.temperature;
     output += ", " + String(iaqSensor.humidity);
-    humidity = iaqSensor.humidity;
     output += ", " + String(iaqSensor.staticIaq);
     output += ", " + String(iaqSensor.co2Equivalent);
     output += ", " + String(iaqSensor.breathVocEquivalent);
@@ -277,35 +271,34 @@ void displayTime() {
   display.display();
 }
 
+
 // Helper function definitions
-void checkIaqSensorStatus(void)
-{
-  if (iaqSensor.bsecStatus != BSEC_OK) {
-    if (iaqSensor.bsecStatus < BSEC_OK) {
-      String output = "BSEC error code : " + String(iaqSensor.bsecStatus);
+void checkIaqSensorStatus(void) {
+  if (iaqSensor.status != BSEC_OK) {
+    if (iaqSensor.status < BSEC_OK) {
+      String output = "BSEC error code : " + String(iaqSensor.status);
       Serial.println(output);
       for (;;)
         errLeds(); /* Halt in case of failure */
     } else {
-      String output = "BSEC warning code : " + String(iaqSensor.bsecStatus);
+      String output = "BSEC warning code : " + String(iaqSensor.status);
       Serial.println(output);
     }
   }
 
-  if (iaqSensor.bme68xStatus != BME68X_OK) {
-    if (iaqSensor.bme68xStatus < BME68X_OK) {
-      String output = "BME68X error code : " + String(iaqSensor.bme68xStatus);
+  if (iaqSensor.bme680Status != BME680_OK) {
+    if (iaqSensor.bme680Status < BME680_OK) {
+      String output = "BME680 error code : " + String(iaqSensor.bme680Status);
       Serial.println(output);
       for (;;)
         errLeds(); /* Halt in case of failure */
     } else {
-      String output = "BME68X warning code : " + String(iaqSensor.bme68xStatus);
+      String output = "BME680 warning code : " + String(iaqSensor.bme680Status);
       Serial.println(output);
     }
   }
 }
 
-void errLeds(void)
-{
+void errLeds(void) {
   Serial.println("Stuck in bme loop since there is error");
 }
