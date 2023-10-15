@@ -7,47 +7,51 @@
 #include "RTClib.h"
 
 #include "headLightWarning.h"
-#include "errorWarning.h"
-#include "welcome.h"
+//#include "errorWarning.h"
+//#include "welcome.h"
 #include "handBrakesWarning.h"
 
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
-#define OLED_RESET -1 // Reset pin # (or -1 if sharing ESP reset pin)
-const int NO_OF_TIMES_TO_REPEAT_ALERT = 3;
-const int HEAD_LIGHTS_BEFORE = 6;//AM
-const int HEAD_LIGHTS_AFTER = 18;//PM
-const int AUDIO_END_DELAY = 2000;//ms
-const int DISPLAY_SWITCH_DURATION = 10000;//ms
+#include "bsec.h"
 
+#define SCREEN_WIDTH 128  // OLED display width, in pixels
+#define SCREEN_HEIGHT 64  // OLED display height, in pixels
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+#define OLED_RESET -1  // Reset pin # (or -1 if sharing ESP reset pin)
+const int NO_OF_TIMES_TO_REPEAT_ALERT = 3;
+const int HEAD_LIGHTS_BEFORE = 6;           //AM
+const int HEAD_LIGHTS_AFTER = 18;           //PM
+const int AUDIO_END_DELAY = 2000;           //ms
+const int DISPLAY_SWITCH_DURATION = 2000;  //ms
+const int MAX_SCREENS = 4;                  //time, temp, humidity, aqi
+
+Bsec iaqSensor;
 RTC_DS3231 rtc;
 AudioGeneratorWAV *wav;
 AudioFileSourcePROGMEM *file;
 AudioOutputI2SNoDAC *out;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-boolean audioPlaying, greeted, rtcError, displayError;
-int headLightsNotifiedCount, handBrakesNotifiedCount, errorNotifiedCount;
+boolean audioPlaying, rtcError, displayError;
+int headLightsNotifiedCount, handBrakesNotifiedCount;
 int screenToDisplay;
 unsigned long lastDisplayChange;
+int temperature, humidity, aqi;
 
-void setup()
-{
+void setup() {
 #ifndef ESP8266
-  while (!Serial); // wait for serial port to connect. Needed for native USB
+  while (!Serial)
+    ;  // wait for serial port to connect. Needed for native USB
 #endif
-  Serial.begin(74880);
+  Serial.begin(115200);
+  Wire.begin(4,5); // Wire.begin(SDA,SCL);
   audioPlaying = false;
-  greeted = false;
   rtcError = false;
   displayError = false;
   headLightsNotifiedCount = 0;
   handBrakesNotifiedCount = 0;
-  errorNotifiedCount = 0;
   screenToDisplay = 0;
   lastDisplayChange = millis();
 
@@ -56,7 +60,7 @@ void setup()
   wav = new AudioGeneratorWAV();
 
   int retry = 0;
-  while (! rtc.begin()) {
+  while (!rtc.begin()) {
     if (retry > 10) {
       rtcError = true;
       break;
@@ -75,53 +79,66 @@ void setup()
   // Address 0x3C for 128x64, you might need to change this value (use an I2C scanner)
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     displayError = true;
-  } else {
-    display.clearDisplay();
-    displaySequentially();
   }
+
+  iaqSensor.begin(BME68X_I2C_ADDR_LOW, Wire);
+  String output = "\nBSEC library version " + String(iaqSensor.version.major) + "." + String(iaqSensor.version.minor) + "." + String(iaqSensor.version.major_bugfix) + "." + String(iaqSensor.version.minor_bugfix);
+  Serial.println(output);
+  checkIaqSensorStatus();
+
+  bsec_virtual_sensor_t sensorList[13] = {
+    BSEC_OUTPUT_IAQ,
+    BSEC_OUTPUT_STATIC_IAQ,
+    BSEC_OUTPUT_CO2_EQUIVALENT,
+    BSEC_OUTPUT_BREATH_VOC_EQUIVALENT,
+    BSEC_OUTPUT_RAW_TEMPERATURE,
+    BSEC_OUTPUT_RAW_PRESSURE,
+    BSEC_OUTPUT_RAW_HUMIDITY,
+    BSEC_OUTPUT_RAW_GAS,
+    BSEC_OUTPUT_STABILIZATION_STATUS,
+    BSEC_OUTPUT_RUN_IN_STATUS,
+    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE,
+    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY,
+    BSEC_OUTPUT_GAS_PERCENTAGE
+  };
+
+  iaqSensor.updateSubscription(sensorList, 13, BSEC_SAMPLE_RATE_LP);
+  checkIaqSensorStatus();
+
+  // Print the header
+  output = "Timestamp [ms], IAQ, IAQ accuracy, Static IAQ, CO2 equivalent, breath VOC equivalent, raw temp[°C], pressure [hPa], raw relative humidity [%], gas [Ohm], Stab Status, run in status, comp temp[°C], comp humidity [%], gas percentage";
+  Serial.println(output);
 }
 
-void loop()
-{
+void loop() {
   if (audioPlaying) {
     continueAudioPlayer();
     return;
-  } else {
-    if (welcomeRequired()) {
-      AudioFileSourcePROGMEM *welcomeFile = new AudioFileSourcePROGMEM( welcome, sizeof(welcome) );
-      startAudioPlayer(welcomeFile);
-      greeted = true;
-      Serial.println("Welcome!");
-    } else if (inError() && (errorNotifiedCount < NO_OF_TIMES_TO_REPEAT_ALERT)) {
-      AudioFileSourcePROGMEM *errorFile = new AudioFileSourcePROGMEM( errorWarning, sizeof(errorWarning) );
-      startAudioPlayer(errorFile);
-      errorNotifiedCount++;
-      Serial.println("Error!");
-    } else if (inError()) {
-      //Do Nothing! Already notified that there is error. Please restart...
-    } else if (handBrakesReleaseRequired() && (handBrakesNotifiedCount < NO_OF_TIMES_TO_REPEAT_ALERT)) {
-      AudioFileSourcePROGMEM *handBrakesFile = new AudioFileSourcePROGMEM( handBrakesWarning, sizeof(handBrakesWarning) );
-      startAudioPlayer(handBrakesFile);
-      handBrakesNotifiedCount++;
-      Serial.println("Hand Brakes!");
-    } else if (headLightsRequired() && (headLightsNotifiedCount < NO_OF_TIMES_TO_REPEAT_ALERT)) {
-      AudioFileSourcePROGMEM *headLightFile = new AudioFileSourcePROGMEM( headLightWarning, sizeof(headLightWarning) );
-      startAudioPlayer(headLightFile);
-      headLightsNotifiedCount++;
-      Serial.println("Head Lights!");
-    } else {
-      //No essential notifications at this point of time. May be play some fun notifications.
-      displaySequentially();
-    }
   }
-}
-
-boolean inError() {
-  return rtcError || displayError;
-}
-
-boolean welcomeRequired() {
-  return !greeted;
+  if (rtcError) {
+    Serial.println("RTC Error!");
+    return;
+  }
+  if (displayError) {
+    Serial.println("Display Error!");
+    return;
+  }
+  if (handBrakesReleaseRequired() && (handBrakesNotifiedCount < NO_OF_TIMES_TO_REPEAT_ALERT)) {
+    AudioFileSourcePROGMEM *handBrakesFile = new AudioFileSourcePROGMEM(handBrakesWarning, sizeof(handBrakesWarning));
+    startAudioPlayer(handBrakesFile);
+    handBrakesNotifiedCount++;
+    Serial.println("Hand Brakes!");
+    return;
+  }
+  if (headLightsRequired() && (headLightsNotifiedCount < NO_OF_TIMES_TO_REPEAT_ALERT)) {
+    AudioFileSourcePROGMEM *headLightFile = new AudioFileSourcePROGMEM(headLightWarning, sizeof(headLightWarning));
+    startAudioPlayer(headLightFile);
+    headLightsNotifiedCount++;
+    Serial.println("Head Lights!");
+    return;
+  }
+  //No essential notifications at this point of time. May be play some fun notifications.
+  displaySequentially();
 }
 
 boolean handBrakesReleaseRequired() {
@@ -130,8 +147,8 @@ boolean handBrakesReleaseRequired() {
 
 boolean headLightsRequired() {
   DateTime time = rtc.now();
-  String hms = time.timestamp(DateTime::TIMESTAMP_TIME);   //captures first data String
-  int ind1 = hms.indexOf(':');  //finds location of first ,
+  String hms = time.timestamp(DateTime::TIMESTAMP_TIME);  //captures first data String
+  int ind1 = hms.indexOf(':');                            //finds location of first ,
   String hrs = hms.substring(0, ind1);
   int hrsInt = hrs.toInt();
   return (hrsInt >= HEAD_LIGHTS_AFTER || hrsInt <= HEAD_LIGHTS_BEFORE);
@@ -157,58 +174,81 @@ void stopAudioPlayer() {
 }
 
 void displaySequentially() {
+  identifyScreenToDisplay();
+  if (screenToDisplay == 1)
+    displayTime();
+  else if (screenToDisplay == 2)
+    displayTemperature();
+  else if (screenToDisplay == 3)
+    displayHumidity();
+  else if (screenToDisplay == 4)
+    displayAQI();
+}
+
+void identifyScreenToDisplay() {
   unsigned long currentTime = millis();
   if (currentTime - lastDisplayChange > DISPLAY_SWITCH_DURATION) {
     screenToDisplay++;
-    if (screenToDisplay > 1)
-      screenToDisplay = 0;
+    if (screenToDisplay > MAX_SCREENS)
+      screenToDisplay = 1;
     lastDisplayChange = currentTime;
   }
-  if (screenToDisplay == 0)
-    displayTime();
-  if (screenToDisplay == 1)
-    displayTemperature();
 }
 
 void displayTemperature() {
   display.clearDisplay();
   display.setTextColor(WHITE);
-  display.setTextSize(7);
-  display.setCursor(2, 8);
-  int temp = rtc.getTemperature();
-  display.print(temp);
-  display.setTextSize(3);
-  display.print((char)247); // degree symbol
   display.setTextSize(4);
+  display.setCursor(0, 20);
+  gatherBMEReadings();
+  display.print(temperature);
+  display.print((char)247);  // degree symbol
   display.print("C");
   display.display();
 }
 
-void displayDateTime() {
-  DateTime dateTime = rtc.now();
+void displayHumidity() {
   display.clearDisplay();
   display.setTextColor(WHITE);
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.print("TIME");
-  display.setCursor(0, 10);
-  display.setTextSize(2);
-  display.print(dateTime.hour());
-  display.print(":");
-  display.print(dateTime.minute());
-  display.print(":");
-  display.print(dateTime.second());
-  display.setTextSize(1);
-  display.setCursor(0, 30);
-  display.print("DATE");
-  display.setTextSize(2);
-  display.setCursor(0, 40);
-  display.print(dateTime.day());
-  display.print("/");
-  display.print(dateTime.month());
-  display.print("/");
-  display.print(dateTime.year());
+  display.setTextSize(4);
+  display.setCursor(0, 20);
+  display.print(humidity);
+  display.print("%");
   display.display();
+}
+
+void displayAQI() {
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  display.setTextSize(4);
+  display.setCursor(0, 20);
+  display.print(aqi);
+  display.print("PPM");
+  display.display();
+}
+
+void gatherBMEReadings(){
+  unsigned long time_trigger = millis();
+  if (iaqSensor.run()) { // If new data is available
+    String output = String(time_trigger);
+    output += ", " + String(iaqSensor.rawTemperature);
+    output += ", " + String(iaqSensor.pressure);
+    output += ", " + String(iaqSensor.rawHumidity);
+    output += ", " + String(iaqSensor.gasResistance);
+    output += ", " + String(iaqSensor.iaq);
+    aqi = iaqSensor.iaq;
+    output += ", " + String(iaqSensor.iaqAccuracy);
+    output += ", " + String(iaqSensor.temperature);
+    temperature = iaqSensor.temperature;
+    output += ", " + String(iaqSensor.humidity);
+    humidity = iaqSensor.humidity;
+    output += ", " + String(iaqSensor.staticIaq);
+    output += ", " + String(iaqSensor.co2Equivalent);
+    output += ", " + String(iaqSensor.breathVocEquivalent);
+    Serial.println(output);
+  } else {
+    checkIaqSensorStatus();
+  }
 }
 
 void displayTime() {
@@ -224,7 +264,7 @@ void displayTime() {
   hrsString.concat(String(hrs));
   display.print(hrsString);
   int secs = dateTime.second();
-  if(secs%2==0)
+  if (secs % 2 == 0)
     display.print(":");
   else
     display.print(" ");
@@ -235,4 +275,37 @@ void displayTime() {
   minsString.concat(String(mins));
   display.print(minsString);
   display.display();
+}
+
+// Helper function definitions
+void checkIaqSensorStatus(void)
+{
+  if (iaqSensor.bsecStatus != BSEC_OK) {
+    if (iaqSensor.bsecStatus < BSEC_OK) {
+      String output = "BSEC error code : " + String(iaqSensor.bsecStatus);
+      Serial.println(output);
+      for (;;)
+        errLeds(); /* Halt in case of failure */
+    } else {
+      String output = "BSEC warning code : " + String(iaqSensor.bsecStatus);
+      Serial.println(output);
+    }
+  }
+
+  if (iaqSensor.bme68xStatus != BME68X_OK) {
+    if (iaqSensor.bme68xStatus < BME68X_OK) {
+      String output = "BME68X error code : " + String(iaqSensor.bme68xStatus);
+      Serial.println(output);
+      for (;;)
+        errLeds(); /* Halt in case of failure */
+    } else {
+      String output = "BME68X warning code : " + String(iaqSensor.bme68xStatus);
+      Serial.println(output);
+    }
+  }
+}
+
+void errLeds(void)
+{
+  Serial.println("Stuck in bme loop since there is error");
 }
