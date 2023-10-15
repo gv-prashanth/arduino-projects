@@ -8,14 +8,34 @@
 
 #include "headLightWarning.h"
 //#include "errorWarning.h"
-//#include "welcome.h"
+#include "welcome.h"
 #include "handBrakesWarning.h"
 
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+#include <EEPROM.h>
 #include "bsec.h"
+/* Configure the BSEC library with information about the sensor
+    18v/33v = Voltage at Vdd. 1.8V or 3.3V
+    3s/300s = BSEC operating mode, BSEC_SAMPLE_RATE_LP or BSEC_SAMPLE_RATE_ULP
+    4d/28d = Operating age of the sensor in days
+    generic_18v_3s_4d
+    generic_18v_3s_28d
+    generic_18v_300s_4d
+    generic_18v_300s_28d
+    generic_33v_3s_4d
+    generic_33v_3s_28d
+    generic_33v_300s_4d
+    generic_33v_300s_28d
+*/
+
+const uint8_t bsec_config_iaq[] = {
+#include "config/generic_33v_3s_4d/bsec_iaq.txt"
+};
+
+#define STATE_SAVE_PERIOD UINT32_C(360 * 60 * 1000)  // 360 minutes - 4 times a day
 
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
 #define SCREEN_HEIGHT 64  // OLED display height, in pixels
@@ -26,108 +46,68 @@ const int HEAD_LIGHTS_BEFORE = 6;          //AM
 const int HEAD_LIGHTS_AFTER = 18;          //PM
 const int AUDIO_END_DELAY = 2000;          //ms
 const int DISPLAY_SWITCH_DURATION = 2000;  //ms
-const int MAX_SCREENS = 5;                 //time, temp, humidity, aqi, aqiAccuracy
+const int DELAY_START_DURATION = 30000;    //ms
+const int MAX_SCREENS = 4;                 //time, temp, humidity, aqi, aqiAccuracy
 
-Bsec iaqSensor;
 RTC_DS3231 rtc;
 AudioGeneratorWAV *wav;
 AudioFileSourcePROGMEM *file;
 AudioOutputI2SNoDAC *out;
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-boolean audioPlaying, rtcError, displayError;
+boolean audioPlaying, errorHappened, deviceGreeted;
 int headLightsNotifiedCount, handBrakesNotifiedCount;
 int screenToDisplay;
 unsigned long lastDisplayChange;
 int temperature, humidity, aqi, aqiAccuracy;
+String output;
+
+// Create an object of the class Bsec
+Bsec iaqSensor;
+uint8_t bsecState[BSEC_MAX_STATE_BLOB_SIZE] = { 0 };
+uint16_t stateUpdateCounter = 0;
+// Helper functions declarations
+void checkIaqSensorStatus(void);
+void errLeds(void);
+void loadState(void);
+void updateState(void);
 
 void setup() {
-#ifndef ESP8266
-  while (!Serial)
-    ;  // wait for serial port to connect. Needed for native USB
-#endif
   Serial.begin(115200);
   Wire.begin(4, 5);  // Wire.begin(SDA,SCL);
-  audioPlaying = false;
-  rtcError = false;
-  displayError = false;
-  headLightsNotifiedCount = 0;
-  handBrakesNotifiedCount = 0;
-  screenToDisplay = 0;
-  lastDisplayChange = millis();
-
-  audioLogger = &Serial;
-  out = new AudioOutputI2SNoDAC();
-  wav = new AudioGeneratorWAV();
-
-  int retry = 0;
-  while (!rtc.begin()) {
-    if (retry > 10) {
-      rtcError = true;
-      break;
-    }
-    retry++;
-    delay(500);
+  loadDefaultValues();
+  setupDisplay();
+  delay(DELAY_START_DURATION);
+  setupRTC();
+  setupEPROMAndBME();
+  if (errorHappened) {
+    displayError();
   }
+}
 
-  if (rtc.lostPower()) {
-    Serial.println("RTC lost power, let's set the time!");
-    // When time needs to be set on a new device, or after a power loss, the
-    // following line sets the RTC to the date & time this sketch was compiled
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-    // This line sets the RTC with an explicit date & time, for example to set
-    // January 21, 2014 at 3am you would call:
-    // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
-  }
-
-  // When time needs to be re-set on a previously configured device, the
-  // following line sets the RTC to the date & time this sketch was compiled
-  // This line sets the RTC with an explicit date & time, for example to set
-  // January 21, 2014 at 3am you would call:
-  // rtc.adjust(DateTime(2022, 2, 26, 3, 0, 0));
-
-  //Wire.begin();
-  // Address 0x3C for 128x64, you might need to change this value (use an I2C scanner)
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    displayError = true;
-  }
-
-  iaqSensor.begin(BME680_I2C_ADDR_SECONDARY, Wire);
-  String output = "\nBSEC library version " + String(iaqSensor.version.major) + "." + String(iaqSensor.version.minor) + "." + String(iaqSensor.version.major_bugfix) + "." + String(iaqSensor.version.minor_bugfix);
-  Serial.println(output);
-  checkIaqSensorStatus();
-
-  bsec_virtual_sensor_t sensorList[10] = {
-    BSEC_OUTPUT_RAW_TEMPERATURE,
-    BSEC_OUTPUT_RAW_PRESSURE,
-    BSEC_OUTPUT_RAW_HUMIDITY,
-    BSEC_OUTPUT_RAW_GAS,
-    BSEC_OUTPUT_IAQ,
-    BSEC_OUTPUT_STATIC_IAQ,
-    BSEC_OUTPUT_CO2_EQUIVALENT,
-    BSEC_OUTPUT_BREATH_VOC_EQUIVALENT,
-    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE,
-    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY,
-  };
-
-  iaqSensor.updateSubscription(sensorList, 10, BSEC_SAMPLE_RATE_LP);
-  checkIaqSensorStatus();
-
-  // Print the header
-  output = "Timestamp [ms], raw temperature [°C], pressure [hPa], raw relative humidity [%], gas [Ohm], IAQ, IAQ accuracy, temperature [°C], relative humidity [%], Static IAQ, CO2 equivalent, breath VOC equivalent";
-  Serial.println(output);
+void displayError() {
+  Serial.println("Err!");
+  displayMessage("Err!");
 }
 
 void loop() {
+  if (!errorHappened) {
+    playNotificationIfRequired();
+    displaySequentially();
+  } else {
+    displayError();
+  }
+}
+
+void playNotificationIfRequired() {
   if (audioPlaying) {
     continueAudioPlayer();
     return;
   }
-  if (rtcError) {
-    Serial.println("RTC Error!");
-    return;
-  }
-  if (displayError) {
-    Serial.println("Display Error!");
+  if (!deviceGreeted) {
+    AudioFileSourcePROGMEM *welcomeFile = new AudioFileSourcePROGMEM(welcome, sizeof(welcome));
+    startAudioPlayer(welcomeFile);
+    Serial.println("Welcome!");
+    deviceGreeted = true;
     return;
   }
   if (handBrakesReleaseRequired() && (handBrakesNotifiedCount < NO_OF_TIMES_TO_REPEAT_ALERT)) {
@@ -144,8 +124,6 @@ void loop() {
     Serial.println("Head Lights!");
     return;
   }
-  //No essential notifications at this point of time. May be play some fun notifications.
-  displaySequentially();
 }
 
 boolean handBrakesReleaseRequired() {
@@ -231,8 +209,11 @@ void displayAQI() {
   display.setTextColor(WHITE);
   display.setTextSize(4);
   display.setCursor(0, 20);
-  display.print(aqi);
-  display.print("PPM");
+  if (aqiAccuracy > 0)
+    display.print(aqi);
+  else
+    display.print("? ");
+  display.print("AQI");
   display.display();
 }
 
@@ -242,14 +223,23 @@ void displayAQIAccuracy() {
   display.setTextSize(4);
   display.setCursor(0, 20);
   display.print(aqiAccuracy);
-  display.print("Acc");
+  display.print("Acu");
+  display.display();
+}
+
+void displayMessage(String message) {
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  display.setTextSize(4);
+  display.setCursor(0, 20);
+  display.print(message);
   display.display();
 }
 
 void gatherBMEReadings() {
   unsigned long time_trigger = millis();
   if (iaqSensor.run()) {  // If new data is available
-    String output = String(time_trigger);
+    output = String(time_trigger);
     output += ", " + String(iaqSensor.rawTemperature);
     output += ", " + String(iaqSensor.pressure);
     output += ", " + String(iaqSensor.rawHumidity);
@@ -258,14 +248,12 @@ void gatherBMEReadings() {
     output += ", " + String(iaqSensor.iaqAccuracy);
     output += ", " + String(iaqSensor.temperature);
     output += ", " + String(iaqSensor.humidity);
-    output += ", " + String(iaqSensor.staticIaq);
-    output += ", " + String(iaqSensor.co2Equivalent);
-    output += ", " + String(iaqSensor.breathVocEquivalent);
     Serial.println(output);
     temperature = iaqSensor.temperature;
     humidity = iaqSensor.humidity;
-    aqi = iaqSensor.staticIaq;
+    aqi = iaqSensor.iaq;
     aqiAccuracy = iaqSensor.iaqAccuracy;
+    updateState();
   } else {
     checkIaqSensorStatus();
   }
@@ -297,34 +285,162 @@ void displayTime() {
   display.display();
 }
 
-
 // Helper function definitions
 void checkIaqSensorStatus(void) {
   if (iaqSensor.status != BSEC_OK) {
     if (iaqSensor.status < BSEC_OK) {
-      String output = "BSEC error code : " + String(iaqSensor.status);
+      output = "BSEC error code : " + String(iaqSensor.status);
       Serial.println(output);
-      for (;;)
-        errLeds(); /* Halt in case of failure */
+      errLeds(); /* Halt in case of failure */
     } else {
-      String output = "BSEC warning code : " + String(iaqSensor.status);
+      output = "BSEC warning code : " + String(iaqSensor.status);
       Serial.println(output);
     }
   }
 
   if (iaqSensor.bme680Status != BME680_OK) {
     if (iaqSensor.bme680Status < BME680_OK) {
-      String output = "BME680 error code : " + String(iaqSensor.bme680Status);
+      output = "BME680 error code : " + String(iaqSensor.bme680Status);
       Serial.println(output);
-      for (;;)
-        errLeds(); /* Halt in case of failure */
+      errLeds(); /* Halt in case of failure */
     } else {
-      String output = "BME680 warning code : " + String(iaqSensor.bme680Status);
+      output = "BME680 warning code : " + String(iaqSensor.bme680Status);
       Serial.println(output);
     }
   }
+  iaqSensor.status = BSEC_OK;
 }
 
 void errLeds(void) {
+  errorHappened = true;
   Serial.println("Stuck in bme loop since there is error");
+}
+
+void loadState(void) {
+  if (EEPROM.read(0) == BSEC_MAX_STATE_BLOB_SIZE) {
+    // Existing state in EEPROM
+    Serial.println("Reading state from EEPROM");
+
+    for (uint8_t i = 0; i < BSEC_MAX_STATE_BLOB_SIZE; i++) {
+      bsecState[i] = EEPROM.read(i + 1);
+      Serial.println(bsecState[i], HEX);
+    }
+
+    iaqSensor.setState(bsecState);
+    checkIaqSensorStatus();
+  } else {
+    // Erase the EEPROM with zeroes
+    Serial.println("Erasing EEPROM");
+
+    for (uint8_t i = 0; i < BSEC_MAX_STATE_BLOB_SIZE + 1; i++)
+      EEPROM.write(i, 0);
+
+    EEPROM.commit();
+  }
+}
+
+void updateState(void) {
+  bool update = false;
+  /* Set a trigger to save the state. Here, the state is saved every STATE_SAVE_PERIOD with the first state being saved once the algorithm achieves full calibration, i.e. iaqAccuracy = 3 */
+  if (stateUpdateCounter == 0) {
+    if (iaqSensor.iaqAccuracy >= 3) {
+      update = true;
+      stateUpdateCounter++;
+    }
+  } else {
+    /* Update every STATE_SAVE_PERIOD milliseconds */
+    if ((stateUpdateCounter * STATE_SAVE_PERIOD) < millis()) {
+      update = true;
+      stateUpdateCounter++;
+    }
+  }
+
+  if (update) {
+    iaqSensor.getState(bsecState);
+    checkIaqSensorStatus();
+
+    Serial.println("Writing state to EEPROM");
+
+    for (uint8_t i = 0; i < BSEC_MAX_STATE_BLOB_SIZE; i++) {
+      EEPROM.write(i + 1, bsecState[i]);
+      Serial.println(bsecState[i], HEX);
+    }
+
+    EEPROM.write(0, BSEC_MAX_STATE_BLOB_SIZE);
+    EEPROM.commit();
+  }
+}
+
+void loadDefaultValues() {
+  deviceGreeted = false;
+  audioPlaying = false;
+  errorHappened = false;
+  headLightsNotifiedCount = 0;
+  handBrakesNotifiedCount = 0;
+  screenToDisplay = 0;
+  lastDisplayChange = millis();
+  audioLogger = &Serial;
+  out = new AudioOutputI2SNoDAC();
+  wav = new AudioGeneratorWAV();
+}
+
+void setupRTC() {
+  int retry = 0;
+  boolean rtcSuccss = true;
+  while (!rtc.begin()) {
+    if (retry > 10) {
+      errorHappened = true;
+      rtcSuccss = false;
+      break;
+    }
+    retry++;
+    delay(500);
+  }
+
+  // When time needs to be set on a new device, or after a power loss, the
+  // following line sets the RTC to the date & time this sketch was compiled
+  if (rtcSuccss && rtc.lostPower()) {
+    Serial.println("RTC lost power, let's set the time!");
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
+}
+
+void setupDisplay() {
+  //Wire.begin();
+  // Address 0x3C for 128x64, you might need to change this value (use an I2C scanner)
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    errorHappened = true;
+  }
+  displayMessage("Hello");
+}
+
+void setupEPROMAndBME() {
+  EEPROM.begin(BSEC_MAX_STATE_BLOB_SIZE + 1);  // 1st address for the length
+
+  iaqSensor.begin(BME680_I2C_ADDR_SECONDARY, Wire);
+  output = "\nBSEC library version " + String(iaqSensor.version.major) + "." + String(iaqSensor.version.minor) + "." + String(iaqSensor.version.major_bugfix) + "." + String(iaqSensor.version.minor_bugfix);
+  Serial.println(output);
+  checkIaqSensorStatus();
+
+  iaqSensor.setConfig(bsec_config_iaq);
+  checkIaqSensorStatus();
+
+  loadState();
+
+  bsec_virtual_sensor_t sensorList[7] = {
+    BSEC_OUTPUT_RAW_TEMPERATURE,
+    BSEC_OUTPUT_RAW_PRESSURE,
+    BSEC_OUTPUT_RAW_HUMIDITY,
+    BSEC_OUTPUT_RAW_GAS,
+    BSEC_OUTPUT_IAQ,
+    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE,
+    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY,
+  };
+
+  iaqSensor.updateSubscription(sensorList, 7, BSEC_SAMPLE_RATE_LP);
+  checkIaqSensorStatus();
+
+  // Print the header
+  output = "Timestamp [ms], raw temperature [°C], pressure [hPa], raw relative humidity [%], gas [Ohm], IAQ, IAQ accuracy, temperature [°C], relative humidity [%]";
+  Serial.println(output);
 }
