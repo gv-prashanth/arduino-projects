@@ -26,7 +26,7 @@ const int HEAD_LIGHTS_BEFORE = 6;          //AM
 const int HEAD_LIGHTS_AFTER = 18;          //PM
 const int AUDIO_END_DELAY = 2000;          //ms
 const int DISPLAY_SWITCH_DURATION = 2000;  //ms
-const int MAX_SCREENS = 4;                 //time, temp, humidity, aqi
+const int MAX_SCREENS = 5;                 //time, temp, humidity, aqi, aqiAccuracy
 
 Bsec iaqSensor;
 RTC_DS3231 rtc;
@@ -38,7 +38,7 @@ boolean audioPlaying, rtcError, displayError;
 int headLightsNotifiedCount, handBrakesNotifiedCount;
 int screenToDisplay;
 unsigned long lastDisplayChange;
-int temperature, humidity, aqi;
+int temperature, humidity, aqi, aqiAccuracy;
 
 void setup() {
 #ifndef ESP8266
@@ -69,6 +69,16 @@ void setup() {
     delay(500);
   }
 
+  if (rtc.lostPower()) {
+    Serial.println("RTC lost power, let's set the time!");
+    // When time needs to be set on a new device, or after a power loss, the
+    // following line sets the RTC to the date & time this sketch was compiled
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+    // This line sets the RTC with an explicit date & time, for example to set
+    // January 21, 2014 at 3am you would call:
+    // rtc.adjust(DateTime(2014, 1, 21, 3, 0, 0));
+  }
+
   // When time needs to be re-set on a previously configured device, the
   // following line sets the RTC to the date & time this sketch was compiled
   // This line sets the RTC with an explicit date & time, for example to set
@@ -81,7 +91,7 @@ void setup() {
     displayError = true;
   }
 
-  iaqSensor.begin(BME680_I2C_ADDR_PRIMARY, Wire);
+  iaqSensor.begin(BME680_I2C_ADDR_SECONDARY, Wire);
   String output = "\nBSEC library version " + String(iaqSensor.version.major) + "." + String(iaqSensor.version.minor) + "." + String(iaqSensor.version.major_bugfix) + "." + String(iaqSensor.version.minor_bugfix);
   Serial.println(output);
   checkIaqSensorStatus();
@@ -180,6 +190,8 @@ void displaySequentially() {
     displayHumidity();
   else if (screenToDisplay == 4)
     displayAQI();
+  else if (screenToDisplay == 5)
+    displayAQIAccuracy();
 }
 
 void identifyScreenToDisplay() {
@@ -224,6 +236,16 @@ void displayAQI() {
   display.display();
 }
 
+void displayAQIAccuracy() {
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  display.setTextSize(4);
+  display.setCursor(0, 20);
+  display.print(aqiAccuracy);
+  display.print("Acc");
+  display.display();
+}
+
 void gatherBMEReadings() {
   unsigned long time_trigger = millis();
   if (iaqSensor.run()) {  // If new data is available
@@ -240,6 +262,10 @@ void gatherBMEReadings() {
     output += ", " + String(iaqSensor.co2Equivalent);
     output += ", " + String(iaqSensor.breathVocEquivalent);
     Serial.println(output);
+    temperature = iaqSensor.temperature;
+    humidity = iaqSensor.humidity;
+    aqi = iaqSensor.staticIaq;
+    aqiAccuracy = iaqSensor.iaqAccuracy;
   } else {
     checkIaqSensorStatus();
   }
