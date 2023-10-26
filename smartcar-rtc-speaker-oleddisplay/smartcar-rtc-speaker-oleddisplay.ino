@@ -36,7 +36,8 @@ const uint8_t bsec_config_iaq[] = {
 #include "config/generic_33v_3s_4d/bsec_iaq.txt"
 };
 
-#define STATE_SAVE_PERIOD UINT32_C(360 * 60 * 1000)  // 360 minutes - 4 times a day
+//#define STATE_SAVE_PERIOD UINT32_C(360 * 60 * 1000)  // 360 minutes - 4 times a day
+#define STATE_SAVE_PERIOD UINT32_C(15 * 60 * 1000)  // Every 15 minutes
 
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
 #define SCREEN_HEIGHT 64  // OLED display height, in pixels
@@ -59,7 +60,7 @@ boolean audioPlaying, errorHappened, deviceGreeted;
 int headLightsNotifiedCount, handBrakesNotifiedCount;
 int screenToDisplay;
 unsigned long lastDisplayChange;
-int temperature, humidity, aqi, aqiAccuracy;
+int hrs, mins, secs, temperature, humidity, aqi, aqiAccuracy;
 String output;
 
 // Create an object of the class Bsec
@@ -92,6 +93,8 @@ void displayError() {
 
 void loop() {
   if (!errorHappened) {
+    gatherBMEReadings();
+    gatherClockReadings();
     playNotificationIfRequired();
     displaySequentially();
   } else {
@@ -188,7 +191,6 @@ void displayTemperature() {
   display.setTextColor(WHITE);
   display.setTextSize(4);
   display.setCursor(0, 20);
-  gatherBMEReadings();
   display.print(temperature);
   display.print((char)247);  // degree symbol
   display.print("C");
@@ -260,25 +262,28 @@ void gatherBMEReadings() {
   }
 }
 
-void displayTime() {
+void gatherClockReadings(){
   DateTime dateTime = rtc.now();
+  hrs = dateTime.hour();  
+  mins = dateTime.minute();
+  secs = dateTime.second();
+}
+
+void displayTime() {
   display.clearDisplay();
   display.setTextColor(WHITE);
   display.setTextSize(4);
   display.setCursor(0, 20);
   String hrsString = "";
-  int hrs = dateTime.hour();
   if (hrs < 10)
     hrsString.concat(String("0"));
   hrsString.concat(String(hrs));
   display.print(hrsString);
-  int secs = dateTime.second();
   if (secs % 2 == 0)
     display.print(":");
   else
     display.print(" ");
   String minsString = "";
-  int mins = dateTime.minute();
   if (mins < 10)
     minsString.concat(String("0"));
   minsString.concat(String(mins));
