@@ -16,7 +16,7 @@
 #include <Adafruit_SSD1306.h>
 
 #include <EEPROM.h>
-#include "bsec.h" //USE V1.6.x version of BSEC Library. HIGHER VERSION WONT WORK
+#include "bsec.h"  //USE V1.6.x version of BSEC Library. HIGHER VERSION WONT WORK
 
 /* Configure the BSEC library with information about the sensor
     18v/33v = Voltage at Vdd. 1.8V or 3.3V
@@ -47,7 +47,7 @@ const int NO_OF_TIMES_TO_REPEAT_ALERT = 3;
 const int HEAD_LIGHTS_BEFORE = 6;          //AM
 const int HEAD_LIGHTS_AFTER = 18;          //PM
 const int AUDIO_END_DELAY = 2000;          //ms
-const int DISPLAY_SWITCH_DURATION = 2000;  //ms
+const int DISPLAY_SWITCH_DURATION = 3000;  //ms
 const int DELAY_START_DURATION = 30000;    //ms
 const int MAX_SCREENS = 4;                 //time, temp, humidity, aqi, aqiAccuracy
 
@@ -81,25 +81,18 @@ void setup() {
   delay(DELAY_START_DURATION);
   setupRTC();
   setupEPROMAndBME();
-  if (errorHappened) {
-    displayError();
-  }
 }
 
 void displayError() {
   Serial.println("Err!");
-  displayMessage("Err!");
+  displayMessage("Error");
 }
 
 void loop() {
-  if (!errorHappened) {
-    gatherBMEReadings();
-    gatherClockReadings();
-    playNotificationIfRequired();
-    displaySequentially();
-  } else {
-    displayError();
-  }
+  gatherBMEReadings();
+  gatherClockReadings();
+  playNotificationIfRequired();
+  displaySequentially();
 }
 
 void playNotificationIfRequired() {
@@ -164,7 +157,9 @@ void stopAudioPlayer() {
 
 void displaySequentially() {
   identifyScreenToDisplay();
-  if (screenToDisplay == 1)
+  if (screenToDisplay == 0)
+    displayError();
+  else if (screenToDisplay == 1)
     displayTime();
   else if (screenToDisplay == 2)
     displayTemperature();
@@ -172,17 +167,19 @@ void displaySequentially() {
     displayHumidity();
   else if (screenToDisplay == 4)
     displayAQI();
-  else if (screenToDisplay == 5)
-    displayAQIAccuracy();
 }
 
 void identifyScreenToDisplay() {
-  unsigned long currentTime = millis();
-  if (currentTime - lastDisplayChange > DISPLAY_SWITCH_DURATION) {
-    screenToDisplay++;
-    if (screenToDisplay > MAX_SCREENS)
-      screenToDisplay = 1;
-    lastDisplayChange = currentTime;
+  if (errorHappened) {
+    screenToDisplay = 0;
+  } else {
+    unsigned long currentTime = millis();
+    if (currentTime - lastDisplayChange > DISPLAY_SWITCH_DURATION) {
+      screenToDisplay++;
+      if (screenToDisplay > MAX_SCREENS)
+        screenToDisplay = 1;
+      lastDisplayChange = currentTime;
+    }
   }
 }
 
@@ -193,7 +190,10 @@ void displayTemperature() {
   display.setCursor(0, 20);
   display.print(temperature);
   display.print((char)247);  // degree symbol
-  display.print("C");
+  display.setCursor(80, 33);
+  display.setTextSize(2);
+  display.print("TEMP");
+  displayLogo();
   display.display();
 }
 
@@ -204,6 +204,10 @@ void displayHumidity() {
   display.setCursor(0, 20);
   display.print(humidity);
   display.print("%");
+  display.setCursor(80, 33);
+  display.setTextSize(2);
+  display.print("HUMD");
+  displayLogo();
   display.display();
 }
 
@@ -212,21 +216,14 @@ void displayAQI() {
   display.setTextColor(WHITE);
   display.setTextSize(4);
   display.setCursor(0, 20);
-  if (aqiAccuracy > 0)
-    display.print(aqi);
-  else
-    display.print("? ");
-  display.print("AQI");
-  display.display();
-}
-
-void displayAQIAccuracy() {
-  display.clearDisplay();
-  display.setTextColor(WHITE);
-  display.setTextSize(4);
-  display.setCursor(0, 20);
+  display.print(aqi);
+  display.setCursor(80, 33);
+  display.setTextSize(2);
+  display.print("AIRQ");
+  display.setCursor(120, 0);
+  display.setTextSize(1);
   display.print(aqiAccuracy);
-  display.print("Acu");
+  displayLogo();
   display.display();
 }
 
@@ -236,7 +233,15 @@ void displayMessage(String message) {
   display.setTextSize(4);
   display.setCursor(0, 20);
   display.print(message);
+  displayLogo();
   display.display();
+}
+
+void displayLogo() {
+  display.setTextColor(WHITE);
+  display.setTextSize(1);
+  display.setCursor(5, 0);
+  display.print("GTS");
 }
 
 void gatherBMEReadings() {
@@ -262,9 +267,9 @@ void gatherBMEReadings() {
   }
 }
 
-void gatherClockReadings(){
+void gatherClockReadings() {
   DateTime dateTime = rtc.now();
-  hrs = dateTime.hour();  
+  hrs = dateTime.hour();
   mins = dateTime.minute();
   secs = dateTime.second();
 }
@@ -288,6 +293,7 @@ void displayTime() {
     minsString.concat(String("0"));
   minsString.concat(String(mins));
   display.print(minsString);
+  displayLogo();
   display.display();
 }
 
@@ -302,6 +308,8 @@ void checkIaqSensorStatus(void) {
       output = "BSEC warning code : " + String(iaqSensor.status);
       Serial.println(output);
     }
+  } else {
+    errorHappened = false;
   }
 
   if (iaqSensor.bme680Status != BME680_OK) {
@@ -313,6 +321,8 @@ void checkIaqSensorStatus(void) {
       output = "BME680 warning code : " + String(iaqSensor.bme680Status);
       Serial.println(output);
     }
+  } else {
+    errorHappened = false;
   }
   iaqSensor.status = BSEC_OK;
 }
@@ -399,6 +409,7 @@ void setupRTC() {
       rtcSuccss = false;
       break;
     }
+    errorHappened = false;
     retry++;
     delay(500);
   }
@@ -417,6 +428,7 @@ void setupDisplay() {
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     errorHappened = true;
   }
+  errorHappened = false;
   displayMessage("Hello");
 }
 
