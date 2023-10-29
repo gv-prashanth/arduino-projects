@@ -32,13 +32,16 @@ const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 115.0; // in centimeters
 const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0; // in centimeters
 const float DIAMETER_OF_TANK = 108.0;//in centimers
 const float TANK_TOLERANCE = 20.0; // in centimeters
+const unsigned long DISPLAY_DURATION = 10000;                    //in milliseconds
+const float VOLTAGE_TOLERANCE = 0.3; //volts
 // initialize the library by associating any needed LCD interface pin with the arduino pin number it is connected to
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 
 //Dont touch below stuff
-unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter;
-float cached_transmitterVcc, cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage;
-boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun;
+unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter, displayChange;
+float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage, cached_transmitterVcc, prevOverheadVoltage;
+boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun, prevLoopIsConnectionWithinTreshold, sendToAlexa;;
+int prevTankPercentage, displayScreen;
 RH_ASK driver;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
@@ -64,12 +67,14 @@ void setup()
   lastSwitchOffTime = currentTime;
   batchTimestamp = currentTime;
   firstTimeStarting = true;
+  sendToAlexa = true;
   isMotorRunning = false;
   wasMotorInDangerInLastRun = false;
+  prevLoopIsConnectionWithinTreshold = false;
   cached_overheadTankWaterLevel_prevBatchAverage = -1;
   cached_overheadTankWaterLevel_prevprevBatchAverage = -1;
   batchCounter = 0;
-
+  displayScreen = 1;
 }
 
 void loop()
@@ -109,8 +114,9 @@ void loop()
 
   //do all displays
   displayLCDInfo();
-  displayConnectionStrength();
+  trackAndDisplayConnectionStrength();
   displaySumpDangerIndicator();
+  checkAndSendToAlexa();
 }
 
 void displaySumpDangerIndicator() {
@@ -120,11 +126,23 @@ void displaySumpDangerIndicator() {
     digitalWrite(SumpDangerIndicatorPin, LOW);
 }
 
-void displayConnectionStrength() {
-  if (isConnectionWithinTreshold())
+void trackAndDisplayConnectionStrength() {
+  unsigned long currentLoopIsConnectionWithinTreshold = isConnectionWithinTreshold();
+  if (currentLoopIsConnectionWithinTreshold) {
     digitalWrite(SumpReceiverIndicatorPin, HIGH);
-  else
+    if (!prevLoopIsConnectionWithinTreshold) {
+      //we just got the signal
+      unsigned long currentTime = millis();
+      sendToAlexa = true;
+    }
+  } else {
     digitalWrite(SumpReceiverIndicatorPin, LOW);
+    if (prevLoopIsConnectionWithinTreshold) {
+      //we just lost the signal
+      sendToAlexa = true;
+    }
+  }
+  prevLoopIsConnectionWithinTreshold = currentLoopIsConnectionWithinTreshold;
 }
 
 void switchOffMotor() {
@@ -132,6 +150,7 @@ void switchOffMotor() {
   digitalWrite(sumpMotorTriggerPin, LOW);
   isMotorRunning = false;
   todayTracker_switchOffHeight = cached_overheadTankWaterLevel;
+  sendToAlexa = true;
 }
 
 void switchOnMotor() {
@@ -141,6 +160,7 @@ void switchOnMotor() {
   lastSwitchOnTime = millis();
   digitalWrite(sumpMotorTriggerPin, HIGH);
   isMotorRunning = true;
+  sendToAlexa = true;
 }
 
 boolean isConnectionWithinTreshold() {
@@ -209,15 +229,28 @@ boolean overheadTopHasWater() {
 }
 
 void displayLCDInfo() {
-  if (isConnectionWithinTreshold()) {
-    lcd.setCursor(0, 0); lcd.print(String("Lvl:") + String(calculateTankPercentage()) + String("%") + String((int)cached_overheadTankWaterLevel) + String("cm") + String(cached_transmitterVcc) + String("v"));
-    //lcd.setCursor(0, 0); lcd.print(String("Lvl:") + String((int)cached_overheadTankWaterLevel) + String("cm(") + String(cached_transmitterVcc) + String("v)          "));
-    //lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String((int)cached_overheadTankWaterLevel) + String("(") + String(calculateSignalConsumedSoFar()) + String(")            "));
-    lcd.setCursor(0, 1); lcd.print(String("Use:") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
-    //lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(cached_transmitterVcc) + String("V/") + String(calculateHoursConsumedSoFar()) + String("H            "));
+  if (isConnectionWithinTreshold() && displayScreen==1) {
+    lcd.setCursor(0, 0);
+    lcd.print(String("Capacity: ") + String(calculateTankPercentage()) + String("%          "));
+    lcd.setCursor(0, 1);
+    lcd.print(String("Usage: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H          "));
+  } else if(isConnectionWithinTreshold() && displayScreen==2) {
+    lcd.setCursor(0, 0);
+    lcd.print(String("Level: ") + String((int)cached_overheadTankWaterLevel) + String("cm          "));
+    lcd.setCursor(0, 1);
+    lcd.print(String("Battery: ") + String(cached_transmitterVcc) + String("v          "));
   } else {
-    lcd.setCursor(0, 0); lcd.print(String("Lvl: ") + String("NoSig") + String("(") + String(cached_transmitterVcc) + String("v)         "));
-    lcd.setCursor(0, 1); lcd.print(String("Use: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H            "));
+    lcd.setCursor(0, 0);
+    lcd.print(String("NO SIGNAL!!!"));
+    lcd.setCursor(0, 1);
+    lcd.print(String("Battery: ") + String(cached_transmitterVcc) + String("v          "));
+  }
+  unsigned long currentTime = millis();
+  if(currentTime - displayChange > DISPLAY_DURATION){
+    displayScreen++;
+    if(displayScreen > 2)
+      displayScreen = 1;
+    displayChange = currentTime;
   }
 }
 
@@ -245,3 +278,41 @@ unsigned long calculateVolumeConsumedSoFar() {
   }
 }
 
+
+void sendSensorValueToAlexa(String reading) {
+  Serial.println("WaterTank " + reading);
+}
+
+void checkAndSendToAlexa() {
+  if (prevTankPercentage != calculateTankPercentage()) {
+    sendToAlexa = true;
+    prevTankPercentage = calculateTankPercentage();
+  }
+  if (abs(prevOverheadVoltage - cached_transmitterVcc) > VOLTAGE_TOLERANCE) {
+    sendToAlexa = true;
+    prevOverheadVoltage = cached_transmitterVcc;
+  }
+  if (sendToAlexa) {
+    Serial.println("sendToAlexa is invoked. Are you sure its worth invoking?");
+    char destination[5];
+    dtostrf(cached_transmitterVcc, 3, 1, destination);
+    //String voltageInEncodedString = String((int)overheadVoltage);
+    String voltageInEncodedString = String(destination);
+    if (isMotorRunning) {
+      if (wasMotorInDangerInLastRun) {
+        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20Voltage%20is%20" + voltageInEncodedString + "%20volts%2E%20There%20was%20dry%20run%2E");
+      } else {
+        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20");
+      }
+    } else {
+      if (wasMotorInDangerInLastRun) {
+        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20off%2E%20Voltage%20is%20" + voltageInEncodedString + "%20volts%2E%20There%20was%20dry%20run%2E");
+      } else if (!isConnectionWithinTreshold()) {
+        sendSensorValueToAlexa("not%20receiving%20from%20overhead%20tank%2E%20Last%20received%20Voltage%20is%20" + voltageInEncodedString + "%20volts%2E");
+      } else {
+        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20");
+      }
+    }
+    sendToAlexa = false;
+  }
+}
