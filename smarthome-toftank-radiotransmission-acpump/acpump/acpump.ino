@@ -14,41 +14,41 @@
 
 #include <RH_ASK.h>
 #ifdef RH_HAVE_HARDWARE_SPI
-#include <SPI.h> // Not actually used but needed to compile
+#include <SPI.h>  // Not actually used but needed to compile
 #endif
 #include <LiquidCrystal.h>
 
 //Pin Configurations
-const int sumpMotorTriggerPin = 8; // sump pump driver pin
-const int SumpDangerIndicatorPin = 9; // Sump danger level led pin
-const int SumpReceiverIndicatorPin = 13; // Sump receiver indication led pin
+const int sumpMotorTriggerPin = 8;        // sump pump driver pin
+const int SumpDangerIndicatorPin = 9;     // Sump danger level led pin
+const int SumpReceiverIndicatorPin = 13;  // Sump receiver indication led pin
 
 //Functional Configurations
-const unsigned long TRANSMISSION_TRESHOLD_TIME = 36000; // in milliseconds
-const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000; //in milliseconds
-const unsigned long MAX_ALLOWED_RUNTIME_OF_MOTOR = 1800000; //in milliseconds
-const unsigned long BATCH_DURATION = 120000; //in milliseconds
-const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 115.0; // in centimeters
-const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0; // in centimeters
-const float DIAMETER_OF_TANK = 108.0;//in centimers
-const float TANK_TOLERANCE = 20.0; // in centimeters
+const unsigned long TRANSMISSION_TRESHOLD_TIME = 36000;          // in milliseconds
+const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000;  //in milliseconds
+const unsigned long MAX_ALLOWED_RUNTIME_OF_MOTOR = 1800000;      //in milliseconds
+const unsigned long BATCH_DURATION = 120000;                     //in milliseconds
+const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 115.0;            // in centimeters
+const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0;        // in centimeters
+const float DIAMETER_OF_TANK = 108.0;                            //in centimers
+const float TANK_TOLERANCE = 20.0;                               // in centimeters
 const unsigned long DISPLAY_DURATION = 10000;                    //in milliseconds
-const float VOLTAGE_TOLERANCE = 0.3; //volts
+const float VOLTAGE_TOLERANCE = 0.1;                             //volts
 // initialize the library by associating any needed LCD interface pin with the arduino pin number it is connected to
 const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
 
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter, displayChange;
 float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage, cached_transmitterVcc, prevOverheadVoltage;
-boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun, prevLoopIsConnectionWithinTreshold, sendToAlexa;;
+boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun, prevLoopIsConnectionWithinTreshold, sendToAlexa;
 int prevTankPercentage, displayScreen;
 RH_ASK driver;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
-void setup()
-{
+void setup() {
   // initialize serial communication with computer:
-  Serial.begin(9600);    // Debugging only
+  //DONT DISABLE.
+  Serial.begin(9600);  // Mandatory if you want to use alexa integration.
 
   if (!driver.init())
     Serial.println("init failed");
@@ -77,28 +77,27 @@ void setup()
   displayScreen = 1;
 }
 
-void loop()
-{
+void loop() {
   // read values from all sensors
   loadAndCacheOverheadTransmissions();
 
   if (isMotorRunning) {
     if (!isConnectionWithinTreshold()) {
       switchOffMotor();
-      Serial.println("No strong signal from overhead. Switching OFF!");
+      //Serial.println("No strong signal from overhead. Switching OFF!");
     } else if (isMotorInDanger()) {
       switchOffMotor();
       wasMotorInDangerInLastRun = true;
-      Serial.println("Danger! Sump motor might be at risk. Shutting down!");
+      //Serial.println("Danger! Sump motor might be at risk. Shutting down!");
     } else if (overheadTopHasWater()) {
       switchOffMotor();
-      Serial.println("Overhead tank is just filled. Switching OFF!");
+      //Serial.println("Overhead tank is just filled. Switching OFF!");
     } else {
       //Serial.println("Lets leave the motor in ON.");
     }
   } else {
     if (!isConnectionWithinTreshold()) {
-      Serial.println("No strong signal from overhead. Motor is already Switched OFF. Lets not switch ON!");
+      //Serial.println("No strong signal from overhead. Motor is already Switched OFF. Lets not switch ON!");
     } else if (!overheadBottomHasWater() && !isRecentlySwitchedOff()) {
       cached_overheadTankWaterLevel_prevBatchAverage = -1;
       cached_overheadTankWaterLevel_prevprevBatchAverage = -1;
@@ -106,7 +105,7 @@ void loop()
       wasMotorInDangerInLastRun = false;
       Serial.println("No water in overhead tank. Also sump has water. Switching ON!");
     } else if (!overheadBottomHasWater() && isRecentlySwitchedOff()) {
-      Serial.println("No water in overhead tank. But very recently switched Off. Lets wait for protection time and then check.");
+      //Serial.println("No water in overhead tank. But very recently switched Off. Lets wait for protection time and then check.");
     } else {
       //Serial.println("Lets leave the motor in OFF.");
     }
@@ -154,7 +153,7 @@ void switchOffMotor() {
 }
 
 void switchOnMotor() {
-  todayTracker_volume = calculateVolumeConsumedSoFar();//have to be first line since firstTimeStarting will get changed later
+  todayTracker_volume = calculateVolumeConsumedSoFar();  //have to be first line since firstTimeStarting will get changed later
   if (firstTimeStarting)
     firstTimeStarting = false;
   lastSwitchOnTime = millis();
@@ -167,8 +166,7 @@ boolean isConnectionWithinTreshold() {
   unsigned long currentTime = millis();
   if (firstTimeStarting && (currentTime - lastSwitchOnTime < TRANSMISSION_TRESHOLD_TIME)) {
     return false;
-  }
-  else {
+  } else {
     return (currentTime - lastSuccesfulOverheadTransmissionTime < TRANSMISSION_TRESHOLD_TIME);
   }
 }
@@ -177,7 +175,7 @@ void loadAndCacheOverheadTransmissions() {
   uint8_t buf[RH_ASK_MAX_MESSAGE_LEN];
   uint8_t buflen = sizeof(buf);
   unsigned long currentTime = millis();
-  if (driver.recv(buf, &buflen)) // Non-blocking
+  if (driver.recv(buf, &buflen))  // Non-blocking
   {
     int i;
     // Message with a good checksum received, dump it.
@@ -186,7 +184,9 @@ void loadAndCacheOverheadTransmissions() {
     int index = fullString.indexOf(',');
     String respString = fullString.substring(0, index);
     String vccString = fullString.substring(index + 1);
-    cached_transmitterVcc = vccString.toFloat() / 100;
+    //sometimes we are getting zero vcc from above. in such case, we used the cached value rather than setting it to zero in our receiver variable.
+    if (vccString.toFloat() > 0)
+      cached_transmitterVcc = vccString.toFloat() / 100;
     cached_overheadTankWaterLevel = HEIGHT_OF_TOF_SENSOR_FROM_GROUND - respString.toFloat();
     lastSuccesfulOverheadTransmissionTime = currentTime;
 
@@ -198,10 +198,18 @@ void loadAndCacheOverheadTransmissions() {
       cached_overheadTankWaterLevel_prevBatchAverage = cached_overheadTankWaterLevel_thisBatchAverage;
       batchCounter = 0;
     }
-
-    Serial.print("Tank water: "); Serial.print(cached_overheadTankWaterLevel); Serial.print(" cm. "); Serial.print("Prev: "); Serial.print(cached_overheadTankWaterLevel_prevBatchAverage); Serial.print(" cm. "); Serial.print("PrevPrev: "); Serial.print(cached_overheadTankWaterLevel_prevprevBatchAverage); Serial.println(" cm.");
+    /*
+    Serial.print("Tank water: ");
+    Serial.print(cached_overheadTankWaterLevel);
+    Serial.print(" cm. ");
+    Serial.print("Prev: ");
+    Serial.print(cached_overheadTankWaterLevel_prevBatchAverage);
+    Serial.print(" cm. ");
+    Serial.print("PrevPrev: ");
+    Serial.print(cached_overheadTankWaterLevel_prevprevBatchAverage);
+    Serial.println(" cm.");
+    */
   }
-
 }
 
 boolean isMotorInDanger() {
@@ -209,9 +217,9 @@ boolean isMotorInDanger() {
   if (!isMotorRunning)
     return false;
   else if (currentTime - lastSwitchOnTime > MAX_ALLOWED_RUNTIME_OF_MOTOR)
-    return true; //Motor running for too long time. Its in danger.
+    return true;  //Motor running for too long time. Its in danger.
   else if (cached_overheadTankWaterLevel_prevBatchAverage != -1 && cached_overheadTankWaterLevel_prevprevBatchAverage != -1 && cached_overheadTankWaterLevel_prevBatchAverage <= cached_overheadTankWaterLevel_prevprevBatchAverage)
-    return true; //Motor is dry. Its in danger.
+    return true;  //Motor is dry. Its in danger.
   else
     return false;
 }
@@ -229,12 +237,12 @@ boolean overheadTopHasWater() {
 }
 
 void displayLCDInfo() {
-  if (isConnectionWithinTreshold() && displayScreen==1) {
+  if (isConnectionWithinTreshold() && displayScreen == 1) {
     lcd.setCursor(0, 0);
     lcd.print(String("Capacity: ") + String(calculateTankPercentage()) + String("%          "));
     lcd.setCursor(0, 1);
     lcd.print(String("Usage: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H          "));
-  } else if(isConnectionWithinTreshold() && displayScreen==2) {
+  } else if (isConnectionWithinTreshold() && displayScreen == 2) {
     lcd.setCursor(0, 0);
     lcd.print(String("Level: ") + String((int)cached_overheadTankWaterLevel) + String("cm          "));
     lcd.setCursor(0, 1);
@@ -246,9 +254,9 @@ void displayLCDInfo() {
     lcd.print(String("Battery: ") + String(cached_transmitterVcc) + String("v          "));
   }
   unsigned long currentTime = millis();
-  if(currentTime - displayChange > DISPLAY_DURATION){
+  if (currentTime - displayChange > DISPLAY_DURATION) {
     displayScreen++;
-    if(displayScreen > 2)
+    if (displayScreen > 2)
       displayScreen = 1;
     displayChange = currentTime;
   }
@@ -260,7 +268,7 @@ int calculateTankPercentage() {
 
 int calculateHoursConsumedSoFar() {
   unsigned long currentTime = millis();
-  int toReturn = (currentTime - todayTracker_time ) / (1000.0 * 60.0 * 60.0);
+  int toReturn = (currentTime - todayTracker_time) / (1000.0 * 60.0 * 60.0);
   if (toReturn >= 24) {
     todayTracker_volume = 0;
     todayTracker_time = currentTime;
@@ -280,20 +288,20 @@ unsigned long calculateVolumeConsumedSoFar() {
 
 
 void sendSensorValueToAlexa(String reading) {
-  Serial.println("WaterTank " + reading);
+  Serial.println("WaterTank " + reading);  // Mandatory if you want to use alexa integration.
 }
 
 void checkAndSendToAlexa() {
-  if (prevTankPercentage != calculateTankPercentage()) {
+  if (abs(prevTankPercentage - ((int)calculateTankPercentage())) >= 1) {
     sendToAlexa = true;
-    prevTankPercentage = calculateTankPercentage();
+    prevTankPercentage = (int)calculateTankPercentage();
   }
-  if (abs(prevOverheadVoltage - cached_transmitterVcc) > VOLTAGE_TOLERANCE) {
+  if (abs(prevOverheadVoltage - cached_transmitterVcc) >= VOLTAGE_TOLERANCE) {
     sendToAlexa = true;
     prevOverheadVoltage = cached_transmitterVcc;
   }
   if (sendToAlexa) {
-    Serial.println("sendToAlexa is invoked. Are you sure its worth invoking?");
+    //Serial.println("sendToAlexa is invoked. Are you sure its worth invoking?");
     char destination[5];
     dtostrf(cached_transmitterVcc, 3, 1, destination);
     //String voltageInEncodedString = String((int)overheadVoltage);
