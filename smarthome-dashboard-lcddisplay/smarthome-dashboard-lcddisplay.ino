@@ -2,28 +2,71 @@
 #include <ESP8266HTTPClient.h>
 #include <BearSSLHelpers.h>
 #include <ArduinoJson.h>
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
 
 // Replace with your network credentials
 const char* ssid = "XXX";
 const char* password = "YYY";
-
-// Replace with the server's address and the endpoint you want to access
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
 const String endpoint = "/droid/ZZZ/intents";
+const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 60000;  //ms
+const unsigned long SCREEN_CYCLE_FREQUENCY = 3000;       //ms
 
+// Dont touch below
+LiquidCrystal_I2C lcd(0x27, 20, 4);  // Set the LCD I2C address
 String payload;
+int indexToDisplay = 0;
+unsigned long lastFetchTime, lastScreenChangeTime;
+struct SensorData {
+  int jsonIndex;
+  String key;
+  String deviceReading;
+  String readingTime;
+};
+std::vector<SensorData> globalDataEntries;  // Global vector to store the data
+boolean firstTime;
 
 void setup() {
   Serial.begin(115200);
+  setupLCD();
   setupWifi();
+  firstTime = true;
 }
 
 void loop() {
-  Serial.println(".....START.....");
-  fetchPayload();
-  printPayload();
-  Serial.println("......END......");
-  delay(10000);
+  unsigned long currentTime = millis();
+  if (firstTime || (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY)) {
+    Serial.println(".....START.....");
+    fetchPayload();
+    parsePayload();
+    lastFetchTime = currentTime;
+    Serial.println("......END......");
+  }
+  if (firstTime || (currentTime - lastScreenChangeTime > SCREEN_CYCLE_FREQUENCY)) {
+    indexToDisplay++;
+    if (indexToDisplay >= globalDataEntries.size()) {
+      indexToDisplay = 0;
+    }
+    printPayload();
+    firstTime = false;
+    lastScreenChangeTime = currentTime;
+  }
+}
+
+void setupWifi() {
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+}
+
+void setupLCD() {
+  lcd.init();       // Initialize the LCD
+  lcd.backlight();  // Turn on the backlight
 }
 
 void fetchPayload() {
@@ -55,39 +98,92 @@ void fetchPayload() {
   http.end();
 }
 
-void printPayload() {
+void parsePayload() {
   DynamicJsonDocument doc(1024);  // Adjust the size based on your JSON data size
 
   // Deserialize the JSON data
   DeserializationError error = deserializeJson(doc, payload);
 
-  if (error) {
-    Serial.print("Error parsing JSON: ");
-    Serial.println(error.c_str());
-  } else {
-    // Iterate through each entry and print it
+  if (!error) {
+    int jsonIndex = 0;
+    globalDataEntries.clear();
     for (JsonPair kv : doc.as<JsonObject>()) {
-      const char* key = kv.key().c_str();
-      const char* deviceReading = kv.value()["deviceReading"];
-      const char* readingTime = kv.value()["readingTime"];
-
-      Serial.print(key);
-      Serial.print(": ");
-      Serial.println(deviceReading);
-      Serial.print("Reading Time: ");
-      Serial.println(readingTime);
-      Serial.println();
+      SensorData entry;
+      entry.jsonIndex = jsonIndex;
+      entry.key = String(kv.key().c_str());
+      entry.deviceReading = String(kv.value()["deviceReading"]);
+      entry.readingTime = String(kv.value()["readingTime"]);
+      globalDataEntries.push_back(entry);
+      jsonIndex++;
     }
   }
 }
 
-void setupWifi() {
-  // Connect to Wi-Fi
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Connecting to WiFi...");
+void printPayload() {
+  SensorData entry = globalDataEntries[indexToDisplay];
+  Serial.print("Key: ");
+  Serial.println(entry.key);
+  Serial.print("Device Reading: ");
+  Serial.println(entry.deviceReading);
+  Serial.print("Reading Time: ");
+  Serial.println(entry.readingTime);
+  String message = String(entry.key) + String(" is ") + String(entry.deviceReading);
+  message = String("********GTS******** ") + message;
+  // Ensure the message doesn't exceed the 4-line limit
+  if (message.length() > 80) {
+    message = message.substring(0, 80);
   }
-  Serial.println("Connected to WiFi");
+  // Display the message on the LCD with a maximum line length of 20 characters and a maximum of 4 lines
+  displayStringOnLCD(message, 20, 4);
+}
+
+void displayStringOnLCD(String str, int maxLineLength, int maxLines) {
+
+  lcd.clear();
+  int lineCount = 0;
+  String currentLine = "";
+
+  // Split the input string into words
+  String words[50];  // Assuming a maximum of 50 words
+  int wordCount = 0;
+
+  for (int i = 0; i < str.length(); i++) {
+    char currentChar = str.charAt(i);
+    if (currentChar != ' ') {
+      currentLine += currentChar;
+    } else {
+      words[wordCount] = currentLine;
+      wordCount++;
+      currentLine = "";
+    }
+  }
+  words[wordCount] = currentLine;
+  wordCount++;
+
+  // Initialize the current line with the first word
+  currentLine = words[0];
+
+  for (int i = 1; i < wordCount; i++) {
+    String word = words[i];
+    if (currentLine.length() + word.length() + 1 <= maxLineLength) {
+      currentLine += ' ' + word;  // Add a space between words
+    } else {
+      // Display the current line on the LCD
+      lcd.setCursor(0, lineCount);
+      lcd.print(currentLine);
+
+      // Move to the next line
+      lineCount++;
+      currentLine = word;
+
+      // If we have reached the maximum number of lines, exit
+      if (lineCount >= maxLines) {
+        break;
+      }
+    }
+  }
+
+  // Display any remaining content
+  lcd.setCursor(0, lineCount);
+  lcd.print(currentLine);
 }
