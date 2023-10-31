@@ -6,51 +6,57 @@
 // Replace with your network credentials
 const char* ssid = "XXX";
 const char* password = "YYY";
-const String droid = "ZZZ";
 
 // Replace with the server's address and the endpoint you want to access
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
-const String endpoint = "/droid/"+droid+"/intents";
+const String endpoint = "/droid/ZZZ/intents";
+
+String payload;
 
 void setup() {
   Serial.begin(115200);
-  
-  // Connect to Wi-Fi
-  WiFi.begin(ssid, password);
-  
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Connecting to WiFi...");
-  }
-  Serial.println("Connected to WiFi");
+  setupWifi();
 }
 
 void loop() {
+  Serial.println(".....START.....");
+  fetchPayload();
+  printPayload();
+  Serial.println("......END......");
+  delay(10000);
+}
 
-    Serial.println("Fetching from web");
-
+void fetchPayload() {
   // Create a WiFiClientSecure object for HTTPS
   BearSSL::WiFiClientSecure client;
   client.setInsecure();  // Ignore SSL certificate validation (use for testing only)
 
   // Make a GET request
   HTTPClient http;
-  
+
   // Set the WiFiClientSecure object for the HTTPClient
   http.begin(client, serverAddress + endpoint);
 
   int httpResponseCode = http.GET();
-  
+
   if (httpResponseCode > 0) {
     Serial.print("HTTP Response Code: ");
     Serial.println(httpResponseCode);
 
-    String payload = http.getString();
-    //Serial.println("Response payload:");
-    //Serial.println(payload);
+    payload = http.getString();
+    Serial.println("Response payload:");
+    Serial.println(payload);
 
+  } else {
+    Serial.print("Error on HTTPS request: ");
+    Serial.println(httpResponseCode);
+  }
 
-  DynamicJsonDocument doc(1024); // Adjust the size based on your JSON data size
+  http.end();
+}
+
+void printPayload() {
+  DynamicJsonDocument doc(1024);  // Adjust the size based on your JSON data size
 
   // Deserialize the JSON data
   DeserializationError error = deserializeJson(doc, payload);
@@ -68,20 +74,20 @@ void loop() {
       Serial.print(key);
       Serial.print(": ");
       Serial.println(deviceReading);
-      //Serial.print("Reading Time: ");
-      //Serial.println(readingTime);
-      //Serial.println();
+      Serial.print("Reading Time: ");
+      Serial.println(readingTime);
+      Serial.println();
     }
   }
+}
 
+void setupWifi() {
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
 
-  } else {
-    Serial.print("Error on HTTPS request: ");
-    Serial.println(httpResponseCode);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
   }
-
-  http.end();
-
-  // Wait for 10 seconds before making the next request
-  delay(10000);
+  Serial.println("Connected to WiFi");
 }
