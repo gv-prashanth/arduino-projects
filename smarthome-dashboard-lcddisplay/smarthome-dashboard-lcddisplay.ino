@@ -5,15 +5,16 @@
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
 
-// Replace with your network credentials
+// Configurations
 const char* ssid = "XXX";
 const char* password = "YYY";
-const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
-const String endpoint = "/droid/ZZZ/intents";
+const String droid = "ZZZ";
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 60000;  //ms
 const unsigned long SCREEN_CYCLE_FREQUENCY = 3000;       //ms
 
 // Dont touch below
+const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
+String endpoint = "/droid/"+droid+"/intents";
 LiquidCrystal_I2C lcd(0x27, 20, 4);  // Set the LCD I2C address
 String payload;
 int indexToDisplay = 0;
@@ -120,6 +121,12 @@ void parsePayload() {
 }
 
 void printPayload() {
+  lcd.clear();
+  //Print header
+  String customHeader = droid + String(" HOME");
+  lcd.setCursor((int)((20-customHeader.length())/2), 0);
+  lcd.print(customHeader);
+
   SensorData entry = globalDataEntries[indexToDisplay];
   Serial.print("Key: ");
   Serial.println(entry.key);
@@ -128,22 +135,16 @@ void printPayload() {
   Serial.print("Reading Time: ");
   Serial.println(entry.readingTime);
   String message = String(entry.key) + String(" is ") + String(entry.deviceReading);
-  message = String("********GTS******** ") + message;
   // Ensure the message doesn't exceed the 4-line limit
-  if (message.length() > 80) {
-    message = message.substring(0, 80);
+  if (message.length() > 40) {
+    message = message.substring(0, 40);
   }
   // Display the message on the LCD with a maximum line length of 20 characters and a maximum of 4 lines
-  displayStringOnLCD(message, 20, 4);
+  displayStringOnLCD(message, 20, 2, 3);
 }
 
-void displayStringOnLCD(String str, int maxLineLength, int maxLines) {
-
-  lcd.clear();
-  int lineCount = 0;
+void displayStringOnLCD(String str, int maxLineLength, int startLine, int endLine) {
   String currentLine = "";
-
-  // Split the input string into words
   String words[50];  // Assuming a maximum of 50 words
   int wordCount = 0;
 
@@ -165,25 +166,29 @@ void displayStringOnLCD(String str, int maxLineLength, int maxLines) {
 
   for (int i = 1; i < wordCount; i++) {
     String word = words[i];
-    if (currentLine.length() + word.length() + 1 <= maxLineLength) {
-      currentLine += ' ' + word;  // Add a space between words
+    if (currentLine.isEmpty() || currentLine.length() + word.length() + 1 <= maxLineLength) {
+      if (!currentLine.isEmpty()) {
+        currentLine += ' ';  // Add a space between words
+      }
+      currentLine += word;
     } else {
-      // Display the current line on the LCD
-      lcd.setCursor(0, lineCount);
-      lcd.print(currentLine);
-
-      // Move to the next line
-      lineCount++;
-      currentLine = word;
-
-      // If we have reached the maximum number of lines, exit
-      if (lineCount >= maxLines) {
+      if (startLine < endLine) {
+        // Display the current line on the LCD
+        lcd.setCursor(0, startLine);
+        lcd.print(currentLine);
+        startLine++;
+        currentLine = word;
+      } else {
+        // Maximum lines reached; exit the loop
         break;
       }
     }
   }
 
   // Display any remaining content
-  lcd.setCursor(0, lineCount);
-  lcd.print(currentLine);
+  if (startLine <= endLine) {
+    lcd.setCursor(0, startLine);
+    lcd.print(currentLine);
+  }
+
 }
