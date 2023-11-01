@@ -10,12 +10,15 @@ const char* ssid = "XXX";
 const char* password = "YYY";
 const String droid = "ZZZ";
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 60000;  //ms
-const unsigned long SCREEN_CYCLE_FREQUENCY = 3000;       //ms
+const unsigned long SCREEN_CYCLE_FREQUENCY = 5000;       //ms
+const int SCREEN_WIDTH = 20;                             //characters
+const int SCREEN_HEIGHT = 4;                             //rows
+const int PAYLOAD_START_ROW = 2;                         //index. Starts from 0.
 
 // Dont touch below
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
-String endpoint = "/droid/"+droid+"/intents";
-LiquidCrystal_I2C lcd(0x27, 20, 4);  // Set the LCD I2C address
+const String endpoint = "/droid/" + droid + "/intents";
+LiquidCrystal_I2C lcd(0x27, SCREEN_WIDTH, SCREEN_HEIGHT);  // Set the LCD I2C address
 String payload;
 int indexToDisplay = 0;
 unsigned long lastFetchTime, lastScreenChangeTime;
@@ -49,7 +52,7 @@ void loop() {
     if (indexToDisplay >= globalDataEntries.size()) {
       indexToDisplay = 0;
     }
-    printPayload();
+    displayMessage(String(globalDataEntries[indexToDisplay].key) + String(" is ") + String(globalDataEntries[indexToDisplay].deviceReading));
     firstTime = false;
     lastScreenChangeTime = currentTime;
   }
@@ -68,6 +71,7 @@ void setupWifi() {
 void setupLCD() {
   lcd.init();       // Initialize the LCD
   lcd.backlight();  // Turn on the backlight
+  displayMessage("Please Wait...");
 }
 
 void fetchPayload() {
@@ -120,30 +124,22 @@ void parsePayload() {
   }
 }
 
-void printPayload() {
+void displayMessage(String str) {
   lcd.clear();
+
   //Print header
   String customHeader = droid + String(" HOME");
-  lcd.setCursor((int)((20-customHeader.length())/2), 0);
+  lcd.setCursor((int)((SCREEN_WIDTH - customHeader.length()) / 2), 0);
   lcd.print(customHeader);
 
-  SensorData entry = globalDataEntries[indexToDisplay];
-  Serial.print("Key: ");
-  Serial.println(entry.key);
-  Serial.print("Device Reading: ");
-  Serial.println(entry.deviceReading);
-  Serial.print("Reading Time: ");
-  Serial.println(entry.readingTime);
-  String message = String(entry.key) + String(" is ") + String(entry.deviceReading);
-  // Ensure the message doesn't exceed the 4-line limit
-  if (message.length() > 40) {
-    message = message.substring(0, 40);
-  }
-  // Display the message on the LCD with a maximum line length of 20 characters and a maximum of 4 lines
-  displayStringOnLCD(message, 20, 2, 3);
-}
+  //Print str
+  Serial.println(str);
+  if (str.length() > (SCREEN_HEIGHT - PAYLOAD_START_ROW) * SCREEN_WIDTH)
+    str = str.substring(0, (SCREEN_HEIGHT - PAYLOAD_START_ROW) * SCREEN_WIDTH);  // Ensure the str doesn't exceed the line limit
 
-void displayStringOnLCD(String str, int maxLineLength, int startLine, int endLine) {
+  int maxLineLength = SCREEN_WIDTH;
+  int startLine = PAYLOAD_START_ROW;
+  int endLine = SCREEN_HEIGHT - 1;
   String currentLine = "";
   String words[50];  // Assuming a maximum of 50 words
   int wordCount = 0;
@@ -190,5 +186,4 @@ void displayStringOnLCD(String str, int maxLineLength, int startLine, int endLin
     lcd.setCursor(0, startLine);
     lcd.print(currentLine);
   }
-
 }
