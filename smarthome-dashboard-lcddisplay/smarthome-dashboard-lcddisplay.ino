@@ -14,7 +14,7 @@ const unsigned long SCREEN_CYCLE_FREQUENCY = 5000;       //ms
 const int SCREEN_WIDTH = 20;                             //characters
 const int SCREEN_HEIGHT = 4;                             //rows
 const int PAYLOAD_START_ROW = 2;                         //index. Starts from 0.
-const int PIR_PIN = 14;                                   // PIR sensor input pin
+const int PIR_PIN = 14;                                  // PIR sensor input pin
 const unsigned long PIR_TURN_OFF_TIME = 60000;           //ms
 
 // Dont touch below
@@ -31,21 +31,23 @@ struct SensorData {
   String readingTime;
 };
 std::vector<SensorData> globalDataEntries;  // Global vector to store the data
-boolean firstTime, motionDetectedRecently;
+boolean motionDetectedRecently;
 
 void setup() {
   Serial.begin(115200);
   pinMode(PIR_PIN, INPUT);  //Setup the PIR
   setupLCD();
   setupWifi();
-  firstTime = true;
   motionDetectedRecently = true;
+  //Lets fetch and parse once to be ready to display immediatly.
+  fetchPayload(); 
+  parsePayload();
 }
 
 void loop() {
   unsigned long currentTime = millis();
 
-  if (digitalRead(PIR_PIN) == LOW) {
+  if (digitalRead(PIR_PIN) == HIGH) {
     motionTimestamp = currentTime;
     motionDetectedRecently = true;
   } else {
@@ -58,20 +60,17 @@ void loop() {
   }
 
   if (motionDetectedRecently) {
-    if (firstTime || (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY)) {
-      Serial.println(".....START.....");
+    if (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY) {
       fetchPayload();
       parsePayload();
       lastFetchTime = currentTime;
-      Serial.println("......END......");
     }
-    if (firstTime || (currentTime - lastScreenChangeTime > SCREEN_CYCLE_FREQUENCY)) {
+    if (payload != "" && (currentTime - lastScreenChangeTime > SCREEN_CYCLE_FREQUENCY)) {
       indexToDisplay++;
       if (indexToDisplay >= globalDataEntries.size()) {
         indexToDisplay = 0;
       }
       displayMessage(String(globalDataEntries[indexToDisplay].key) + String(" is ") + String(globalDataEntries[indexToDisplay].deviceReading));
-      firstTime = false;
       lastScreenChangeTime = currentTime;
     }
   } else {
@@ -92,7 +91,7 @@ void setupWifi() {
 }
 
 void setupLCD() {
-  lcd.init();       // Initialize the LCD
+  lcd.init();  // Initialize the LCD
   displayMessage("Please Wait...");
 }
 
@@ -150,7 +149,7 @@ void displayMessage(String str) {
 
   lcd.clear();
   lcd.backlight();  // Turn on the backlight
-  
+
   //Print header
   String customHeader = droid + String(" HOME");
   lcd.setCursor((int)((SCREEN_WIDTH - customHeader.length()) / 2), 0);
