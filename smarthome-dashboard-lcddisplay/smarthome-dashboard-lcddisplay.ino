@@ -14,6 +14,8 @@ const unsigned long SCREEN_CYCLE_FREQUENCY = 5000;       //ms
 const int SCREEN_WIDTH = 20;                             //characters
 const int SCREEN_HEIGHT = 4;                             //rows
 const int PAYLOAD_START_ROW = 2;                         //index. Starts from 0.
+const int PIR_PIN = 14;                                   // PIR sensor input pin
+const unsigned long PIR_TURN_OFF_TIME = 60000;           //ms
 
 // Dont touch below
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
@@ -21,7 +23,7 @@ const String endpoint = "/droid/" + droid + "/intents";
 LiquidCrystal_I2C lcd(0x27, SCREEN_WIDTH, SCREEN_HEIGHT);  // Set the LCD I2C address
 String payload;
 int indexToDisplay = 0;
-unsigned long lastFetchTime, lastScreenChangeTime;
+unsigned long lastFetchTime, lastScreenChangeTime, motionTimestamp;
 struct SensorData {
   int jsonIndex;
   String key;
@@ -29,32 +31,53 @@ struct SensorData {
   String readingTime;
 };
 std::vector<SensorData> globalDataEntries;  // Global vector to store the data
-boolean firstTime;
+boolean firstTime, motionDetectedRecently;
 
 void setup() {
   Serial.begin(115200);
+  pinMode(PIR_PIN, INPUT);  //Setup the PIR
   setupLCD();
   setupWifi();
   firstTime = true;
+  motionDetectedRecently = true;
 }
 
 void loop() {
   unsigned long currentTime = millis();
-  if (firstTime || (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY)) {
-    Serial.println(".....START.....");
-    fetchPayload();
-    parsePayload();
-    lastFetchTime = currentTime;
-    Serial.println("......END......");
-  }
-  if (firstTime || (currentTime - lastScreenChangeTime > SCREEN_CYCLE_FREQUENCY)) {
-    indexToDisplay++;
-    if (indexToDisplay >= globalDataEntries.size()) {
-      indexToDisplay = 0;
+
+  if (digitalRead(PIR_PIN) == LOW) {
+    motionTimestamp = currentTime;
+    motionDetectedRecently = true;
+  } else {
+    if (motionDetectedRecently) {
+      if (currentTime - motionTimestamp > PIR_TURN_OFF_TIME) {
+        Serial.println("Motion ended.");
+        motionDetectedRecently = false;
+      }
     }
-    displayMessage(String(globalDataEntries[indexToDisplay].key) + String(" is ") + String(globalDataEntries[indexToDisplay].deviceReading));
-    firstTime = false;
-    lastScreenChangeTime = currentTime;
+  }
+
+  if (motionDetectedRecently) {
+    if (firstTime || (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY)) {
+      Serial.println(".....START.....");
+      fetchPayload();
+      parsePayload();
+      lastFetchTime = currentTime;
+      Serial.println("......END......");
+    }
+    if (firstTime || (currentTime - lastScreenChangeTime > SCREEN_CYCLE_FREQUENCY)) {
+      indexToDisplay++;
+      if (indexToDisplay >= globalDataEntries.size()) {
+        indexToDisplay = 0;
+      }
+      displayMessage(String(globalDataEntries[indexToDisplay].key) + String(" is ") + String(globalDataEntries[indexToDisplay].deviceReading));
+      firstTime = false;
+      lastScreenChangeTime = currentTime;
+    }
+  } else {
+    //switch off everything by Clearing the display and turn off the backlight
+    lcd.clear();
+    lcd.noBacklight();
   }
 }
 
@@ -70,7 +93,6 @@ void setupWifi() {
 
 void setupLCD() {
   lcd.init();       // Initialize the LCD
-  lcd.backlight();  // Turn on the backlight
   displayMessage("Please Wait...");
 }
 
@@ -125,8 +147,10 @@ void parsePayload() {
 }
 
 void displayMessage(String str) {
-  lcd.clear();
 
+  lcd.clear();
+  lcd.backlight();  // Turn on the backlight
+  
   //Print header
   String customHeader = droid + String(" HOME");
   lcd.setCursor((int)((SCREEN_WIDTH - customHeader.length()) / 2), 0);
