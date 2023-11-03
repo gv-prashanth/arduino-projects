@@ -125,7 +125,7 @@ void fetchPayload() {
 }
 
 void parsePayload() {
-  DynamicJsonDocument doc(1024);  // Adjust the size based on your JSON data size
+  DynamicJsonDocument doc(2048);  // Adjust the size based on your JSON data size
 
   // Deserialize the JSON data
   DeserializationError error = deserializeJson(doc, payload);
