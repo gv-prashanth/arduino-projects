@@ -15,7 +15,7 @@ const int SCREEN_WIDTH = 20;                             //characters
 const int SCREEN_HEIGHT = 4;                             //rows
 const int PAYLOAD_START_ROW = 2;                         //index. Starts from 0.
 const int PIR_PIN = 14;                                  // PIR sensor input pin
-const unsigned long PIR_TURN_OFF_TIME = 60000;           //ms
+const unsigned long PIR_TURN_OFF_TIME = 30000;           //ms
 
 // Dont touch below
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
@@ -125,7 +125,7 @@ void fetchPayload() {
 }
 
 void parsePayload() {
-  DynamicJsonDocument doc(2048);  // Adjust the size based on your JSON data size
+  DynamicJsonDocument doc(3072);  // Adjust the size based on your JSON data size
 
   // Deserialize the JSON data
   DeserializationError error = deserializeJson(doc, payload);
