@@ -18,7 +18,7 @@ const int SCREEN_WIDTH = 20;                             //characters
 const int SCREEN_HEIGHT = 4;                             //rows
 const int PAYLOAD_START_ROW = 2;                         //index. Starts from 0.
 const int PIR_PIN = 14;                                  // PIR sensor input pin
-const unsigned long PIR_TURN_OFF_TIME = 30000;           //ms
+const unsigned long PIR_TURN_OFF_TIME = 7000;            //ms
 float PRECISSION_TEMP = 1.0;                             //degrees
 float PRECISSION_HUMID = 2.0;                            //percentage
 #define SEALEVELPRESSURE_HPA (1013.25)
@@ -169,6 +169,12 @@ void parsePayload() {
 
 void displayMessage(String str) {
 
+  str = replaceString(str, " is at ", ": ");
+  str = replaceString(str, " is ", ": ");
+  str = convertToUppercaseBeforeColon(str);
+  str = replaceMultipleSpaces(str);
+  str = modifyStringToCapitalAfterColon(str);
+
   lcd.clear();
   lcd.backlight();  // Turn on the backlight
 
@@ -177,10 +183,10 @@ void displayMessage(String str) {
   lcd.setCursor((int)((SCREEN_WIDTH - customHeader.length()) / 2), 0);
   lcd.print(customHeader);
 
-  //Print str
+  // Ensure the str doesn't exceed the line limit
   Serial.println(str);
   if (str.length() > (SCREEN_HEIGHT - PAYLOAD_START_ROW) * SCREEN_WIDTH)
-    str = str.substring(0, (SCREEN_HEIGHT - PAYLOAD_START_ROW) * SCREEN_WIDTH);  // Ensure the str doesn't exceed the line limit
+    str = str.substring(0, (SCREEN_HEIGHT - PAYLOAD_START_ROW) * SCREEN_WIDTH);
 
   int maxLineLength = SCREEN_WIDTH;
   int startLine = PAYLOAD_START_ROW;
@@ -262,9 +268,8 @@ void checkAndsendToAlexaBMEReadings() {
     Serial.print("Approx. Altitude = ");
     Serial.print(bme_readAltitude);
     Serial.println(" m");
-
-    //sendSensorValueToAlexa("Indoor", String(bme.readTemperature())+"%20degree%20celsius%2C%20humidity%20is%20"+String(bme.readHumidity())+"%25%2C%20pressure%20is%20"+String(bme.readPressure() / 100.0F)+"%20hectopascal%2C%20altitude%20is%20"+String(bme.readAltitude(SEALEVELPRESSURE_HPA))+"%20meters");
-    sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20at%20" + String((int)bme_readHumidity) + "%25%20humidity");
+    if(bme_readTemperature !=0)
+      sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20at%20" + String((int)bme_readHumidity) + "%25%20humidity");
     BMEChangeDetected = false;
   }
 }
@@ -285,4 +290,63 @@ void sendSensorValueToAlexa(String name, String reading) {
   } else {
     Serial.printf("[HTTPS] Unable to connect\n");
   }
+}
+
+String replaceString(String input, const String& search, const String& replace) {
+  int index = 0;
+  while ((index = input.indexOf(search, index)) != -1) {
+    input = input.substring(0, index) + replace + input.substring(index + search.length());
+    index += replace.length();
+  }
+  return input;
+}
+
+String convertToUppercaseBeforeColon(String input) {
+  int colonIndex = input.indexOf(':');  // Find the position of the first colon
+
+  if (colonIndex != -1) {
+    // Extract the part before the colon
+    String partBeforeColon = input.substring(0, colonIndex);
+
+    // Convert the extracted part to uppercase
+    partBeforeColon.toUpperCase();
+
+    // Construct the final output string
+    String output = partBeforeColon + input.substring(colonIndex);
+
+    return output;
+  } else {
+    // If no colon is found, return the input string as it is
+    return input;
+  }
+}
+
+String replaceMultipleSpaces(String input) {
+  while (input.indexOf("  ") != -1) {
+    input.replace("  ", " ");
+  }
+  return input;
+}
+
+String modifyStringToCapitalAfterColon(String input) {
+  // Find the position of ": "
+  int colonSpaceIndex = input.indexOf(": ");
+  
+  // Check if ": " was found
+  if (colonSpaceIndex != -1 && colonSpaceIndex < input.length() - 2) {
+    // Get the character after ": "
+    char charToCapitalize = input.charAt(colonSpaceIndex + 2);
+    
+    // Check if the character is an alphabet letter
+    if (isAlpha(charToCapitalize)) {
+      // Convert the character to uppercase
+      charToCapitalize = toupper(charToCapitalize);
+      
+      // Replace the original character with the uppercase one
+      input.setCharAt(colonSpaceIndex + 2, charToCapitalize);
+    }
+  }
+  
+  // Return the modified string
+  return input;
 }
