@@ -4,6 +4,9 @@
 #include <ArduinoJson.h>
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
+#include <SPI.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
 
 // Configurations
 const char* ssid = "XXX";
@@ -16,11 +19,15 @@ const int SCREEN_HEIGHT = 4;                             //rows
 const int PAYLOAD_START_ROW = 2;                         //index. Starts from 0.
 const int PIR_PIN = 14;                                  // PIR sensor input pin
 const unsigned long PIR_TURN_OFF_TIME = 30000;           //ms
+float PRECISSION_TEMP = 1.0;                             //degrees
+float PRECISSION_HUMID = 2.0;                            //percentage
+#define SEALEVELPRESSURE_HPA (1013.25)
 
 // Dont touch below
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
 const String endpoint = "/droid/" + droid + "/intents";
 LiquidCrystal_I2C lcd(0x27, SCREEN_WIDTH, SCREEN_HEIGHT);  // Set the LCD I2C address
+Adafruit_BME280 bme;
 String payload;
 int indexToDisplay = 0;
 unsigned long lastFetchTime, lastScreenChangeTime, motionTimestamp;
@@ -32,20 +39,29 @@ struct SensorData {
 };
 std::vector<SensorData> globalDataEntries;  // Global vector to store the data
 boolean motionDetectedRecently;
+//BME readings
+float bme_readTemperature, bme_readPressure, bme_readHumidity, bme_readAltitude;
+float prev_bme_readTemperature, prev_bme_readHumidity;
+boolean BMEChangeDetected;
 
 void setup() {
   Serial.begin(115200);
   pinMode(PIR_PIN, INPUT);  //Setup the PIR
   setupLCD();
   setupWifi();
+  setupBME();
+  BMEChangeDetected = true;
   motionDetectedRecently = true;
   //Lets fetch and parse once to be ready to display immediatly.
-  fetchPayload(); 
+  fetchPayload();
   parsePayload();
 }
 
 void loop() {
   unsigned long currentTime = millis();
+
+  loadBMEReadings();
+  checkAndsendToAlexaBMEReadings();
 
   if (digitalRead(PIR_PIN) == HIGH) {
     motionTimestamp = currentTime;
@@ -93,6 +109,12 @@ void setupWifi() {
 void setupLCD() {
   lcd.init();  // Initialize the LCD
   displayMessage("Please Wait...");
+}
+
+void setupBME() {
+  Serial.println(F("BME680 Initializing..."));
+  Wire.begin();  // SDA, SCL
+  bme.begin(0x76);
 }
 
 void fetchPayload() {
@@ -208,5 +230,59 @@ void displayMessage(String str) {
   if (startLine <= endLine) {
     lcd.setCursor(0, startLine);
     lcd.print(currentLine);
+  }
+}
+
+void loadBMEReadings() {
+  bme_readTemperature = bme.readTemperature();
+  bme_readPressure = bme.readPressure() / 100.0F;
+  bme_readHumidity = bme.readHumidity();
+  bme_readAltitude = bme.readAltitude(SEALEVELPRESSURE_HPA);
+  if ((abs(bme_readTemperature - prev_bme_readTemperature) > PRECISSION_TEMP) || (abs(bme_readHumidity - prev_bme_readHumidity) > PRECISSION_HUMID)) {
+    BMEChangeDetected = true;
+    prev_bme_readTemperature = bme_readTemperature;
+    prev_bme_readHumidity = bme_readHumidity;
+  }
+}
+
+void checkAndsendToAlexaBMEReadings() {
+  if (BMEChangeDetected) {
+    Serial.print("Temperature = ");
+    Serial.print(bme_readTemperature);
+    Serial.println(" *C");
+
+    Serial.print("Pressure = ");
+    Serial.print(bme_readPressure);
+    Serial.println(" hPa");
+
+    Serial.print("Humidity = ");
+    Serial.print(bme_readHumidity);
+    Serial.println(" %");
+
+    Serial.print("Approx. Altitude = ");
+    Serial.print(bme_readAltitude);
+    Serial.println(" m");
+
+    //sendSensorValueToAlexa("Weather", String(bme.readTemperature())+"%20degree%20celsius%2C%20humidity%20is%20"+String(bme.readHumidity())+"%25%2C%20pressure%20is%20"+String(bme.readPressure() / 100.0F)+"%20hectopascal%2C%20altitude%20is%20"+String(bme.readAltitude(SEALEVELPRESSURE_HPA))+"%20meters");
+    sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20at%20" + String((int)bme_readHumidity) + "%25%20humidity");
+    BMEChangeDetected = false;
+  }
+}
+
+void sendSensorValueToAlexa(String name, String reading) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient https;
+  String fullUrl = serverAddress + "/droid/" + droid + "/upsert/intent/" + name + "/reading/" + reading;
+  Serial.println("Requesting " + fullUrl);
+  if (https.begin(client, fullUrl)) {
+    int httpCode = https.GET();
+    Serial.println("============== Response code: " + String(httpCode));
+    if (httpCode > 0) {
+      Serial.println(https.getString());
+    }
+    https.end();
+  } else {
+    Serial.printf("[HTTPS] Unable to connect\n");
   }
 }
