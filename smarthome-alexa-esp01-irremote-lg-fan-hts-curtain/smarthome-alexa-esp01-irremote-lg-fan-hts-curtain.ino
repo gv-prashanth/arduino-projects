@@ -166,7 +166,7 @@ void triggerDeviceTwoOn() {
 
 void triggerDeviceTwoOff() {
   Fan_Power_Down();
-  sendSensorValueToAlexa("Fan", "%20off%2E");
+  sendSensorValueToAlexa("Fan", "%20off");
 }
 
 void triggerDeviceThreeOn() {
