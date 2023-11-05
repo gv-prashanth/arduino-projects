@@ -2,32 +2,26 @@
 #include <ESP8266HTTPClient.h>
 #include <BearSSLHelpers.h>
 #include <ArduinoJson.h>
-#include <LiquidCrystal_I2C.h>
 #include <Wire.h>
 #include <SPI.h>
-#include <Adafruit_Sensor.h>
-#include <Adafruit_BME280.h>
 
 // Configurations
-const char* ssid = "XXX";
-const char* password = "YYY";
-const String droid = "ZZZ";
-const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 60000;  //ms
-const unsigned long SCREEN_CYCLE_FREQUENCY = 5000;       //ms
-const int SCREEN_WIDTH = 20;                             //characters
-const int SCREEN_HEIGHT = 4;                             //rows
-const int PAYLOAD_START_ROW = 2;                         //index. Starts from 0.
-const int PIR_PIN = 14;                                  // PIR sensor input pin
-const unsigned long PIR_TURN_OFF_TIME = 7000;            //ms
-float PRECISSION_TEMP = 1.0;                             //degrees
-float PRECISSION_HUMID = 2.0;                            //percentage
+#define DISPLAY_TYPE MATRIX_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY
+#define BME_TYPE BME680              // LCD_DISPLAY, MATRIX_DISPLAY
+const char* ssid = "GTS";
+const char* password = "0607252609";
+const String droid = "C3PO";
+const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix
+const unsigned long SCREEN_CYCLE_FREQUENCY = 15000;       //ms, 5000 for LCD, 15000 for Matrix
+const int PIR_PIN = 2;                                    // PIR sensor input pin, 14 for LCD, 2 for Matrix
+const unsigned long PIR_TURN_OFF_TIME = 60000;            //ms
+float PRECISSION_TEMP = 1.0;                              //degrees
+float PRECISSION_HUMID = 2.0;                             //percentage
 #define SEALEVELPRESSURE_HPA (1013.25)
 
 // Dont touch below
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
 const String endpoint = "/droid/" + droid + "/intents";
-LiquidCrystal_I2C lcd(0x27, SCREEN_WIDTH, SCREEN_HEIGHT);  // Set the LCD I2C address
-Adafruit_BME280 bme;
 String payload;
 int indexToDisplay = 0;
 unsigned long lastFetchTime, lastScreenChangeTime, motionTimestamp;
@@ -40,14 +34,42 @@ struct SensorData {
 std::vector<SensorData> globalDataEntries;  // Global vector to store the data
 boolean motionDetectedRecently;
 //BME readings
-float bme_readTemperature, bme_readPressure, bme_readHumidity, bme_readAltitude;
+float bme_readTemperature, bme_readPressure, bme_readHumidity, bme_readAltitude, bme_aqi, bme_aqiAccuracy;
 float prev_bme_readTemperature, prev_bme_readHumidity;
 boolean BMEChangeDetected;
+
+#define LCD_DISPLAY 1
+#define MATRIX_DISPLAY 2
+#ifdef DISPLAY_TYPE
+#if DISPLAY_TYPE == LCD_DISPLAY
+#include "lcddisplay.h"               // Include and use the LCD display library
+#elif DISPLAY_TYPE == MATRIX_DISPLAY  // Include and use the matrix display library
+#include "matrixdisplay.h"
+#else
+#error "Invalid library selection."
+#endif
+#else
+#error "Library selection not defined."
+#endif
+
+#define BME280 1
+#define BME680 2
+#ifdef BME_TYPE
+#if BME_TYPE == BME280
+#include "bme280.h"       // Include and use the bme280 library
+#elif BME_TYPE == BME680  // Include and use the BME680 library
+#include "bme680.h"
+#else
+#error "Invalid library selection."
+#endif
+#else
+#error "Library selection not defined."
+#endif
 
 void setup() {
   Serial.begin(115200);
   pinMode(PIR_PIN, INPUT);  //Setup the PIR
-  setupLCD();
+  setupDisplay();
   setupWifi();
   setupBME();
   BMEChangeDetected = true;
@@ -86,14 +108,16 @@ void loop() {
       if (indexToDisplay >= globalDataEntries.size()) {
         indexToDisplay = 0;
       }
-      displayMessage(String(globalDataEntries[indexToDisplay].key) + String(" is ") + String(globalDataEntries[indexToDisplay].deviceReading));
+      String preProcess = preProcessMessage(String(globalDataEntries[indexToDisplay].key) + String(" is ") + String(globalDataEntries[indexToDisplay].deviceReading));
+      setDisplayMessage(preProcess);
       lastScreenChangeTime = currentTime;
     }
   } else {
     //switch off everything by Clearing the display and turn off the backlight
-    lcd.clear();
-    lcd.noBacklight();
+    turnOffDisplay();
   }
+
+  displayScreen();
 }
 
 void setupWifi() {
@@ -104,17 +128,6 @@ void setupWifi() {
     Serial.println("Connecting to WiFi...");
   }
   Serial.println("Connected to WiFi");
-}
-
-void setupLCD() {
-  lcd.init();  // Initialize the LCD
-  displayMessage("Please Wait...");
-}
-
-void setupBME() {
-  Serial.println(F("BME680 Initializing..."));
-  Wire.begin();  // SDA, SCL
-  bme.begin(0x76);
 }
 
 void fetchPayload() {
@@ -167,88 +180,14 @@ void parsePayload() {
   }
 }
 
-void displayMessage(String str) {
-
+String preProcessMessage(String str) {
   str = replaceString(str, " is at ", ": ");
   str = replaceString(str, " is ", ": ");
   str = convertToUppercaseBeforeColon(str);
   str = replaceMultipleSpaces(str);
   str = modifyStringToCapitalAfterColon(str);
-
-  lcd.clear();
-  lcd.backlight();  // Turn on the backlight
-
-  //Print header
-  String customHeader = droid + String(" HOME");
-  lcd.setCursor((int)((SCREEN_WIDTH - customHeader.length()) / 2), 0);
-  lcd.print(customHeader);
-
-  // Ensure the str doesn't exceed the line limit
-  Serial.println(str);
-  if (str.length() > (SCREEN_HEIGHT - PAYLOAD_START_ROW) * SCREEN_WIDTH)
-    str = str.substring(0, (SCREEN_HEIGHT - PAYLOAD_START_ROW) * SCREEN_WIDTH);
-
-  int maxLineLength = SCREEN_WIDTH;
-  int startLine = PAYLOAD_START_ROW;
-  int endLine = SCREEN_HEIGHT - 1;
-  String currentLine = "";
-  String words[50];  // Assuming a maximum of 50 words
-  int wordCount = 0;
-
-  for (int i = 0; i < str.length(); i++) {
-    char currentChar = str.charAt(i);
-    if (currentChar != ' ') {
-      currentLine += currentChar;
-    } else {
-      words[wordCount] = currentLine;
-      wordCount++;
-      currentLine = "";
-    }
-  }
-  words[wordCount] = currentLine;
-  wordCount++;
-
-  // Initialize the current line with the first word
-  currentLine = words[0];
-
-  for (int i = 1; i < wordCount; i++) {
-    String word = words[i];
-    if (currentLine.isEmpty() || currentLine.length() + word.length() + 1 <= maxLineLength) {
-      if (!currentLine.isEmpty()) {
-        currentLine += ' ';  // Add a space between words
-      }
-      currentLine += word;
-    } else {
-      if (startLine < endLine) {
-        // Display the current line on the LCD
-        lcd.setCursor(0, startLine);
-        lcd.print(currentLine);
-        startLine++;
-        currentLine = word;
-      } else {
-        // Maximum lines reached; exit the loop
-        break;
-      }
-    }
-  }
-
-  // Display any remaining content
-  if (startLine <= endLine) {
-    lcd.setCursor(0, startLine);
-    lcd.print(currentLine);
-  }
-}
-
-void loadBMEReadings() {
-  bme_readTemperature = bme.readTemperature();
-  bme_readPressure = bme.readPressure() / 100.0F;
-  bme_readHumidity = bme.readHumidity();
-  bme_readAltitude = bme.readAltitude(SEALEVELPRESSURE_HPA);
-  if ((abs(bme_readTemperature - prev_bme_readTemperature) > PRECISSION_TEMP) || (abs(bme_readHumidity - prev_bme_readHumidity) > PRECISSION_HUMID)) {
-    BMEChangeDetected = true;
-    prev_bme_readTemperature = bme_readTemperature;
-    prev_bme_readHumidity = bme_readHumidity;
-  }
+  str = removeLastFullStop(str);
+  return str;
 }
 
 void checkAndsendToAlexaBMEReadings() {
@@ -268,7 +207,7 @@ void checkAndsendToAlexaBMEReadings() {
     Serial.print("Approx. Altitude = ");
     Serial.print(bme_readAltitude);
     Serial.println(" m");
-    if(bme_readTemperature !=0)
+    if (bme_readTemperature != 0)
       sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20at%20" + String((int)bme_readHumidity) + "%25%20humidity");
     BMEChangeDetected = false;
   }
@@ -331,22 +270,40 @@ String replaceMultipleSpaces(String input) {
 String modifyStringToCapitalAfterColon(String input) {
   // Find the position of ": "
   int colonSpaceIndex = input.indexOf(": ");
-  
+
   // Check if ": " was found
   if (colonSpaceIndex != -1 && colonSpaceIndex < input.length() - 2) {
     // Get the character after ": "
     char charToCapitalize = input.charAt(colonSpaceIndex + 2);
-    
+
     // Check if the character is an alphabet letter
     if (isAlpha(charToCapitalize)) {
       // Convert the character to uppercase
       charToCapitalize = toupper(charToCapitalize);
-      
+
       // Replace the original character with the uppercase one
       input.setCharAt(colonSpaceIndex + 2, charToCapitalize);
     }
   }
-  
+
   // Return the modified string
   return input;
+}
+
+String removeLastFullStop(String inputString) {
+  int lastPeriodIndex = -1;  // Initialize to -1 to indicate no full stop found
+
+  // Iterate through the characters of the input string
+  for (int i = 0; i < inputString.length(); i++) {
+    if (inputString.charAt(i) == '.') {
+      lastPeriodIndex = i;
+    }
+  }
+
+  // If a full stop was found, remove it
+  if (lastPeriodIndex != -1) {
+    inputString.remove(lastPeriodIndex, 1);
+  }
+
+  return inputString;
 }
