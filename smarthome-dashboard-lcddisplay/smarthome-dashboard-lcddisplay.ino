@@ -207,8 +207,14 @@ void checkAndsendToAlexaBMEReadings() {
     Serial.print("Approx. Altitude = ");
     Serial.print(bme_readAltitude);
     Serial.println(" m");
-    if (bme_readTemperature != 0)
-      sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20at%20" + String((int)bme_readHumidity) + "%25%20humidity");
+    if (bme_readTemperature != 0 && BME_TYPE == 1)
+      sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25%20humidity");
+    if (bme_readTemperature != 0 && BME_TYPE == 2) {
+      if (bme_aqiAccuracy > 0)
+        sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20AQI");
+      else
+        sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20aqi");
+    }
     BMEChangeDetected = false;
   }
 }
