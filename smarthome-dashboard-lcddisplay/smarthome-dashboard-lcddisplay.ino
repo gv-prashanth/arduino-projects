@@ -14,7 +14,7 @@ const String droid = "C3PO";
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15000;       //ms, 5000 for LCD, 15000 for Matrix
 const int PIR_PIN = 2;                                    // PIR sensor input pin, 14 for LCD, 2 for Matrix
-const unsigned long PIR_TURN_OFF_TIME = 60000;            //ms
+const unsigned long PIR_TURN_OFF_TIME = 10000;            //ms
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
 #define SEALEVELPRESSURE_HPA (1013.25)

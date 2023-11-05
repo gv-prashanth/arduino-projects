@@ -40,6 +40,7 @@ String replaceForMatrix(String input, const String& search, const String& replac
 }
 
 void setDisplayMessage(String str) {
+  P.setIntensity(8);
   boolean isClock = false;
   if (str.indexOf("CLOCK: ", 0) != -1) {
     isClock = true;
