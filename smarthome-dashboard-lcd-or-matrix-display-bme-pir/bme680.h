@@ -153,25 +153,6 @@ void updateState(void) {
   }
 }
 
-float calculateAltitude(float pressure) {
-  // Calculate altitude based on the barometric formula:
-  // h = (T0 / L) * (1 - (P / P0) ^ (R * L / g))
-
-  // Constants for the barometric formula
-  const float T0 = 288.15;            // Standard temperature at sea level in Kelvin
-  const float L = 0.0065;             // Temperature lapse rate in Kelvin per meter
-  const float R = 8.31432;            // Universal gas constant in J/(mol*K)
-  const float g = 9.80665;            // Acceleration due to gravity in m/s^2
-  const float P0 = SEALEVELPRESSURE_HPA;  // Standard pressure at sea level in hPa
-
-  float term1 = T0 / L;
-  float term2 = (pressure / P0);
-  float term3 = (R * L) / g;
-  float altitude = term1 * (1 - pow(term2, term3));
-
-  return altitude;
-}
-
 void setupBME() {
   Serial.println(F("BME680 Initializing..."));
   Wire.begin();  // SDA, SCL
@@ -194,7 +175,7 @@ void loadBMEReadings() {
     bme_readTemperature = iaqSensor.temperature;
     bme_readPressure = iaqSensor.pressure;
     bme_readHumidity = iaqSensor.humidity;
-    bme_readAltitude = calculateAltitude(bme_readPressure);
+    bme_readAltitude = 0; //Hard coded it since its not important for us. Later on try to find the right method to get this value from 680
     bme_aqi = iaqSensor.iaq;
     bme_aqiAccuracy = iaqSensor.iaqAccuracy;
 

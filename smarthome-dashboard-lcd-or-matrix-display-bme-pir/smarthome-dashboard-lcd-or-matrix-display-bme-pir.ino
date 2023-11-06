@@ -14,7 +14,7 @@ const String droid = "C3PO";
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15000;       //ms, 5000 for LCD, 15000 for Matrix
 const int PIR_PIN = 2;                                    // PIR sensor input pin, 14 for LCD, 2 for Matrix
-const unsigned long PIR_TURN_OFF_TIME = 10000;            //ms
+const unsigned long PIR_TURN_OFF_TIME = 60000;            //ms
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
 #define SEALEVELPRESSURE_HPA (1013.25)
@@ -37,6 +37,8 @@ boolean motionDetectedRecently;
 float bme_readTemperature, bme_readPressure, bme_readHumidity, bme_readAltitude, bme_aqi, bme_aqiAccuracy;
 float prev_bme_readTemperature, prev_bme_readHumidity;
 boolean BMEChangeDetected;
+SensorData getSpecificSensorData(String keyToGet);                                // Helper functions declarations
+String replaceString(String input, const String& search, const String& replace);  // Helper functions declarations
 
 #define LCD_DISPLAY 1
 #define MATRIX_DISPLAY 2
@@ -312,4 +314,19 @@ String removeLastFullStop(String inputString) {
   }
 
   return inputString;
+}
+
+SensorData getSpecificSensorData(String keyToGet) {
+  SensorData result;
+  result.key = keyToGet;  // Key to search for
+
+  for (const SensorData& entry : globalDataEntries) {
+    if (entry.key == result.key) {
+      // Found a matching entry with the key "Clock"
+      result = entry;
+      break;  // Exit the loop once found
+    }
+  }
+
+  return result;
 }

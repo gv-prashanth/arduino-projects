@@ -8,11 +8,19 @@
 #define DATA_PIN 13
 #define CS_PIN 12
 
-MD_Parola P = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
 textEffect_t scrollEffect = PA_SCROLL_LEFT;
 textPosition_t scrollAlign = PA_CENTER;
-int scrollSpeed = 40;    // Adjust the scrolling speed
+int scrollSpeed = 40;           // Adjust the scrolling speed
+int ANIMATION_OVERHEAD = 2000;  //ms
+const boolean SHOW_TIME_FREQUENTLY = true;
+int INTENSITY = 0;
+
+//Dont touch below
+MD_Parola P = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
 String customText = "";  // Your global String variable
+boolean prevMainMessageDisplayComplete;
+unsigned long animationFinishTime;
+
 
 String replaceDegreeSymbol(String inputString) {
   // Find the position of the degree symbol in the input string
@@ -30,23 +38,13 @@ String replaceDegreeSymbol(String inputString) {
   return inputString;
 }
 
-String replaceForMatrix(String input, const String& search, const String& replace) {
-  int index = 0;
-  while ((index = input.indexOf(search, index)) != -1) {
-    input = input.substring(0, index) + replace + input.substring(index + search.length());
-    index += replace.length();
-  }
-  return input;
-}
-
 void setDisplayMessage(String str) {
-  P.setIntensity(8);
   boolean isClock = false;
   if (str.indexOf("CLOCK: ", 0) != -1) {
     isClock = true;
   }
-  str = replaceForMatrix(str, "CLOCK: ", "");
-  str = replaceForMatrix(str, "CALENDAR: ", "");
+  str = replaceString(str, "CLOCK: ", "");
+  //str = replaceString(str, "CALENDAR: ", "");
   str = replaceDegreeSymbol(str);
   if (isClock)
     customText = "    " + str + "   ";
@@ -57,15 +55,30 @@ void setDisplayMessage(String str) {
 }
 
 void turnOffDisplay() {
-  P.setIntensity(0);
+  P.displayClear();
 }
 
 void setupDisplay() {
   P.begin();
   Serial.println("Matrix display is on");
-  //setDisplayMessage("Please Wait...");
+  setDisplayMessage("Please Wait...");
+  while (!P.displayAnimate()) {
+    //wait till its displayed completly.
+  }
+  P.setIntensity(INTENSITY);
 }
 
 void displayScreen() {
-  P.displayAnimate();
+  boolean mainMessageDisplayComplete = P.displayAnimate();
+  if (SHOW_TIME_FREQUENTLY) {
+    unsigned long currentTime = millis();
+    if (mainMessageDisplayComplete && !prevMainMessageDisplayComplete) {
+      animationFinishTime = currentTime;
+    }
+    if (mainMessageDisplayComplete && (currentTime > (animationFinishTime + ANIMATION_OVERHEAD))) {
+      customText = replaceString(getSpecificSensorData("Clock").deviceReading, "at ", "");
+      P.displayText(customText.c_str(), PA_CENTER, 0, 0, PA_PRINT);
+    }
+    prevMainMessageDisplayComplete = mainMessageDisplayComplete;
+  }
 }
