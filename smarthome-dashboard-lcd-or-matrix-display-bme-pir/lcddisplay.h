@@ -7,7 +7,25 @@ String DISPLAY_HEADER = "WELCOME";
 
 LiquidCrystal_I2C lcd(0x27, SCREEN_WIDTH, SCREEN_HEIGHT);  // Set the LCD I2C address
 
+String replaceDegreeSymbol(String inputString) {
+  // Find the position of the degree symbol in the input string
+  int degreeSymbolPos = inputString.indexOf("°");
+
+  // Continue replacing the degree symbol until no more occurrences are found
+  while (degreeSymbolPos != -1) {
+    // Replace the degree symbol with "\xB0"
+    inputString.replace("°", String((char)223));
+    // Find the next occurrence of the degree symbol
+    degreeSymbolPos = inputString.indexOf("°");
+  }
+
+  // Return the modified string
+  return inputString;
+}
+
 void setDisplayMessage(String str) {
+
+  str = replaceDegreeSymbol(str);
 
   Serial.println(str);
 

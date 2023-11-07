@@ -7,13 +7,13 @@
 
 // Configurations
 #define DISPLAY_TYPE MATRIX_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY
-#define BME_TYPE BME680              // LCD_DISPLAY, MATRIX_DISPLAY
+#define BME_TYPE BME680              // BME680, BME280
 const char* ssid = "XXX";
 const char* password = "YYY";
 const String droid = "ZZZ";
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix
-const int PIR_PIN = 2;                                    // PIR sensor input pin, 14 for LCD, 2 for Matrix
+const int PIR_PIN = 14;                                    // PIR sensor input pin 14. NOT ALL PINS WILL WORK.
 const unsigned long PIR_TURN_OFF_TIME = 60000;            //ms
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
@@ -189,6 +189,7 @@ String preProcessMessage(String str) {
   str = replaceMultipleSpaces(str);
   str = modifyStringToCapitalAfterColon(str);
   str = removeLastFullStop(str);
+  str = replaceString(str, " degree celsius", String((char)223)+"C");
   return str;
 }
 
@@ -210,12 +211,12 @@ void checkAndsendToAlexaBMEReadings() {
     Serial.print(bme_readAltitude);
     Serial.println(" m");
     if (bme_readTemperature != 0 && BME_TYPE == 1)
-      sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25%20humidity");
+      sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20" + String((int)bme_readHumidity) + "%25%20humidity"); //sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25%20humidity");
     if (bme_readTemperature != 0 && BME_TYPE == 2) {
       if (bme_aqiAccuracy > 0)
-        sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20AQI");
+        sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20AQI"); //sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20AQI");
       else
-        sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20aqi");
+        sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20aqi"); //sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20aqi");
     }
     BMEChangeDetected = false;
   }
@@ -299,20 +300,15 @@ String modifyStringToCapitalAfterColon(String input) {
 }
 
 String removeLastFullStop(String inputString) {
-  int lastPeriodIndex = -1;  // Initialize to -1 to indicate no full stop found
-
-  // Iterate through the characters of the input string
-  for (int i = 0; i < inputString.length(); i++) {
-    if (inputString.charAt(i) == '.') {
-      lastPeriodIndex = i;
-    }
+  int stringLength = inputString.length();
+  
+  // Check if the string is empty or if the last character is not a period
+  if (stringLength == 0 || inputString.charAt(stringLength - 1) != '.') {
+    return inputString;
   }
-
-  // If a full stop was found, remove it
-  if (lastPeriodIndex != -1) {
-    inputString.remove(lastPeriodIndex, 1);
-  }
-
+  
+  // Remove the last character (period)
+  inputString.remove(stringLength - 1);
   return inputString;
 }
 
