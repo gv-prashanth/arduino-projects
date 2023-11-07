@@ -8,11 +8,11 @@
 // Configurations
 #define DISPLAY_TYPE MATRIX_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY
 #define BME_TYPE BME680              // LCD_DISPLAY, MATRIX_DISPLAY
-const char* ssid = "GTS";
-const char* password = "0607252609";
-const String droid = "C3PO";
+const char* ssid = "XXX";
+const char* password = "YYY";
+const String droid = "ZZZ";
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix
-const unsigned long SCREEN_CYCLE_FREQUENCY = 15000;       //ms, 5000 for LCD, 15000 for Matrix
+const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix
 const int PIR_PIN = 2;                                    // PIR sensor input pin, 14 for LCD, 2 for Matrix
 const unsigned long PIR_TURN_OFF_TIME = 60000;            //ms
 float PRECISSION_TEMP = 1.0;                              //degrees

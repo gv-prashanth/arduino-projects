@@ -3,7 +3,7 @@
 const int SCREEN_WIDTH = 20;      //characters
 const int SCREEN_HEIGHT = 4;      //rows
 const int PAYLOAD_START_ROW = 2;  //index. Starts from 0.
-String DISPLAY_HEADER = "C3PO HOME";
+String DISPLAY_HEADER = "WELCOME";
 
 LiquidCrystal_I2C lcd(0x27, SCREEN_WIDTH, SCREEN_HEIGHT);  // Set the LCD I2C address
 

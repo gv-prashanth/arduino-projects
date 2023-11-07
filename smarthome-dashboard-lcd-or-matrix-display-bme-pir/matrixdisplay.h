@@ -11,9 +11,10 @@
 textEffect_t scrollEffect = PA_SCROLL_LEFT;
 textPosition_t scrollAlign = PA_CENTER;
 int scrollSpeed = 40;           // Adjust the scrolling speed
-int ANIMATION_OVERHEAD = 2000;  //ms
+int ANIMATION_OVERHEAD = 2500;  //ms
 const boolean SHOW_TIME_FREQUENTLY = true;
 int INTENSITY = 0;
+String DISPLAY_HEADER = "\x03 WELCOME \x03";
 
 //Dont touch below
 MD_Parola P = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
@@ -43,11 +44,11 @@ void setDisplayMessage(String str) {
   if (str.indexOf("CLOCK: ", 0) != -1) {
     isClock = true;
   }
-  str = replaceString(str, "CLOCK: ", "");
+  //str = replaceString(str, "CLOCK: ", "");
   //str = replaceString(str, "CALENDAR: ", "");
   str = replaceDegreeSymbol(str);
   if (isClock)
-    customText = "    " + str + "   ";
+    return;  //customText = "    " + str + "   ";
   else
     customText = " " + str + " ";
   Serial.println(customText);
@@ -61,7 +62,7 @@ void turnOffDisplay() {
 void setupDisplay() {
   P.begin();
   Serial.println("Matrix display is on");
-  setDisplayMessage("Please Wait...");
+  P.displayText(DISPLAY_HEADER.c_str(), PA_CENTER, 0, 0, PA_PRINT);
   while (!P.displayAnimate()) {
     //wait till its displayed completly.
   }
