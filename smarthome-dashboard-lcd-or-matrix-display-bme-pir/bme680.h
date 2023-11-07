@@ -175,7 +175,7 @@ void loadBMEReadings() {
     bme_readTemperature = iaqSensor.temperature;
     bme_readPressure = iaqSensor.pressure;
     bme_readHumidity = iaqSensor.humidity;
-    bme_readAltitude = 0; //Hard coded it since its not important for us. Later on try to find the right method to get this value from 680
+    bme_readAltitude = 0;  //Hard coded it since its not important for us. Later on try to find the right method to get this value from 680
     bme_aqi = iaqSensor.iaq;
     bme_aqiAccuracy = iaqSensor.iaqAccuracy;
 
