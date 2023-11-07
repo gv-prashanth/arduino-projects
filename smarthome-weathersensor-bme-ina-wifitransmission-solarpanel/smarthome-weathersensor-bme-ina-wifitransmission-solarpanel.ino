@@ -17,13 +17,13 @@
 #define WIFI_PASS "0607252609"
 
 const String DROID_ID = "C3PO";
-float CUTOFF_VOLTAGE = 10.8;            //volts
+float CUTOFF_VOLTAGE = 11.5;            //volts
 float BATTERY_RATED_VOLTAGE = 12.4;     //volts
 float BATTERY_RATED_CAPACITY = 7000.0;  //mah
 float CUTOFF_CURRENT = 3000;            //milliAmps
 float MIN_LOAD_CURRENT = 50;            //ma
 int OUTPUT_PIN = 1;                     //pin 1
-unsigned long COOLDOWN_TIME = 7200000;  //milliSeconds
+unsigned long COOLDOWN_TIME = 3600000;  //milliSeconds
 float PRECISSION_POWER_A = 3.0;         //w
 float PRECISSION_VOLTAGE_A = 1.0;       //v
 float PRECISSION_POWER_B = 1.0;         //w
@@ -61,7 +61,7 @@ void setup() {
   // Wi-Fi connection
   wifiSetup();
 
-  Serial.println(F("BME680 Initializing..."));
+  Serial.println(F("BME Initializing..."));
   Wire.begin(0, 2);  // SDA, SCL
   bme.begin(0x76);
 
@@ -159,7 +159,7 @@ void loadINAReadings() {
 int calculateBatteryPercentage() {
   int batteryPercentage = ((100.0 - 0.0) / (BATTERY_RATED_VOLTAGE - CUTOFF_VOLTAGE)) * B_loadvoltage + (0.0 - ((100.0 - 0.0) / (BATTERY_RATED_VOLTAGE - CUTOFF_VOLTAGE)) * CUTOFF_VOLTAGE);
   if (batteryPercentage >= 100)
-    batteryPercentage = 99;
+    batteryPercentage = 100;
   return batteryPercentage;
 }
 
@@ -169,27 +169,27 @@ boolean isBatteryDraining() {
 
 String timeForFullDrainInHours() {
   if (B_current_mA == A_current_mA)
-    return String("really%20long");
+    return String("a%20day");
   float availableMAH = (((float)calculateBatteryPercentage()) / 100.0) * BATTERY_RATED_CAPACITY;
   float hoursToDrain = availableMAH / (B_current_mA - A_current_mA);
-  if (hoursToDrain > 23)
-    return String("really%20long");
+  if (hoursToDrain > 23 || hoursToDrain < 0)
+    return String("a%20day");
   if ((int)hoursToDrain == 0)
-    return String("less%20than%20one");
-  return String((int)hoursToDrain);
+    return String("soon");
+  return String((int)hoursToDrain)+"%20hrs";
 }
 
 String timeForFullChargeInHours() {
   if (B_current_mA == A_current_mA)
-    return String("really%20long");
+    return String("a%20day");
   float availableAH = (((float)calculateBatteryPercentage()) / 100.0) * BATTERY_RATED_CAPACITY;
   float requiredAH = BATTERY_RATED_CAPACITY - availableAH;
   int hoursToCharge = requiredAH / (A_current_mA - B_current_mA);
-  if (hoursToCharge > 23)
-    return String("really%20long");
+  if (hoursToCharge > 23 || hoursToCharge < 0)
+    return String("a%20day");
   if ((int)hoursToCharge == 0)
-    return String("less%20than%20one");
-  return String((int)hoursToCharge);
+    return String("soon");
+  return String((int)hoursToCharge)+"%20hrs";
 }
 
 void checkAndsendToAlexaINAReadings() {
@@ -237,17 +237,17 @@ void checkAndsendToAlexaINAReadings() {
     Serial.println(" W");
 
     if (isBatterInDangerInThisLoop()) {
-      sendSensorValueToAlexa("SolarPanel", "in%20danger%20at%20" + String((float)B_loadvoltage) + "%20volts%2E%20System%20is%20shutdown%2E");
+      sendSensorValueToAlexa("SolarPanel", "shutdown%20at%20" + String((float)B_loadvoltage) + "%20volts");
     } else if (isBatteryInCoolOffPeriod()) {
-      sendSensorValueToAlexa("SolarPanel", "in%20cool%20off%20at%20" + String((float)B_loadvoltage) + "%20volts%2E%20System%20will%20attempt%20recovery%20in%20" + String((int)calculateCoolOffRemainingTimeInMinutes()) + "%20minutes%2E");
+      sendSensorValueToAlexa("SolarPanel", "in%20saver%20at%20" + String((float)B_loadvoltage) + "%20volts%20for%20" + String((int)calculateCoolOffRemainingTimeInMinutes()) + "%20min%2E");
     } else if (isUnderLoad() && isBatteryDraining()) {
-      sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20It%20is%20expected%20to%20drain%20in%20" + timeForFullDrainInHours() + "%20hours%2E");
+      sendSensorValueToAlexa("SolarPanel", "at%20" + String((int)(A_power_W)) + "%20watts%2C%20" + String((int)A_loadvoltage) + "%20volts%2E%20Battery%20at%20" + String((float)(B_power_W)) + "%20watts%2C%20" + String((float)B_loadvoltage) + "%20volts" + "%20and%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20Drain%20in%20" + timeForFullDrainInHours());
     } else if (isUnderLoad() && !isBatteryDraining()) {
-      sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20It%20is%20expected%20to%20charge%20in%20" + timeForFullChargeInHours() + "%20hours%2E");
+      sendSensorValueToAlexa("SolarPanel", "at%20" + String((int)(A_power_W)) + "%20watts%2C%20" + String((int)A_loadvoltage) + "%20volts%2E%20Battery%20at%20" + String((float)(B_power_W)) + "%20watts%2C%20" + String((float)B_loadvoltage) + "%20volts" + "%20and%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20Charge%20in%20" + timeForFullChargeInHours());
     } else if (isUnderLoad()) {
-      sendSensorValueToAlexa("SolarPanel", "generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%2C%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts" + "%2E%20Battery%20is%20at%20" + String((int)calculateBatteryPercentage()) + "%25%2E");
+      sendSensorValueToAlexa("SolarPanel", "at%20" + String((int)(A_power_W)) + "%20watts%2C%20" + String((int)A_loadvoltage) + "%20volts%2E%20Battery%20at%20" + String((float)(B_power_W)) + "%20watts%2C%20" + String((float)B_loadvoltage) + "%20volts" + "%20and%20" + String((int)calculateBatteryPercentage()) + "%25");
     } else if (!isUnderLoad()) {
-      sendSensorValueToAlexa("SolarPanel", "at%20" + String((int)A_loadvoltage) + "%20volts%2C%20with%20no%20considerable%20drain%2E%20Battery%20is%20at%20" + String((float)B_loadvoltage) + "%20volts%2E");
+      sendSensorValueToAlexa("SolarPanel", "at%20" + String((int)A_loadvoltage) + "%20volts%2C%20battery%20at%20" + String((float)B_loadvoltage) + "%20volts%2E");
     } else {
       //Donoo what to send to alexa
     }
