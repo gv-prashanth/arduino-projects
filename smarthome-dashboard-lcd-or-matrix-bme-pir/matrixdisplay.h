@@ -23,24 +23,8 @@ String customText = "";  // Your global String variable
 boolean prevMainMessageDisplayComplete;
 unsigned long animationFinishTime;
 
-
-String replaceDegreeSymbol(String inputString) {
-  // Find the position of the degree symbol in the input string
-  int degreeSymbolPos = inputString.indexOf("°");
-
-  // Continue replacing the degree symbol until no more occurrences are found
-  while (degreeSymbolPos != -1) {
-    // Replace the degree symbol with "\xB0"
-    inputString.replace("°", "\xB0");
-    // Find the next occurrence of the degree symbol
-    degreeSymbolPos = inputString.indexOf("°");
-  }
-
-  // Return the modified string
-  return inputString;
-}
-
 void setDisplayMessage(String str) {
+  str = replaceString(str, " degree celsius", String("\xB0") + "C");
   displayOn = true;
   boolean isClock = false;
   if (str.indexOf("CLOCK: ", 0) != -1) {
@@ -48,7 +32,6 @@ void setDisplayMessage(String str) {
   }
   //str = replaceString(str, "CLOCK: ", "");
   //str = replaceString(str, "CALENDAR: ", "");
-  str = replaceDegreeSymbol(str);
   if (isClock)
     return;  //customText = "    " + str + "   ";
   else
