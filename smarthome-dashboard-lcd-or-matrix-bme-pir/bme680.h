@@ -19,8 +19,7 @@ const uint8_t bsec_config_iaq[] = {
 #include "config/generic_33v_3s_4d/bsec_iaq.txt"
 };
 
-//#define STATE_SAVE_PERIOD UINT32_C(360 * 60 * 1000)  // 360 minutes - 4 times a day
-#define STATE_SAVE_PERIOD UINT32_C(15 * 60 * 1000)  // Every 15 minutes
+#define STATE_SAVE_PERIOD UINT32_C(360 * 60 * 1000)  // 360 minutes - 4 times a day
 
 String output;
 Bsec iaqSensor;
@@ -81,11 +80,11 @@ void checkIaqSensorStatus(void) {
   if (iaqSensor.bme680Status != BME680_OK) {
     if (iaqSensor.bme680Status < BME680_OK) {
       output = "BME680 error code : " + String(iaqSensor.bme680Status);
-      Serial.println(output);
+      //Serial.println(output);
       errLeds(); /* Halt in case of failure */
     } else {
       output = "BME680 warning code : " + String(iaqSensor.bme680Status);
-      Serial.println(output);
+      //Serial.println(output);
     }
   } else {
     //errorHappened = false;
@@ -95,7 +94,7 @@ void checkIaqSensorStatus(void) {
 
 void errLeds(void) {
   //errorHappened = true;
-  Serial.println("Stuck in bme loop since there is error");
+  //Serial.println("Stuck in bme loop since there is error");
 }
 
 void loadState(void) {

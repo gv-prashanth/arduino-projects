@@ -41,6 +41,7 @@ String replaceDegreeSymbol(String inputString) {
 }
 
 void setDisplayMessage(String str) {
+  displayOn = true;
   boolean isClock = false;
   if (str.indexOf("CLOCK: ", 0) != -1) {
     isClock = true;
@@ -54,7 +55,6 @@ void setDisplayMessage(String str) {
     customText = " " + str + " ";
   Serial.println(customText);
   P.displayText(customText.c_str(), scrollAlign, scrollSpeed, scrollEffect, scrollEffect);
-  displayOn = true;
 }
 
 void turnOffDisplay() {
@@ -64,13 +64,13 @@ void turnOffDisplay() {
 
 void setupDisplay() {
   P.begin();
+  displayOn = true;
   Serial.println("Matrix display is on");
   P.displayText(DISPLAY_HEADER.c_str(), PA_CENTER, 0, 0, PA_PRINT);
   while (!P.displayAnimate()) {
     //wait till its displayed completly.
   }
   P.setIntensity(INTENSITY);
-  displayOn = true;
 }
 
 void displayScreen() {
