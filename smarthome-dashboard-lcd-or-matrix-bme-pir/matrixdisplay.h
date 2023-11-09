@@ -15,6 +15,7 @@ int ANIMATION_OVERHEAD = 2500;  //ms
 const boolean SHOW_TIME_FREQUENTLY = true;
 int INTENSITY = 0;
 String DISPLAY_HEADER = "\x03 WELCOME \x03";
+boolean displayOn = true;
 
 //Dont touch below
 MD_Parola P = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
@@ -53,9 +54,11 @@ void setDisplayMessage(String str) {
     customText = " " + str + " ";
   Serial.println(customText);
   P.displayText(customText.c_str(), scrollAlign, scrollSpeed, scrollEffect, scrollEffect);
+  displayOn = true;
 }
 
 void turnOffDisplay() {
+  displayOn = false;
   P.displayClear();
 }
 
@@ -67,9 +70,12 @@ void setupDisplay() {
     //wait till its displayed completly.
   }
   P.setIntensity(INTENSITY);
+  displayOn = true;
 }
 
 void displayScreen() {
+  if(!displayOn)
+    return;
   boolean mainMessageDisplayComplete = P.displayAnimate();
   if (SHOW_TIME_FREQUENTLY) {
     unsigned long currentTime = millis();

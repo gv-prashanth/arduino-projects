@@ -17,6 +17,7 @@ const int PIR_PIN = 14;                                   // PIR sensor input pi
 const unsigned long PIR_TURN_OFF_TIME = 60000;            //ms
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
+float PRECISSION_AQI = 10.0;                              //value
 #define SEALEVELPRESSURE_HPA (1013.25)
 
 // Dont touch below
@@ -35,7 +36,7 @@ std::vector<SensorData> globalDataEntries;  // Global vector to store the data
 boolean motionDetectedRecently;
 //BME readings
 float bme_readTemperature, bme_readPressure, bme_readHumidity, bme_readAltitude, bme_aqi, bme_aqiAccuracy;
-float prev_bme_readTemperature, prev_bme_readHumidity;
+float prev_bme_readTemperature, prev_bme_readHumidity, prev_bme_aqi;
 boolean BMEChangeDetected;
 SensorData getSpecificSensorData(String keyToGet);                                // Helper functions declarations
 String replaceString(String input, const String& search, const String& replace);  // Helper functions declarations
@@ -188,6 +189,7 @@ String preProcessMessage(String str) {
   str = convertToUppercaseBeforeColon(str);
   str = replaceMultipleSpaces(str);
   str = modifyStringToCapitalAfterColon(str);
+  str = trimString(str);
   str = removeLastFullStop(str);
   str = replaceString(str, " degree celsius", String((char)223) + "C");
   return str;
@@ -310,6 +312,25 @@ String removeLastFullStop(String inputString) {
   // Remove the last character (period)
   inputString.remove(stringLength - 1);
   return inputString;
+}
+
+String trimString(String inputString) {
+  // Trim leading spaces
+  int startIndex = 0;
+  while (inputString.charAt(startIndex) == ' ') {
+    startIndex++;
+  }
+
+  // Trim trailing spaces
+  int endIndex = inputString.length() - 1;
+  while (inputString.charAt(endIndex) == ' ') {
+    endIndex--;
+  }
+
+  // Extract the trimmed substring
+  String trimmedString = inputString.substring(startIndex, endIndex + 1);
+
+  return trimmedString;
 }
 
 SensorData getSpecificSensorData(String keyToGet) {
