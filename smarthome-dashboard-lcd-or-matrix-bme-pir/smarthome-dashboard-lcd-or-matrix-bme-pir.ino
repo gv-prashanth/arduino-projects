@@ -6,13 +6,13 @@
 #include <SPI.h>
 
 // Configurations
-#define DISPLAY_TYPE MATRIX_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY
-#define BME_TYPE BME680              // BME680, BME280
+#define DISPLAY_TYPE LCD_BIG_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY, LCD_BIG_DISPLAY
+#define BME_TYPE BME680               // BME680, BME280
 const char* ssid = "XXX";
 const char* password = "YYY";
 const String droid = "ZZZ";
-const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix
-const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix
+const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
+const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
 const int PIR_PIN = 2;                                    // 14 for LCD, 2 for Matrix
 const unsigned long PIR_TURN_OFF_TIME = 600000;           //ms
 float PRECISSION_TEMP = 1.0;                              //degrees
@@ -22,6 +22,7 @@ float PRECISSION_AQI = 10.0;                              //value
 
 // Dont touch below
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
+const String WORLD_TIME_API = "http://worldtimeapi.org/api/ip";     // Fetch the time from World Time API
 const String endpoint = "/droid/" + droid + "/intents";
 String payload;
 int indexToDisplay = 0;
@@ -43,11 +44,14 @@ String replaceString(String input, const String& search, const String& replace);
 
 #define LCD_DISPLAY 1
 #define MATRIX_DISPLAY 2
+#define LCD_BIG_DISPLAY 3
 #ifdef DISPLAY_TYPE
 #if DISPLAY_TYPE == LCD_DISPLAY
 #include "lcddisplay.h"               // Include and use the LCD display library
 #elif DISPLAY_TYPE == MATRIX_DISPLAY  // Include and use the matrix display library
 #include "matrixdisplay.h"
+#elif DISPLAY_TYPE == LCD_BIG_DISPLAY  // Include and use the LCD big display library
+#include "lcdbigdisplay.h"
 #else
 #error "Invalid library selection."
 #endif
@@ -80,6 +84,7 @@ void setup() {
   //Lets fetch and parse once to be ready to display immediatly.
   fetchPayload();
   parsePayload();
+  fetchAndLoadCurrentTimeFromWeb();
 }
 
 void loop() {
@@ -102,6 +107,7 @@ void loop() {
 
   if (motionDetectedRecently) {
     if (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY) {
+      fetchAndLoadCurrentTimeFromWeb();
       fetchPayload();
       parsePayload();
       lastFetchTime = currentTime;
@@ -355,4 +361,45 @@ String capitalizeFirstNCharacters(String result, int n) {
     Serial.println("Invalid value of n. Returning the input string unchanged.");
   }
   return result;  // Return the capitalized string or the original string if input is invalid
+}
+
+void fetchAndLoadCurrentTimeFromWeb() {
+  HTTPClient http;
+  WiFiClient wifiClient;
+  if (http.begin(wifiClient, WORLD_TIME_API)) {
+    int httpCode = http.GET();
+
+    if (httpCode > 0) {
+      if (httpCode == HTTP_CODE_OK) {
+        String payload = http.getString();
+
+        // Parse the JSON response to extract the time and date
+        int location = payload.indexOf("datetime");
+        if (location != -1) {
+          String time = payload.substring(location + 11, location + 30);  // Extract the time part from the response
+          Serial.println(time);
+          int year = time.substring(0, 4).toInt();
+          int month = time.substring(5, 7).toInt();
+          int day = time.substring(8, 10).toInt();
+          int hour = time.substring(11, 13).toInt();
+          int minute = time.substring(14, 16).toInt();
+          int second = time.substring(17, 19).toInt();
+          Serial.println(year);
+          Serial.println(month);
+          Serial.println(day);
+          Serial.println(hour);
+          Serial.println(minute);
+          Serial.println(second);
+
+
+          // Set the fetched date and time to the internal clock
+          setTime(hour, minute, second, day, month, year);  // Set time (HH, MM, SS, DD, MM, YYYY)
+          Serial.println("Time fetched and set.");
+        }
+      }
+    }
+    http.end();
+  } else {
+    Serial.println("Failed to connect to the time server");
+  }
 }
