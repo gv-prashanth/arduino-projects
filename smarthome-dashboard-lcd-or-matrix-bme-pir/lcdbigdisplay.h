@@ -6,7 +6,7 @@
 
 const int SCREEN_WIDTH = 20;  //characters
 const int SCREEN_HEIGHT = 4;  //rows
-String DISPLAY_HEADER = "AKSHARA HOME";
+String DISPLAY_HEADER = "WELCOME";
 const long scrollSpeed = 400;
 
 LiquidCrystal_I2C lcd(0x27, SCREEN_WIDTH, SCREEN_HEIGHT);                             // Set the LCD I2C address
