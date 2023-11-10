@@ -119,12 +119,14 @@ void setupDisplay() {
   lcd.backlight();
   ThreeLineNumbersLCD.begin();  // Creates custom character used for generating big numbers
   setDisplayMessage(DISPLAY_HEADER);
+  printTextOnLastRowAsScroll();
 }
 
 void displayScreen() {
   if (!displayOn)
     return;
   unsigned long currentMillis = millis();
+  lcd.backlight();
   printClockOnFirstThreeRowsEverySecond();
   if (currentMillis - scrollPreviousMillis >= scrollSpeed) {
     scrollPreviousMillis = currentMillis;

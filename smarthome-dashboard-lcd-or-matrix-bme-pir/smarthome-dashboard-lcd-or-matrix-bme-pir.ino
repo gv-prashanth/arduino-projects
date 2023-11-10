@@ -13,7 +13,7 @@ const char* password = "YYY";
 const String droid = "ZZZ";
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
-const int PIR_PIN = 2;                                    // 14 for LCD, 2 for Matrix
+const int PIR_PIN = 14;                                    // 14 for LCD, 2 for Matrix
 const unsigned long PIR_TURN_OFF_TIME = 600000;           //ms
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
@@ -82,9 +82,12 @@ void setup() {
   BMEChangeDetected = true;
   motionDetectedRecently = true;
   //Lets fetch and parse once to be ready to display immediatly.
+  while(timeStatus() != timeSet){
+    Serial.println("trying to fetch time");
+    fetchAndLoadCurrentTimeFromWeb();
+  }
   fetchPayload();
   parsePayload();
-  fetchAndLoadCurrentTimeFromWeb();
 }
 
 void loop() {
@@ -96,7 +99,9 @@ void loop() {
   if (digitalRead(PIR_PIN) == HIGH) {
     motionTimestamp = currentTime;
     motionDetectedRecently = true;
+    //Serial.println("motion is there.");
   } else {
+    //Serial.println("motion is missing.");
     if (motionDetectedRecently) {
       if (currentTime - motionTimestamp > PIR_TURN_OFF_TIME) {
         Serial.println("Motion ended.");
@@ -107,7 +112,6 @@ void loop() {
 
   if (motionDetectedRecently) {
     if (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY) {
-      fetchAndLoadCurrentTimeFromWeb();
       fetchPayload();
       parsePayload();
       lastFetchTime = currentTime;
@@ -192,6 +196,7 @@ void parsePayload() {
 String preProcessMessage(String str) {
   str = replaceString(str, " is at ", ": ");
   str = replaceString(str, " is ", ": ");
+  //str = camelCaseToWords(str);
   str = convertToUppercaseBeforeColon(str);
   str = replaceMultipleSpaces(str);
   str = modifyStringToCapitalAfterColon(str);
@@ -395,11 +400,30 @@ void fetchAndLoadCurrentTimeFromWeb() {
           // Set the fetched date and time to the internal clock
           setTime(hour, minute, second, day, month, year);  // Set time (HH, MM, SS, DD, MM, YYYY)
           Serial.println("Time fetched and set.");
+        }else {
+          Serial.println("Failed to connect to the time server3");
         }
+      }else {
+        Serial.println("Failed to connect to the time server2");
       }
     }
     http.end();
   } else {
-    Serial.println("Failed to connect to the time server");
+    Serial.println("Failed to connect to the time server1");
   }
+}
+
+String camelCaseToWords(String input) {
+  String output = "";
+  
+  for (int i = 0; i < input.length(); i++) {
+    if (i > 0 && isUpperCase(input[i]) && !isUpperCase(input[i - 1])) {
+      output += " ";  // Add a space before adding the uppercase letter
+      output += input[i];
+    } else {
+      output += input[i];
+    }
+  }
+
+  return output;
 }
