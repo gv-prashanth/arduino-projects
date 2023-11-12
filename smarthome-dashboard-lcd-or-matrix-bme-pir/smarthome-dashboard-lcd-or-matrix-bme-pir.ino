@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include <Wire.h>
 #include <SPI.h>
+#include <TimeLib.h>
 
 // Configurations
 #define DISPLAY_TYPE LCD_BIG_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY, LCD_BIG_DISPLAY

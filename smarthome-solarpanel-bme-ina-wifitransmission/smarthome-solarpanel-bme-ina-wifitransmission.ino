@@ -11,6 +11,7 @@
 #include "Adafruit_INA219.h"
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <TimeLib.h>
 
 #define SEALEVELPRESSURE_HPA (1013.25)
 #define WIFI_SSID "GTS"
@@ -30,12 +31,15 @@ float PRECISSION_POWER_B = 1.0;         //w
 float PRECISSION_VOLTAGE_B = 0.1;       //v
 float PRECISSION_TEMP = 1.0;            //degrees
 float PRECISSION_HUMID = 2.0;           //percentage
+int timeToStartLoad = 8;
+int timeToEndLoad = 11;
 
 //Dont touch below
 Adafruit_BME280 bme;
 Adafruit_INA219 ina219_A;        //ina connected to solar panel output
 Adafruit_INA219 ina219_B(0x41);  //ina connected to battery output
 ADC_MODE(ADC_VCC);
+const String WORLD_TIME_API = "http://worldtimeapi.org/api/ip";  // Fetch the time from World Time API
 
 //Ina readings
 float A_shuntvoltage, A_busvoltage, A_current_mA, A_power_W, A_loadvoltage, B_shuntvoltage, B_busvoltage, B_current_mA, B_power_W, B_loadvoltage;
@@ -51,6 +55,8 @@ boolean BMEChangeDetected;
 boolean prevLoopBatterInDanger;
 unsigned long turnOnBatteryAccessAt;  //milliSeconds
 
+String error = "";
+
 void setup() {
   //IF YOU WANT TO ENABLE SERIAL MONITOR THEN DONT USE GPIO 1
   //Serial.begin(74880);
@@ -63,25 +69,30 @@ void setup() {
 
   Serial.println(F("BME Initializing..."));
   Wire.begin(0, 2);  // SDA, SCL
-  bme.begin(0x76);
-
+  boolean bmestatus = bme.begin(0x76);
+  if (!bmestatus) {
+    error += "bme ";
+  }
   Serial.println(F("INA219_A Initializing..."));
   if (!ina219_A.begin()) {
     Serial.println("Failed to find INA219_A chip");
-    while (1) {
-      delay(10);
-    }
+    error += "ina219_A ";
   }
   Serial.println(F("INA219_B Initializing..."));
   if (!ina219_B.begin()) {
     Serial.println("Failed to find INA219_B chip");
-    while (1) {
-      delay(10);
-    }
+    error += "ina219_B ";
   }
   INAChangeDetected = true;
   BMEChangeDetected = true;
   prevLoopBatterInDanger = false;
+  Serial.println("Errors: " + error);
+
+  //Lets fetch and parse once to be ready to display immediatly.
+  while (timeStatus() != timeSet) {
+    Serial.println("trying to fetch time");
+    fetchAndLoadCurrentTimeFromWeb();
+  }
 }
 
 void loop() {
@@ -95,32 +106,32 @@ void loop() {
 
 void TakeActionBasedOnBatteryStatus() {
   unsigned long currentTime = millis();
-  if (isBatterInDangerInThisLoop() && !prevLoopBatterInDanger) {
+  if (isBatterCurrentlyInDanger() && !prevLoopBatterInDanger) {
     //Battery Just got into Danger.
     Serial.println("Battery just got into danger zone.");
     turnOnBatteryAccessAt = currentTime + COOLDOWN_TIME;
     INAChangeDetected = true;
   }
-  if (!isBatterInDangerInThisLoop() && prevLoopBatterInDanger) {
+  if (!isBatterCurrentlyInDanger() && prevLoopBatterInDanger) {
     //Battery Just got out of Danger.
     INAChangeDetected = true;
   }
-  if (isBatterInDangerInThisLoop())
+  if (isBatterCurrentlyInDanger())
     digitalWrite(OUTPUT_PIN, LOW);
-  else if (isBatteryInCoolOffPeriod())
+  else if (isBatteryOutOfDanagerButInCoolOff())
     digitalWrite(OUTPUT_PIN, LOW);
   else
     digitalWrite(OUTPUT_PIN, HIGH);
-  prevLoopBatterInDanger = isBatterInDangerInThisLoop();
+  prevLoopBatterInDanger = isBatterCurrentlyInDanger();
 }
 
-boolean isBatteryInCoolOffPeriod() {
+boolean isBatteryOutOfDanagerButInCoolOff() {
   unsigned long currentTime = millis();
-  return (!isBatterInDangerInThisLoop() && (currentTime < turnOnBatteryAccessAt));
+  return (!isBatterCurrentlyInDanger() && (currentTime < turnOnBatteryAccessAt));
 }
 
-boolean isBatterInDangerInThisLoop() {
-  return ((B_loadvoltage < CUTOFF_VOLTAGE) || (B_current_mA > CUTOFF_CURRENT));
+boolean isBatterCurrentlyInDanger() {
+  return ((B_loadvoltage < CUTOFF_VOLTAGE) || (B_current_mA > CUTOFF_CURRENT) || hour() < timeToStartLoad || hour() > timeToEndLoad);
 }
 
 void printESPReadings() {
@@ -176,7 +187,7 @@ String timeForFullDrainInHours() {
     return String("a%20day");
   if ((int)hoursToDrain == 0)
     return String("soon");
-  return String((int)hoursToDrain)+"%20hrs";
+  return String((int)hoursToDrain) + "%20hrs";
 }
 
 String timeForFullChargeInHours() {
@@ -189,7 +200,7 @@ String timeForFullChargeInHours() {
     return String("a%20day");
   if ((int)hoursToCharge == 0)
     return String("soon");
-  return String((int)hoursToCharge)+"%20hrs";
+  return String((int)hoursToCharge) + "%20hrs";
 }
 
 void checkAndsendToAlexaINAReadings() {
@@ -236,21 +247,20 @@ void checkAndsendToAlexaINAReadings() {
     Serial.print(B_power_W);
     Serial.println(" W");
 
-    if (isBatterInDangerInThisLoop()) {
-      sendSensorValueToAlexa("SolarPanel", "shutdown%20at%20" + String((float)B_loadvoltage) + "%20volts");
-    } else if (isBatteryInCoolOffPeriod()) {
-      sendSensorValueToAlexa("SolarPanel", "in%20saver%20at%20" + String((float)B_loadvoltage) + "%20volts%20for%20" + String((int)calculateCoolOffRemainingTimeInMinutes()) + "%20min%2E");
-    } else if (isUnderLoad() && isBatteryDraining()) {
-      sendSensorValueToAlexa("SolarPanel", "at%20" + String((int)(A_power_W)) + "%20watts%2C%20" + String((int)A_loadvoltage) + "%20volts%2E%20Battery%20at%20" + String((float)(B_power_W)) + "%20watts%2C%20" + String((float)B_loadvoltage) + "%20volts" + "%20and%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20Drain%20in%20" + timeForFullDrainInHours());
-    } else if (isUnderLoad() && !isBatteryDraining()) {
-      sendSensorValueToAlexa("SolarPanel", "at%20" + String((int)(A_power_W)) + "%20watts%2C%20" + String((int)A_loadvoltage) + "%20volts%2E%20Battery%20at%20" + String((float)(B_power_W)) + "%20watts%2C%20" + String((float)B_loadvoltage) + "%20volts" + "%20and%20" + String((int)calculateBatteryPercentage()) + "%25%2E%20Charge%20in%20" + timeForFullChargeInHours());
-    } else if (isUnderLoad()) {
-      sendSensorValueToAlexa("SolarPanel", "at%20" + String((int)(A_power_W)) + "%20watts%2C%20" + String((int)A_loadvoltage) + "%20volts%2E%20Battery%20at%20" + String((float)(B_power_W)) + "%20watts%2C%20" + String((float)B_loadvoltage) + "%20volts" + "%20and%20" + String((int)calculateBatteryPercentage()) + "%25");
-    } else if (!isUnderLoad()) {
-      sendSensorValueToAlexa("SolarPanel", "at%20" + String((int)A_loadvoltage) + "%20volts%2C%20battery%20at%20" + String((float)B_loadvoltage) + "%20volts%2E");
+    String basicMessage = "Generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts";
+    if (isBatterCurrentlyInDanger() || isBatteryOutOfDanagerButInCoolOff()) {
+      basicMessage = "recovering%20for%20" + String((int)calculateCoolOffRemainingTimeInMinutes()) + "%20minutes%2E%20" + basicMessage;
     } else {
-      //Donoo what to send to alexa
+      if (isUnderLoad()) {
+        if (isBatteryDraining())
+          basicMessage = "depleting%2E%20" + basicMessage;
+        else
+          basicMessage = "charging%2E%20" + basicMessage;
+      } else {
+        basicMessage = "idle%2E%20" + basicMessage;
+      }
     }
+    sendSensorValueToAlexa("SolarPanel", basicMessage);
     INAChangeDetected = false;
   }
 }
@@ -335,4 +345,49 @@ void wifiSetup() {
 
   // Connected!
   Serial.printf("[WIFI] STATION Mode, SSID: %s, IP address: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
+}
+
+void fetchAndLoadCurrentTimeFromWeb() {
+  HTTPClient http;
+  WiFiClient wifiClient;
+  if (http.begin(wifiClient, WORLD_TIME_API)) {
+    int httpCode = http.GET();
+
+    if (httpCode > 0) {
+      if (httpCode == HTTP_CODE_OK) {
+        String payload = http.getString();
+
+        // Parse the JSON response to extract the time and date
+        int location = payload.indexOf("datetime");
+        if (location != -1) {
+          String time = payload.substring(location + 11, location + 30);  // Extract the time part from the response
+          Serial.println(time);
+          int year = time.substring(0, 4).toInt();
+          int month = time.substring(5, 7).toInt();
+          int day = time.substring(8, 10).toInt();
+          int hour = time.substring(11, 13).toInt();
+          int minute = time.substring(14, 16).toInt();
+          int second = time.substring(17, 19).toInt();
+          Serial.println(year);
+          Serial.println(month);
+          Serial.println(day);
+          Serial.println(hour);
+          Serial.println(minute);
+          Serial.println(second);
+
+
+          // Set the fetched date and time to the internal clock
+          setTime(hour, minute, second, day, month, year);  // Set time (HH, MM, SS, DD, MM, YYYY)
+          Serial.println("Time fetched and set.");
+        } else {
+          Serial.println("Failed to connect to the time server3");
+        }
+      } else {
+        Serial.println("Failed to connect to the time server2");
+      }
+    }
+    http.end();
+  } else {
+    Serial.println("Failed to connect to the time server1");
+  }
 }

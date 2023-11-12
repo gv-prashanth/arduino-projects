@@ -1,5 +1,4 @@
 #include <WiFiClient.h>
-#include <TimeLib.h>
 #include <Arduino.h>
 #define USE_SERIAL_2004_LCD   //#define USE_SERIAL_1602_LCD
 #include "LCDBigNumbers.hpp"  // Include sources for LCD big number generation
