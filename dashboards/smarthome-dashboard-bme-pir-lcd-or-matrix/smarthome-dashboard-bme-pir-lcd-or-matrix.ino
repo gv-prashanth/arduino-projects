@@ -347,7 +347,6 @@ SensorData getSpecificSensorData(String keyToGet) {
 
   for (const SensorData& entry : globalDataEntries) {
     if (entry.key == result.key) {
-      // Found a matching entry with the key "Clock"
       result = entry;
       break;  // Exit the loop once found
     }

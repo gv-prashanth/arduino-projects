@@ -89,17 +89,7 @@ void setDisplayMessage(String str) {
   str = replaceString(str, " degree celsius", String((char)223) + "C");
   Serial.println(str);
   displayOn = true;
-
-  boolean isClock = false;
-  if (str.indexOf("CLOCK: ", 0) != -1) {
-    isClock = true;
-  }
-  //str = replaceString(str, "CLOCK: ", "");
-  str = replaceString(str, "CALENDAR: ", "");
-  if (isClock)
-    return;  //longText = "    " + str + "   ";
-  else
-    longText = str;
+  longText = str;
   scrollPosition = 0;
   lcd.setCursor(0, 3);
   lcd.print("                    ");

@@ -22,20 +22,13 @@ MD_Parola P = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
 String customText = "";  // Your global String variable
 boolean prevMainMessageDisplayComplete;
 unsigned long animationFinishTime;
+unsigned long clockPreviousMillis, scrollPreviousMillis = 0;
+const long interval = 1000;
 
 void setDisplayMessage(String str) {
   str = replaceString(str, " degree celsius", String("\xB0") + "C");
   displayOn = true;
-  boolean isClock = false;
-  if (str.indexOf("CLOCK: ", 0) != -1) {
-    isClock = true;
-  }
-  //str = replaceString(str, "CLOCK: ", "");
-  //str = replaceString(str, "CALENDAR: ", "");
-  if (isClock)
-    return;  //customText = "    " + str + "   ";
-  else
-    customText = " " + str + " ";
+  customText = " " + str + " ";
   Serial.println(customText);
   P.displayText(customText.c_str(), scrollAlign, scrollSpeed, scrollEffect, scrollEffect);
 }
@@ -56,8 +49,57 @@ void setupDisplay() {
   P.setIntensity(INTENSITY);
 }
 
+String getClockString() {
+  String toReturn = "";
+  unsigned long currentMillis = millis();
+  if (currentMillis - clockPreviousMillis >= interval) {
+    clockPreviousMillis = currentMillis;
+
+    // Use the internal clock to print the time
+    if (timeStatus() == timeSet) {
+
+      String hrString = "";
+      String minString = "";
+      int hr = hour();
+      bool isPM = hr >= 12;  // Check if it's PM
+      if (hr > 12) {
+        hr -= 12;  // Convert 24-hour to 12-hour format
+      }
+      if (hr == 0) {
+        hr = 12;  // 0:00 should be 12:00 AM
+      }
+
+      if (hr < 10) {
+        //Serial.print("0");
+        hrString += "0";
+      }
+
+      //Serial.print(hr);
+      hrString += hr;
+      //Serial.print(":");
+
+      if (minute() < 10) {
+        //Serial.print("0");
+        minString += "0";
+      }
+      //Serial.print(minute());
+      minString += minute();
+      //Serial.println();
+
+      toReturn += hrString;
+      if (second() % 2 == 1) {
+        toReturn += ":";
+      } else {
+        toReturn += " ";
+      }
+      toReturn += minString;
+    }
+  }
+  return toReturn;
+}
+
 void displayScreen() {
-  if(!displayOn)
+  if (!displayOn)
     return;
   boolean mainMessageDisplayComplete = P.displayAnimate();
   if (SHOW_TIME_FREQUENTLY) {
@@ -66,7 +108,7 @@ void displayScreen() {
       animationFinishTime = currentTime;
     }
     if (mainMessageDisplayComplete && (currentTime > (animationFinishTime + ANIMATION_OVERHEAD))) {
-      customText = replaceString(getSpecificSensorData("Clock").deviceReading, "at ", "");
+      customText = getClockString();
       P.displayText(customText.c_str(), PA_CENTER, 0, 0, PA_PRINT);
     }
     prevMainMessageDisplayComplete = mainMessageDisplayComplete;
