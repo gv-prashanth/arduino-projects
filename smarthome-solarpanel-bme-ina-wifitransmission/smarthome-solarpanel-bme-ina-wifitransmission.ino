@@ -22,9 +22,8 @@ float CUTOFF_VOLTAGE = 11.5;            //volts
 float BATTERY_RATED_VOLTAGE = 12.4;     //volts
 float BATTERY_RATED_CAPACITY = 7000.0;  //mah
 float CUTOFF_CURRENT = 3000;            //milliAmps
-float MIN_LOAD_CURRENT = 50;            //ma
 int OUTPUT_PIN = 1;                     //pin 1
-unsigned long COOLDOWN_TIME = 3600000;  //milliSeconds
+unsigned long COOLDOWN_TIME = 1800000;  //milliSeconds
 float PRECISSION_POWER_A = 3.0;         //w
 float PRECISSION_VOLTAGE_A = 1.0;       //v
 float PRECISSION_POWER_B = 1.0;         //w
@@ -248,25 +247,15 @@ void checkAndsendToAlexaINAReadings() {
     Serial.println(" W");
 
     String basicMessage = "Generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts";
-    if (isBatterCurrentlyInDanger() || isBatteryOutOfDanagerButInCoolOff()) {
+    if (isBatterCurrentlyInDanger() || isBatteryOutOfDanagerButInCoolOff())
       basicMessage = "recovering%20for%20" + String((int)calculateCoolOffRemainingTimeInMinutes()) + "%20minutes%2E%20" + basicMessage;
-    } else {
-      if (isUnderLoad()) {
-        if (isBatteryDraining())
-          basicMessage = "depleting%2E%20" + basicMessage;
-        else
-          basicMessage = "charging%2E%20" + basicMessage;
-      } else {
-        basicMessage = "idle%2E%20" + basicMessage;
-      }
-    }
+    else if (isBatteryDraining())
+      basicMessage = "depleting%2E%20" + basicMessage;
+    else
+      basicMessage = "idle%2E%20" + basicMessage;
     sendSensorValueToAlexa("SolarPanel", basicMessage);
     INAChangeDetected = false;
   }
-}
-
-boolean isUnderLoad() {
-  return B_current_mA - MIN_LOAD_CURRENT > 0;
 }
 
 int calculateCoolOffRemainingTimeInMinutes() {
