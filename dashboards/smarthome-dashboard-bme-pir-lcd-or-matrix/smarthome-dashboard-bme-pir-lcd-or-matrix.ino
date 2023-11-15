@@ -14,7 +14,7 @@ const char* password = "YYY";
 const String droid = "ZZZ";
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
-const int PIR_PIN = 14;                                    // 14 for LCD, 2 for Matrix
+const int PIR_PIN = 14;                                   // 14 for LCD, 2 for Matrix
 const unsigned long PIR_TURN_OFF_TIME = 600000;           //ms
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
@@ -83,7 +83,7 @@ void setup() {
   BMEChangeDetected = true;
   motionDetectedRecently = true;
   //Lets fetch and parse once to be ready to display immediatly.
-  while(timeStatus() != timeSet){
+  while (timeStatus() != timeSet) {
     Serial.println("trying to fetch time");
     fetchAndLoadCurrentTimeFromWeb();
   }
@@ -182,6 +182,17 @@ void parsePayload() {
   if (!error) {
     int jsonIndex = 0;
     globalDataEntries.clear();
+
+    //addCalendarToResponse
+    SensorData entry;
+    entry.jsonIndex = jsonIndex;
+    entry.key = String("Calendar");
+    entry.deviceReading = String(dayShortStr(weekday()))+", "+String(monthShortStr(month()))+" "+String(day())+", "+String(year());
+    entry.readingTime = String("now");
+    globalDataEntries.push_back(entry);
+    jsonIndex++;
+
+    //addResponseDevices
     for (JsonPair kv : doc.as<JsonObject>()) {
       SensorData entry;
       entry.jsonIndex = jsonIndex;
@@ -400,10 +411,10 @@ void fetchAndLoadCurrentTimeFromWeb() {
           // Set the fetched date and time to the internal clock
           setTime(hour, minute, second, day, month, year);  // Set time (HH, MM, SS, DD, MM, YYYY)
           Serial.println("Time fetched and set.");
-        }else {
+        } else {
           Serial.println("Failed to connect to the time server3");
         }
-      }else {
+      } else {
         Serial.println("Failed to connect to the time server2");
       }
     }
@@ -415,7 +426,7 @@ void fetchAndLoadCurrentTimeFromWeb() {
 
 String camelCaseToWords(String input) {
   String output = "";
-  
+
   for (int i = 0; i < input.length(); i++) {
     if (i > 0 && isUpperCase(input[i]) && !isUpperCase(input[i - 1])) {
       output += " ";  // Add a space before adding the uppercase letter
