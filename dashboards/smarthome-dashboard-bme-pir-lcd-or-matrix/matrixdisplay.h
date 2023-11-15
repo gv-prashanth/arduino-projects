@@ -14,7 +14,6 @@ int scrollSpeed = 40;           // Adjust the scrolling speed
 int ANIMATION_OVERHEAD = 2500;  //ms
 const boolean SHOW_TIME_FREQUENTLY = true;
 int INTENSITY = 0;
-String DISPLAY_HEADER = "\x03 WELCOME \x03";
 boolean displayOn = true;
 
 //Dont touch below
@@ -27,6 +26,8 @@ const long interval = 1000;
 
 void setDisplayMessage(String str) {
   str = replaceString(str, " degree celsius", String("\xB0") + "C");
+  str = replaceString(str, "CALENDAR: ", "");
+  str = replaceString(str, "WELCOME: ", "");
   displayOn = true;
   customText = " " + str + " ";
   Serial.println(customText);

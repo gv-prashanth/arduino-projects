@@ -8,13 +8,14 @@
 
 // Configurations
 #define DISPLAY_TYPE LCD_BIG_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY, LCD_BIG_DISPLAY
-#define BME_TYPE BME680               // BME680, BME280
+#define BME_TYPE BME280               // BME680, BME280
 const char* ssid = "XXX";
 const char* password = "YYY";
 const String droid = "ZZZ";
+const String DISPLAY_HEADER = "WELCOME";             //"\x03 WELCOME \x03" for Matrix, "WELCOME HOME" for LCD
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
-const int PIR_PIN = 14;                                   // 14 for LCD, 2 for Matrix
+const int PIR_PIN = 14;                                   //14 for LCD, 2 for Matrix
 const unsigned long PIR_TURN_OFF_TIME = 600000;           //ms
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
@@ -183,13 +184,22 @@ void parsePayload() {
     int jsonIndex = 0;
     globalDataEntries.clear();
 
+    //addWelcomeHeader
+    SensorData welcome;
+    welcome.jsonIndex = jsonIndex;
+    welcome.key = String("Welcome");
+    welcome.deviceReading = String(DISPLAY_HEADER);
+    welcome.readingTime = String("now");
+    globalDataEntries.push_back(welcome);
+    jsonIndex++;
+
     //addCalendarToResponse
-    SensorData entry;
-    entry.jsonIndex = jsonIndex;
-    entry.key = String("Calendar");
-    entry.deviceReading = String(dayShortStr(weekday()))+", "+String(monthShortStr(month()))+" "+String(day())+", "+String(year());
-    entry.readingTime = String("now");
-    globalDataEntries.push_back(entry);
+    SensorData calendar;
+    calendar.jsonIndex = jsonIndex;
+    calendar.key = String("Calendar");
+    calendar.deviceReading = String(dayShortStr(weekday())) + ", " + String(monthShortStr(month())) + " " + String(day()) + ", " + String(year());
+    calendar.readingTime = String("now");
+    globalDataEntries.push_back(calendar);
     jsonIndex++;
 
     //addResponseDevices
