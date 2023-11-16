@@ -22,8 +22,10 @@ float CUTOFF_VOLTAGE = 11.5;            //volts
 float BATTERY_RATED_VOLTAGE = 12.4;     //volts
 float BATTERY_RATED_CAPACITY = 7000.0;  //mah
 float CUTOFF_CURRENT = 3000;            //milliAmps
+float MIN_LOAD_CURRENT = 50;            //ma
 int OUTPUT_PIN = 1;                     //pin 1
-unsigned long COOLDOWN_TIME = 900000;  //milliSeconds
+unsigned long COOLDOWN_TIME = 900000;   //milliSeconds
+unsigned long SHUTDOWN_DELAY = 60000;   //milliSeconds
 float PRECISSION_POWER_A = 3.0;         //w
 float PRECISSION_VOLTAGE_A = 1.0;       //v
 float PRECISSION_POWER_B = 1.0;         //w
@@ -52,7 +54,9 @@ boolean BMEChangeDetected;
 
 //Danger
 boolean prevLoopBatterInDanger;
-unsigned long turnOnBatteryAccessAt;  //milliSeconds
+unsigned long turnOnBatteryAccessAt;   //milliSeconds
+unsigned long turnOffBatteryAccessAt;  //milliSeconds
+
 
 String error = "";
 
@@ -96,45 +100,46 @@ void setup() {
 
 void loop() {
   loadINAReadings();
-  TakeActionBasedOnBatteryStatus();
+  populateBatteryOnOffTimes();
+  if (isItTimeToTurnOffBatteryAccess())
+    digitalWrite(OUTPUT_PIN, LOW);
+  else
+    digitalWrite(OUTPUT_PIN, HIGH);
   checkAndsendToAlexaINAReadings();
   loadBMEReadings();
   checkAndsendToAlexaBMEReadings();
   //printESPReadings();
 }
 
-void TakeActionBasedOnBatteryStatus() {
+void populateBatteryOnOffTimes() {
   unsigned long currentTime = millis();
   if (isBatterCurrentlyInDanger() && !prevLoopBatterInDanger) {
     //Battery Just got into Danger.
     Serial.println("Battery just got into danger zone.");
     turnOnBatteryAccessAt = currentTime + COOLDOWN_TIME;
+    turnOffBatteryAccessAt = currentTime + SHUTDOWN_DELAY;
     INAChangeDetected = true;
   }
   if (!isBatterCurrentlyInDanger() && prevLoopBatterInDanger) {
     //Battery Just got out of Danger.
     INAChangeDetected = true;
+    turnOnBatteryAccessAt = 0;
+    turnOffBatteryAccessAt = 0;
   }
-  if (isBatterCurrentlyInDanger())
-    digitalWrite(OUTPUT_PIN, LOW);
-  else if (isBatteryOutOfDanagerButInCoolOff())
-    digitalWrite(OUTPUT_PIN, LOW);
-  else
-    digitalWrite(OUTPUT_PIN, HIGH);
   prevLoopBatterInDanger = isBatterCurrentlyInDanger();
 }
 
-boolean isBatteryOutOfDanagerButInCoolOff() {
+boolean isItTimeToTurnOffBatteryAccess() {
   unsigned long currentTime = millis();
-  return (!isBatterCurrentlyInDanger() && (currentTime < turnOnBatteryAccessAt));
+  return (currentTime > turnOffBatteryAccessAt) && (currentTime < turnOnBatteryAccessAt);
 }
 
 boolean isBatterCurrentlyInDanger() {
-  if((B_loadvoltage < CUTOFF_VOLTAGE) || (B_current_mA > CUTOFF_CURRENT)){
+  if ((B_loadvoltage < CUTOFF_VOLTAGE) || (B_current_mA > CUTOFF_CURRENT)) {
     return true;
-  }else if((hour() < timeToStartLoad || hour() > timeToEndLoad) && (isBatteryDraining())){
+  } else if ((hour() < timeToStartLoad || hour() > timeToEndLoad) && (isBatteryDraining())) {
     return true;
-  }else {
+  } else {
     return false;
   }
 }
@@ -180,7 +185,7 @@ int calculateBatteryPercentage() {
 }
 
 boolean isBatteryDraining() {
-  return B_current_mA > A_current_mA;
+  return B_current_mA - A_current_mA > MIN_LOAD_CURRENT;
 }
 
 String timeForFullDrainInHours() {
@@ -253,11 +258,9 @@ void checkAndsendToAlexaINAReadings() {
     Serial.println(" W");
 
     //String basicMessage = "Generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts";
-    String basicMessage = "Battery%20" + String((float)B_loadvoltage) + "%20volts";
-    if (isBatterCurrentlyInDanger())
-      basicMessage = "in%20shutdown%2E%20" + basicMessage;
-    else if(isBatteryOutOfDanagerButInCoolOff())
-      basicMessage = "in%20cooldown%2E%20" + basicMessage; //basicMessage = "recovering%20in%20" + String((int)calculateCoolOffRemainingTimeInMinutes()) + "%20minutes%2E%20" + basicMessage;
+    String basicMessage = "Panel%20" + String((int)(A_power_W)) + "%20watts%2C%20" + "battery%20" + String((float)B_loadvoltage) + "%20volts";
+    if (isItTimeToTurnOffBatteryAccess())
+      basicMessage = "shutdown%20" + String((int)calculateCoolOffRemainingTimeInMinutes()) + "%20min%2E%20" + basicMessage;  //basicMessage = "recovering%20in%20" + String((int)calculateCoolOffRemainingTimeInMinutes()) + "%20minutes%2E%20" + basicMessage;
     else if (isBatteryDraining())
       basicMessage = "depleting%2E%20" + basicMessage;
     else

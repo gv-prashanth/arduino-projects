@@ -12,7 +12,7 @@
 const char* ssid = "XXX";
 const char* password = "YYY";
 const String droid = "ZZZ";
-const String DISPLAY_HEADER = "WELCOME";             //"\x03 WELCOME \x03" for Matrix, "WELCOME HOME" for LCD
+const String DISPLAY_HEADER = "WELCOME";                  //"\x03 WELCOME \x03" for Matrix, "WELCOME HOME" for LCD
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
 const int PIR_PIN = 14;                                   //14 for LCD, 2 for Matrix
@@ -93,11 +93,42 @@ void setup() {
 }
 
 void loop() {
-  unsigned long currentTime = millis();
-
   loadBMEReadings();
   checkAndsendToAlexaBMEReadings();
+  loadMotionReadings();
+  if (motionDetectedRecently) {
+    fetchAndParseFromURLFrequently();
+    preProcessAndSetDisplayFrequently();
+  } else {
+    turnOffDisplay();  //switch off everything by Clearing the display and turn off the backlight
+  }
+  displayScreen();
+}
 
+void preProcessAndSetDisplayFrequently() {
+  unsigned long currentTime = millis();
+  if (payload != "" && (currentTime - lastScreenChangeTime > SCREEN_CYCLE_FREQUENCY)) {
+    indexToDisplay++;
+    if (indexToDisplay >= globalDataEntries.size()) {
+      indexToDisplay = 0;
+    }
+    String preProcess = preProcessMessage(String(globalDataEntries[indexToDisplay].key) + String(" is ") + String(globalDataEntries[indexToDisplay].deviceReading));
+    setDisplayMessage(preProcess);
+    lastScreenChangeTime = currentTime;
+  }
+}
+
+void fetchAndParseFromURLFrequently() {
+  unsigned long currentTime = millis();
+  if (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY) {
+    fetchPayload();
+    parsePayload();
+    lastFetchTime = currentTime;
+  }
+}
+
+void loadMotionReadings() {
+  unsigned long currentTime = millis();
   if (digitalRead(PIR_PIN) == HIGH) {
     motionTimestamp = currentTime;
     motionDetectedRecently = true;
@@ -111,28 +142,6 @@ void loop() {
       }
     }
   }
-
-  if (motionDetectedRecently) {
-    if (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY) {
-      fetchPayload();
-      parsePayload();
-      lastFetchTime = currentTime;
-    }
-    if (payload != "" && (currentTime - lastScreenChangeTime > SCREEN_CYCLE_FREQUENCY)) {
-      indexToDisplay++;
-      if (indexToDisplay >= globalDataEntries.size()) {
-        indexToDisplay = 0;
-      }
-      String preProcess = preProcessMessage(String(globalDataEntries[indexToDisplay].key) + String(" is ") + String(globalDataEntries[indexToDisplay].deviceReading));
-      setDisplayMessage(preProcess);
-      lastScreenChangeTime = currentTime;
-    }
-  } else {
-    //switch off everything by Clearing the display and turn off the backlight
-    turnOffDisplay();
-  }
-
-  displayScreen();
 }
 
 void setupWifi() {

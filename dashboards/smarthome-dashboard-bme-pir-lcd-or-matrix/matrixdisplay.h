@@ -88,11 +88,7 @@ String getClockString() {
       //Serial.println();
 
       toReturn += hrString;
-      if (second() % 2 == 1) {
-        toReturn += ":";
-      } else {
-        toReturn += " ";
-      }
+      toReturn += ":";
       toReturn += minString;
     }
   }
