@@ -7,7 +7,7 @@ const int PAYLOAD_START_ROW = 2;  //index. Starts from 0.
 LiquidCrystal_I2C lcd(0x27, SCREEN_WIDTH, SCREEN_HEIGHT);  // Set the LCD I2C address
 
 void setDisplayMessage(String str) {
-  str = replaceString(str, " degree celsius", String((char)223) + "C");
+  str = replaceFirstOccurrence(str, " degree celsius", String((char)223) + "C");
 
   Serial.println(str);
 

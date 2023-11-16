@@ -14,7 +14,7 @@ int scrollSpeed = 40;           // Adjust the scrolling speed
 int ANIMATION_OVERHEAD = 2500;  //ms
 const boolean SHOW_TIME_FREQUENTLY = true;
 int INTENSITY = 0;
-boolean displayOn = true;
+boolean displayDayInClock = true;
 
 //Dont touch below
 MD_Parola P = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
@@ -22,12 +22,12 @@ String customText = "";  // Your global String variable
 boolean prevMainMessageDisplayComplete;
 unsigned long animationFinishTime;
 unsigned long clockPreviousMillis, scrollPreviousMillis = 0;
-const long interval = 1000;
+boolean displayOn = true;
 
 void setDisplayMessage(String str) {
-  str = replaceString(str, " degree celsius", String("\xB0") + "C");
-  str = replaceString(str, "CALENDAR: ", "");
-  str = replaceString(str, "WELCOME: ", "");
+  str = replaceFirstOccurrence(str, " degree celsius", String("\xB0") + "C");
+  str = replaceFirstOccurrence(str, "CALENDAR: ", "");
+  str = replaceFirstOccurrence(str, "WELCOME: ", "");
   displayOn = true;
   customText = " " + str + " ";
   Serial.println(customText);
@@ -52,44 +52,46 @@ void setupDisplay() {
 
 String getClockString() {
   String toReturn = "";
-  unsigned long currentMillis = millis();
-  if (currentMillis - clockPreviousMillis >= interval) {
-    clockPreviousMillis = currentMillis;
+  // Use the internal clock to print the time
+  if (timeStatus() == timeSet) {
 
-    // Use the internal clock to print the time
-    if (timeStatus() == timeSet) {
+    String hrString = "";
+    String minString = "";
+    int hr = hour();
+    bool isPM = hr >= 12;  // Check if it's PM
+    if (hr > 12) {
+      hr -= 12;  // Convert 24-hour to 12-hour format
+    }
+    if (hr == 0) {
+      hr = 12;  // 0:00 should be 12:00 AM
+    }
 
-      String hrString = "";
-      String minString = "";
-      int hr = hour();
-      bool isPM = hr >= 12;  // Check if it's PM
-      if (hr > 12) {
-        hr -= 12;  // Convert 24-hour to 12-hour format
-      }
-      if (hr == 0) {
-        hr = 12;  // 0:00 should be 12:00 AM
-      }
+    if (hr < 10) {
+      //Serial.print("0");
+      hrString += "0";
+    }
 
-      if (hr < 10) {
-        //Serial.print("0");
-        hrString += "0";
-      }
+    //Serial.print(hr);
+    hrString += hr;
+    //Serial.print(":");
 
-      //Serial.print(hr);
-      hrString += hr;
-      //Serial.print(":");
+    if (minute() < 10) {
+      //Serial.print("0");
+      minString += "0";
+    }
+    //Serial.print(minute());
+    minString += minute();
+    //Serial.println();
 
-      if (minute() < 10) {
-        //Serial.print("0");
-        minString += "0";
-      }
-      //Serial.print(minute());
-      minString += minute();
-      //Serial.println();
+    toReturn += hrString;
+    toReturn += ":";
+    toReturn += minString;
 
-      toReturn += hrString;
-      toReturn += ":";
-      toReturn += minString;
+    //Date
+    if (displayDayInClock) {
+      String dateStr = String(monthShortStr(month())) + "," + String(day());
+      dateStr.toUpperCase();
+      toReturn += String("  ") + dateStr;
     }
   }
   return toReturn;

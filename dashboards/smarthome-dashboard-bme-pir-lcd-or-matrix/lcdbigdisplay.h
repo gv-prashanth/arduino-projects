@@ -85,9 +85,9 @@ void printClockOnFirstThreeRowsEverySecond() {
 }
 
 void setDisplayMessage(String str) {
-  str = replaceString(str, " degree celsius", String((char)223) + "C");
-  str = replaceString(str, "CALENDAR: ", "");
-  str = replaceString(str, "WELCOME: ", "");
+  str = replaceFirstOccurrence(str, " degree celsius", String((char)223) + "C");
+  str = replaceFirstOccurrence(str, "CALENDAR: ", "");
+  str = replaceFirstOccurrence(str, "WELCOME: ", "");
   Serial.println(str);
   displayOn = true;
   longText = str;

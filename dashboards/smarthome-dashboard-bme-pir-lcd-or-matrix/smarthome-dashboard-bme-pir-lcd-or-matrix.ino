@@ -12,7 +12,7 @@
 const char* ssid = "XXX";
 const char* password = "YYY";
 const String droid = "ZZZ";
-const String DISPLAY_HEADER = "WELCOME";                  //"\x03 WELCOME \x03" for Matrix, "WELCOME HOME" for LCD
+const String DISPLAY_HEADER = "DROID HOME";               //"\x03 DROID \x03" for Matrix, "DROID HOME" for LCD
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
 const int PIR_PIN = 14;                                   //14 for LCD, 2 for Matrix
@@ -41,8 +41,9 @@ boolean motionDetectedRecently;
 float bme_readTemperature, bme_readPressure, bme_readHumidity, bme_readAltitude, bme_aqi, bme_aqiAccuracy;
 float prev_bme_readTemperature, prev_bme_readHumidity, prev_bme_aqi;
 boolean BMEChangeDetected;
-SensorData getSpecificSensorData(String keyToGet);                                // Helper functions declarations
-String replaceString(String input, const String& search, const String& replace);  // Helper functions declarations
+SensorData getSpecificSensorData(String keyToGet);  // Helper functions declarations
+//String replaceString(String input, const String& search, const String& replace);  // Helper functions declarations
+String replaceFirstOccurrence(String input, const String& search, const String& replace);  // Helper functions declarations
 
 #define LCD_DISPLAY 1
 #define MATRIX_DISPLAY 2
@@ -225,8 +226,8 @@ void parsePayload() {
 }
 
 String preProcessMessage(String str) {
-  str = replaceString(str, " is at ", ": ");
-  str = replaceString(str, " is ", ": ");
+  str = replaceFirstOccurrence(str, " is at ", ": ");
+  str = replaceFirstOccurrence(str, " is ", ": ");
   //str = camelCaseToWords(str);
   str = convertToUppercaseBeforeColon(str);
   str = replaceMultipleSpaces(str);
@@ -234,6 +235,18 @@ String preProcessMessage(String str) {
   str = trimString(str);
   str = removeLastFullStop(str);
   return str;
+}
+
+String replaceFirstOccurrence(String inputString, const String& substringToReplace, const String& replacement) {
+  // Find the position of the substring to replace
+  int index = inputString.indexOf(substringToReplace);
+
+  // If the substring is found, replace it
+  if (index != -1) {
+    inputString.replace(substringToReplace, replacement);
+  }
+
+  return inputString;
 }
 
 void checkAndsendToAlexaBMEReadings() {
@@ -280,6 +293,7 @@ void sendSensorValueToAlexa(String name, String reading) {
   }
 }
 
+/*
 String replaceString(String input, const String& search, const String& replace) {
   int index = 0;
   while ((index = input.indexOf(search, index)) != -1) {
@@ -288,6 +302,7 @@ String replaceString(String input, const String& search, const String& replace) 
   }
   return input;
 }
+*/
 
 String convertToUppercaseBeforeColon(String input) {
   int colonIndex = input.indexOf(':');  // Find the position of the first colon
