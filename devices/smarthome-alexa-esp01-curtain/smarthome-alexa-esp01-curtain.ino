@@ -16,7 +16,7 @@ const String DROID_ID = "ZZZ";
 #define CURTAIN "CURTAIN"
 String CURTAINKEY = "Curtain";
 const int step = 2, dir = 0, Enable = 1, irSensorPin = 3;
-
+const int ROTATION_LOOPS = 2300;
 // -----------------------------------------------------------------------------
 
 
@@ -104,7 +104,7 @@ void openCurtain() {
   digitalWrite(dir, HIGH);    // Turn MOTOR FORWARD / OPEN CURTAIN
   digitalWrite(Enable, LOW);  // Enable Stepper Motor
 
-  for (double i = 0; i < 2300; i++)  //6600 steps in one direction
+  for (double i = 0; i < ROTATION_LOOPS; i++)  //6600 steps in one direction
   {
     digitalWrite(step, HIGH);
     delay(1);
@@ -123,7 +123,7 @@ void closeCurtain() {
   digitalWrite(dir, LOW);     // Turn MOTOR REVBERSE / CLOSE CURTAIN
   digitalWrite(Enable, LOW);  // Enable Stepper Motor
 
-  for (double i = 0; i < 2300; i++)  //6400 steps in one direction
+  for (double i = 0; i < ROTATION_LOOPS; i++)  //6400 steps in one direction
   {
     digitalWrite(step, HIGH);
     delay(1);
