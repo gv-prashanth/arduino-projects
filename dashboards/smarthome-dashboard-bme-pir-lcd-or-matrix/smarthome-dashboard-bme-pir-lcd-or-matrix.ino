@@ -228,7 +228,7 @@ void parsePayload() {
 String preProcessMessage(String str) {
   str = replaceFirstOccurrence(str, " is at ", ": ");
   str = replaceFirstOccurrence(str, " is ", ": ");
-  //str = camelCaseToWords(str);
+  str = camelCaseToWordsUntillFirstColon(str);
   str = convertToUppercaseBeforeColon(str);
   str = replaceMultipleSpaces(str);
   str = modifyStringToCapitalAfterColon(str);
@@ -458,13 +458,22 @@ void fetchAndLoadCurrentTimeFromWeb() {
   }
 }
 
-String camelCaseToWords(String input) {
+String camelCaseToWordsUntillFirstColon(String input) {
   String output = "";
+  bool colonFound = false;
 
   for (int i = 0; i < input.length(); i++) {
-    if (i > 0 && isUpperCase(input[i]) && !isUpperCase(input[i - 1])) {
-      output += " ";  // Add a space before adding the uppercase letter
-      output += input[i];
+    if (input[i] == ':') {
+      colonFound = true;
+    }
+
+    if (!colonFound) {
+      if (i > 0 && isUpperCase(input[i]) && !isUpperCase(input[i - 1])) {
+        output += " ";  // Add a space before adding the uppercase letter
+        output += input[i];
+      } else {
+        output += input[i];
+      }
     } else {
       output += input[i];
     }
