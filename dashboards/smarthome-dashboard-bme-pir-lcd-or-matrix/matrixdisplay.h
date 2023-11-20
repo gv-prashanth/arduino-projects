@@ -91,7 +91,7 @@ String getClockString() {
     if (displayDayInClock) {
       String dateStr = String(monthShortStr(month())) + "," + String(day());
       dateStr.toUpperCase();
-      toReturn += String("  ") + dateStr;
+      toReturn += String(" ") + dateStr;
     }
   }
   return toReturn;
