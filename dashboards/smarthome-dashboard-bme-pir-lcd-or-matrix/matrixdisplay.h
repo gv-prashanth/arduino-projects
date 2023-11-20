@@ -29,7 +29,7 @@ void setDisplayMessage(String str) {
   str = replaceFirstOccurrence(str, "CALENDAR: ", "");
   str = replaceFirstOccurrence(str, "WELCOME: ", "");
   displayOn = true;
-  customText = " " + str + " ";
+  customText = "  " + str + "  ";
   Serial.println(customText);
   P.displayText(customText.c_str(), scrollAlign, scrollSpeed, scrollEffect, scrollEffect);
 }
