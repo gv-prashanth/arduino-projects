@@ -13,10 +13,10 @@
 #define WIFI_PASS "YYY"
 const String DROID_ID = "ZZZ";
 #define SERIAL_BAUDRATE 115200
-#define CURTAIN "CURTAIN"
-String CURTAINKEY = "Curtain";
+#define CURTAIN "CURTAIN"      //"SIDE CURTAIN", "BACK CURTAIN"
+String CURTAINKEY = "Curtain";  //"SideCurtain", "BackCurtain"
 const int step = 2, dir = 0, Enable = 1, irSensorPin = 3;
-const int ROTATION_LOOPS = 2300;
+const int ROTATION_LOOPS = 2300;  //1875 for Side curtain, 2300 for back curtain
 // -----------------------------------------------------------------------------
 
 
