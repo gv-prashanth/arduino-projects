@@ -226,7 +226,7 @@ void parsePayload() {
 }
 
 String preProcessMessage(String str) {
-  str = replaceFirstOccurrence(str, " is at ", ": ");
+  //str = replaceFirstOccurrence(str, " is at ", ": ");
   str = replaceFirstOccurrence(str, " is ", ": ");
   str = camelCaseToWordsUntillFirstColon(str);
   str = convertToUppercaseBeforeColon(str);
