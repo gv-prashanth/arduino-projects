@@ -18,14 +18,14 @@
 
 const String DROID_ID = "C3PO";
 unsigned long COOLDOWN_TIME = 900000;  //milliSeconds
-float CUTOFF_VOLTAGE = 11.7;           //volts
+float CUTOFF_VOLTAGE = 12.0;           //volts
 float CUTOFF_CURRENT = 3000;           //milliAmps
 float MIN_LOAD_CURRENT = 10;           //ma
 int OUTPUT_PIN = 1;                    //pin 1
 float PRECISSION_POWER_A = 3.0;        //w
-float PRECISSION_VOLTAGE_A = 1.0;      //v
-float PRECISSION_POWER_B = 1.0;        //w
-float PRECISSION_VOLTAGE_B = 0.1;      //v
+float PRECISSION_VOLTAGE_A = 2.0;      //v
+float PRECISSION_POWER_B = 2.0;        //w
+float PRECISSION_VOLTAGE_B = 0.2;      //v
 float PRECISSION_TEMP = 1.0;           //degrees
 float PRECISSION_HUMID = 2.0;          //percentage
 
@@ -46,7 +46,7 @@ float prev_bme_readTemperature, prev_bme_readHumidity;
 boolean BMEChangeDetected;
 
 //Danger
-unsigned long timeAtWhichSystemWasInShutdownState;  //milliSeconds
+long timeAtWhichSystemWasInShutdownState;  //milliSeconds
 String statusMessagePrefix;
 
 String error = "";
@@ -79,6 +79,7 @@ void setup() {
   }
   INAChangeDetected = true;
   BMEChangeDetected = true;
+  timeAtWhichSystemWasInShutdownState = -1 * COOLDOWN_TIME;
   Serial.println("Errors: " + error);
 }
 
@@ -193,7 +194,7 @@ void checkAndsendToAlexaINAReadings() {
     Serial.println(" W");
 
     //String basicMessage = "Generating%20" + String((int)(A_power_W)) + "%20watts%20at%20" + String((int)A_loadvoltage) + "%20volts%20and%20draining%20" + String((float)(B_power_W)) + "%20watts%20at%20" + String((float)B_loadvoltage) + "%20volts";
-    String basicMessage = statusMessagePrefix + "%2E%20Panel%20" + String((int)(A_power_W)) + "%20watts%2C%20" + "battery%20" + String((float)B_loadvoltage) + "%20volts";
+    String basicMessage = statusMessagePrefix + "%2E%20Panel%20" + String((int)(A_power_W)) + "W%2C%20"+ String((int)A_loadvoltage) +"V%2E%20" + "Battery%20" + String((int)(B_power_W)) + "W%2C%20" + String((float)B_loadvoltage) + "V";
     sendSensorValueToAlexa("SolarPanel", basicMessage);
     INAChangeDetected = false;
   }

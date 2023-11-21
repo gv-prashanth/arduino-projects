@@ -24,7 +24,8 @@ const int ROTATION_LOOPS = 2300;  //1875 for Side curtain, 2300 for back curtain
 fauxmoESP fauxmo;
 volatile boolean takeActionToSwitchOnCurtain, takeActionToSwitchOffCurtain;
 volatile int curtainValue = 255;
-volatile boolean prevLoop_isCurtainOpen, expected_isCurtainOpen;
+volatile boolean expected_isCurtainOpen;
+String lastSentMessage;
 // -----------------------------------------------------------------------------
 
 void setup() {
@@ -45,8 +46,7 @@ void setup() {
   // fauxmo
   fauxmoSetup();
 
-  // load the prev and expected status
-  prevLoop_isCurtainOpen = !isCurtainOpen();
+  // load the expected status
   expected_isCurtainOpen = isCurtainOpen();
 }
 
@@ -203,18 +203,32 @@ void fauxmoLoop() {
 }
 
 void checkForChangeAndSendToAlexa() {
-  // There was a change in the curtain status. Lets send it across to cloud and alexa
-  if (prevLoop_isCurtainOpen != isCurtainOpen()) {
+  String meessageToSend;
+  if (expected_isCurtainOpen == isCurtainOpen()) {
+    meessageToSend = isCurtainOpen() ? "open" : "closed";
+  } else {
+    meessageToSend = isCurtainOpen() ? "open%2C%20error" : "closed%2C%20error";
+  }
+
+  if (!areStringsEqual(meessageToSend, lastSentMessage)) {
+    // There was a change in the curtain status. Lets send it across to cloud and alexa
     // If your device state is changed by any other means (MQTT, physical button,...)
     // you can instruct the library to report the new state to Alexa on next request:
     //fauxmo.setState(CURTAIN, isCurtainOpen ? true : false, curtainValue);
-    if (expected_isCurtainOpen == isCurtainOpen()) {
-      sendSensorValueToAlexa(CURTAINKEY, isCurtainOpen() ? "open" : "closed");
-    } else {
-      sendSensorValueToAlexa(CURTAINKEY, isCurtainOpen() ? "open%2E%20Error" : "closed%2E%20Error");
-    }
+    sendSensorValueToAlexa(CURTAINKEY, meessageToSend);
+    lastSentMessage = meessageToSend;
   }
-  prevLoop_isCurtainOpen = isCurtainOpen();
+}
+
+boolean areStringsEqual(const String str1, const String str2) {
+  // Convert String objects to char arrays for strcmp
+  char charArray1[str1.length() + 1];
+  char charArray2[str2.length() + 1];
+  str1.toCharArray(charArray1, sizeof(charArray1));
+  str2.toCharArray(charArray2, sizeof(charArray2));
+
+  // Compare strings
+  return strcmp(charArray1, charArray2) == 0;
 }
 
 void checkAndTakeAction() {
