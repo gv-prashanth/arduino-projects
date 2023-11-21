@@ -13,7 +13,7 @@
 #define WIFI_PASS "YYY"
 const String DROID_ID = "ZZZ";
 #define SERIAL_BAUDRATE 115200
-#define CURTAIN "CURTAIN"      //"SIDE CURTAIN", "BACK CURTAIN", "BED CURTAIN"
+#define CURTAIN "CURTAIN"       //"SIDE CURTAIN", "BACK CURTAIN", "BED CURTAIN"
 String CURTAINKEY = "Curtain";  //"SideCurtain", "BackCurtain", "BedCurtain"
 const int step = 2, dir = 0, Enable = 1, irSensorPin = 3;
 const int ROTATION_LOOPS = 2300;  //1875 for Side curtain, 2300 for back curtain, 16000 for bed curtain
@@ -53,7 +53,6 @@ void setup() {
 void loop() {
   fauxmoLoop();
   checkAndTakeAction();
-  checkForErrorAndSendToAlexa();
   checkForChangeAndSendToAlexa();
 }
 
@@ -209,19 +208,13 @@ void checkForChangeAndSendToAlexa() {
     // If your device state is changed by any other means (MQTT, physical button,...)
     // you can instruct the library to report the new state to Alexa on next request:
     //fauxmo.setState(CURTAIN, isCurtainOpen ? true : false, curtainValue);
-    sendSensorValueToAlexa(CURTAINKEY, isCurtainOpen() ? "open" : "closed");
+    if (expected_isCurtainOpen == isCurtainOpen()) {
+      sendSensorValueToAlexa(CURTAINKEY, isCurtainOpen() ? "open" : "closed");
+    } else {
+      sendSensorValueToAlexa(CURTAINKEY, isCurtainOpen() ? "open%2E%20Error" : "closed%2E%20Error");
+    }
   }
   prevLoop_isCurtainOpen = isCurtainOpen();
-}
-
-void checkForErrorAndSendToAlexa() {
-  if (expected_isCurtainOpen != isCurtainOpen()) {
-    // If your device state is changed by any other means (MQTT, physical button,...)
-    // you can instruct the library to report the new state to Alexa on next request:
-    //fauxmo.setState(CURTAIN, isCurtainOpen ? true : false, curtainValue);
-    sendSensorValueToAlexa(CURTAINKEY, "error");
-    expected_isCurtainOpen = isCurtainOpen();
-  }
 }
 
 void checkAndTakeAction() {
