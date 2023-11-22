@@ -24,6 +24,8 @@ const unsigned long PIR_TURN_OFF_TIME = 300000;           //ms
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
 float PRECISSION_AQI = 10.0;                              //value
+const long DIM_DURATION = 500;                            // interval for high state (milliseconds)
+const long NOT_DIM_DURATION = 2000;                       // interval for low state (milliseconds)
 #define SEALEVELPRESSURE_HPA (1013.25)
 
 // Dont touch below
@@ -52,7 +54,7 @@ String replaceFirstOccurrence(String input, const String& search, const String& 
 int alarmHrs = 0;                                                                          //24 hrs format
 int alarmMins = 0;                                                                         //0 to 60
 boolean alarmEnabled;
-boolean sendSensorValueToAlexa(String name, String reading);  // Helper functions declarations
+boolean sendSensorValueToAlexa(String name, String reading);    // Helper functions declarations
 boolean areStringsEqual(const String str1, const String str2);  // Helper functions declarations
 #include "alexa.h"
 boolean isAttention;
@@ -525,9 +527,7 @@ boolean areStringsEqual(const String str1, const String str2) {
 }
 
 unsigned long attention_previousMillis = 0;  // will store last time LED was updated
-const long attention_highInterval = 500;     // interval for high state (milliseconds)
-const long attention_lowInterval = 2000;       // interval for low state (milliseconds)
-bool attention_isHigh = false;                // flag to track the state
+bool attention_isHigh = false;               // flag to track the state
 
 // Function to return true every 2 seconds and false every 2 seconds
 bool attention_dim() {
@@ -535,7 +535,7 @@ bool attention_dim() {
   unsigned long currentMillis = millis();
 
   // Check if it's time to toggle the state
-  if (attention_isHigh && (currentMillis - attention_previousMillis >= attention_highInterval)) {
+  if (attention_isHigh && (currentMillis - attention_previousMillis >= DIM_DURATION)) {
     // Save the current time for the next iteration
     attention_previousMillis = currentMillis;
 
@@ -544,7 +544,7 @@ bool attention_dim() {
 
     // Return the current state
     return false;
-  } else if (!attention_isHigh && (currentMillis - attention_previousMillis >= attention_lowInterval)) {
+  } else if (!attention_isHigh && (currentMillis - attention_previousMillis >= NOT_DIM_DURATION)) {
     // Save the current time for the next iteration
     attention_previousMillis = currentMillis;
 
