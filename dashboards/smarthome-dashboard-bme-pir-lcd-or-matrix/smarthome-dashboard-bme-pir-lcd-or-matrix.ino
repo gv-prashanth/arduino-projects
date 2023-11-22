@@ -5,6 +5,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <TimeLib.h>
+#include "audio.h"
 
 // Configurations
 #define DISPLAY_TYPE LCD_BIG_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY, LCD_BIG_DISPLAY
@@ -44,6 +45,8 @@ boolean BMEChangeDetected;
 SensorData getSpecificSensorData(String keyToGet);  // Helper functions declarations
 //String replaceString(String input, const String& search, const String& replace);  // Helper functions declarations
 String replaceFirstOccurrence(String input, const String& search, const String& replace);  // Helper functions declarations
+int alarmHrs = 15; //24 hrs format
+int alarmMins = 17; //0 to 60
 
 #define LCD_DISPLAY 1
 #define MATRIX_DISPLAY 2
@@ -103,6 +106,7 @@ void loop() {
   } else {
     turnOffDisplay();  //switch off everything by Clearing the display and turn off the backlight
   }
+  checkAndPlayAlarm();
   displayScreen();
 }
 
@@ -480,4 +484,14 @@ String camelCaseToWordsUntillFirstColon(String input) {
   }
 
   return output;
+}
+
+boolean checkAndPlayAlarm() {
+  if (hour() == alarmHrs && minute() == alarmMins) {
+    audioPlay();
+    return true;
+  } else {
+    audioStop();
+    return false;
+  }
 }
