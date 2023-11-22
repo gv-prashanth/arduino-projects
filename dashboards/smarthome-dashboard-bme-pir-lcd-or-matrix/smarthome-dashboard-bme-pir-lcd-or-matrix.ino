@@ -7,6 +7,8 @@
 #include <TimeLib.h>
 #include "audio.h"
 
+#include "alarmaudio.h"
+
 // Configurations
 #define DISPLAY_TYPE LCD_BIG_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY, LCD_BIG_DISPLAY
 #define BME_TYPE BME280               // BME680, BME280
@@ -47,6 +49,7 @@ SensorData getSpecificSensorData(String keyToGet);  // Helper functions declarat
 String replaceFirstOccurrence(String input, const String& search, const String& replace);  // Helper functions declarations
 int alarmHrs = 15; //24 hrs format
 int alarmMins = 17; //0 to 60
+boolean alarmEnabled = true;
 
 #define LCD_DISPLAY 1
 #define MATRIX_DISPLAY 2
@@ -487,11 +490,11 @@ String camelCaseToWordsUntillFirstColon(String input) {
 }
 
 boolean checkAndPlayAlarm() {
-  if (hour() == alarmHrs && minute() == alarmMins) {
-    audioPlay();
+  if (alarmEnabled && hour() == alarmHrs && minute() == alarmMins) {
+    playAudio(alarmAudio, sizeof(alarmAudio));
     return true;
   } else {
-    audioStop();
+    stopAudio();
     return false;
   }
 }

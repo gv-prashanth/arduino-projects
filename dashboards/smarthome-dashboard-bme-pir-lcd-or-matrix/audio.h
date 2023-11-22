@@ -3,7 +3,6 @@
 #include "AudioGeneratorWAV.h"
 #include "AudioOutputI2SNoDAC.h"
 
-#include "alarmsound.h"
 
 //First record audio file
 //Convert to wav using https://cloudconvert.com/m4a-to-wav
@@ -13,14 +12,14 @@ AudioGeneratorWAV *wav;
 AudioFileSourcePROGMEM *file;
 AudioOutputI2SNoDAC *out;
 
-void audioStop() {
+void stopAudio() {
   if (wav != nullptr && wav->isRunning()) {
     wav->stop();
     Serial.println("Audio stopped");
   }
 }
 
-void audioPlay() {
+void playAudio(const unsigned char audioData[], size_t dataSize) {
   if (wav != nullptr && wav->isRunning()) {
     boolean loopVar = wav->loop();
     if (loopVar) {
@@ -30,7 +29,7 @@ void audioPlay() {
     }
   } else {
     //trigger a new play
-    file = new AudioFileSourcePROGMEM(alarmsound, sizeof(alarmsound));
+    file = new AudioFileSourcePROGMEM(audioData, dataSize);
     out = new AudioOutputI2SNoDAC();
     wav = new AudioGeneratorWAV();
     wav->begin(file, out);
