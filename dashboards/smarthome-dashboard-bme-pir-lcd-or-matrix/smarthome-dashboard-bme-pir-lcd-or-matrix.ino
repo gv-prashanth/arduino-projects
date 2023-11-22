@@ -6,7 +6,6 @@
 #include <SPI.h>
 #include <TimeLib.h>
 #include "audio.h"
-
 #include "alarmaudio.h"
 
 // Configurations
@@ -47,9 +46,11 @@ boolean BMEChangeDetected;
 SensorData getSpecificSensorData(String keyToGet);  // Helper functions declarations
 //String replaceString(String input, const String& search, const String& replace);  // Helper functions declarations
 String replaceFirstOccurrence(String input, const String& search, const String& replace);  // Helper functions declarations
-int alarmHrs = 15; //24 hrs format
-int alarmMins = 17; //0 to 60
-boolean alarmEnabled = true;
+int alarmHrs = 0;                                                                          //24 hrs format
+int alarmMins = 0;                                                                         //0 to 60
+boolean alarmEnabled;
+boolean sendSensorValueToAlexa(String name, String reading);  // Helper functions declarations
+#include "alexa.h"
 
 #define LCD_DISPLAY 1
 #define MATRIX_DISPLAY 2
@@ -88,6 +89,7 @@ void setup() {
   setupDisplay();
   setupWifi();
   setupBME();
+  alexaSetup();
   BMEChangeDetected = true;
   motionDetectedRecently = true;
   //Lets fetch and parse once to be ready to display immediatly.
@@ -109,6 +111,7 @@ void loop() {
   } else {
     turnOffDisplay();  //switch off everything by Clearing the display and turn off the backlight
   }
+  alexaLoop();
   checkAndPlayAlarm();
   displayScreen();
 }
@@ -160,6 +163,7 @@ void setupWifi() {
     Serial.println("Connecting to WiFi...");
   }
   Serial.println("Connected to WiFi");
+  Serial.printf("[WIFI] STATION Mode, SSID: %s, IP address: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
 }
 
 void fetchPayload() {
@@ -282,7 +286,8 @@ void checkAndsendToAlexaBMEReadings() {
   }
 }
 
-void sendSensorValueToAlexa(String name, String reading) {
+boolean sendSensorValueToAlexa(String name, String reading) {
+  boolean toReturn = false;
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
@@ -293,11 +298,13 @@ void sendSensorValueToAlexa(String name, String reading) {
     Serial.println("============== Response code: " + String(httpCode));
     if (httpCode > 0) {
       Serial.println(https.getString());
+      toReturn = true;
     }
     https.end();
   } else {
     Serial.printf("[HTTPS] Unable to connect\n");
   }
+  return toReturn;
 }
 
 /*
