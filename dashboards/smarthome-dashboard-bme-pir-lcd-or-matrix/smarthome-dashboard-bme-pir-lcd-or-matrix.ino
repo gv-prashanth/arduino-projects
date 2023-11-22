@@ -15,6 +15,8 @@ const char* ssid = "XXX";
 const char* password = "YYY";
 const String droid = "ZZZ";
 const String DISPLAY_HEADER = "DROID HOME";               //"\x03 DROID \x03" for Matrix, "DROID HOME" for LCD
+#define DEVICE "DESK CLOCK"                               //"DESK CLOCK"
+String DEVICEKEY = "DeskClock";                           //"DeskClock"
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
 const int PIR_PIN = 14;                                   //14 for LCD, 2 for Matrix
@@ -248,16 +250,14 @@ String preProcessMessage(String str) {
   return str;
 }
 
-String replaceFirstOccurrence(String inputString, const String& substringToReplace, const String& replacement) {
-  // Find the position of the substring to replace
-  int index = inputString.indexOf(substringToReplace);
+String replaceFirstOccurrence(const String input, const String& match, const String& replace) {
+  String output = input;
+  int startPos = output.indexOf(match);
 
-  // If the substring is found, replace it
-  if (index != -1) {
-    inputString.replace(substringToReplace, replacement);
+  if (startPos != -1) {
+    output = output.substring(0, startPos) + replace + output.substring(startPos + match.length());
   }
-
-  return inputString;
+  return output;
 }
 
 void checkAndsendToAlexaBMEReadings() {

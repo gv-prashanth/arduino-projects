@@ -8,12 +8,6 @@
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
 
-// -------------------------------CONFIGURATIONS--------------------------------
-#define DEVICE "DESK CLOCK"      //"DESK CLOCK"
-String DEVICEKEY = "DeskClock";  //"DeskClock"
-// -----------------------------------------------------------------------------
-
-
 // -------------------------------DONT TOUCH------------------------------------
 fauxmoESP fauxmo;
 volatile boolean takeActionToSwitchOnDevice, takeActionToSwitchOffDevice;
@@ -92,7 +86,7 @@ boolean areStringsEqual(const String str1, const String str2) {
 void checkForChangeAndSendToAlexa() {
   String meessageToSend;
   if(alarmEnabled)
-    meessageToSend = "on"+"%2E%20At%20" + String(alarmHrs) + "Hrs%20" + String(alarmMins)+ "Min";
+    meessageToSend = "on%2E%20" + String(alarmHrs) + "Hr%20" + String(alarmMins)+ "Min";
   else
     meessageToSend = "off";
   if (!areStringsEqual(meessageToSend, lastSentMessage)) {
@@ -105,23 +99,14 @@ void checkForChangeAndSendToAlexa() {
 }
 
 void populateHrsMinsFromDeviceValue() {
-  Serial.println(deviceValue);
-  Serial.println(float(deviceValue));
-  Serial.println(float(deviceValue) / 255.0);
   float perc = (float(deviceValue) / 255.0) * 100;
-  Serial.println(perc);
   int minutesSinceMidnight = perc * 15;  //since 1% aprox equals 15min
-    Serial.println(minutesSinceMidnight);
   // Calculate hours and minutes
   int hoursAlarm = minutesSinceMidnight / 60;
-  Serial.println(hoursAlarm);
   int minutesAlarm = minutesSinceMidnight % 60;
- Serial.println(minutesAlarm);
   // Ensure that the values are within the valid range
   hoursAlarm = hoursAlarm % 24;
   minutesAlarm = minutesAlarm % 60;
-    Serial.println(hoursAlarm);
-   Serial.println(minutesAlarm);
   //set alarmhrs
   alarmHrs = hoursAlarm;
   alarmMins = minutesAlarm;
