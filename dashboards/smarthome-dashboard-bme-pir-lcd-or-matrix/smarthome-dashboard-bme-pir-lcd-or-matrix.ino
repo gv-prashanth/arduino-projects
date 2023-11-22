@@ -7,6 +7,7 @@
 #include <TimeLib.h>
 #include "audio.h"
 #include "alarmaudio.h"
+#include "welcomeaudio.h"
 
 // Configurations
 #define DISPLAY_TYPE LCD_BIG_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY, LCD_BIG_DISPLAY
@@ -58,6 +59,8 @@ boolean sendSensorValueToAlexa(String name, String reading);    // Helper functi
 boolean areStringsEqual(const String str1, const String str2);  // Helper functions declarations
 #include "alexa.h"
 boolean isAttention;
+unsigned long startMillis;
+boolean isWelcomePlaying;
 
 #define LCD_DISPLAY 1
 #define MATRIX_DISPLAY 2
@@ -106,9 +109,18 @@ void setup() {
   }
   fetchPayload();
   parsePayload();
+  startMillis = millis();
+  isWelcomePlaying = true;
 }
 
 void loop() {
+  if (isWelcomePlaying && (millis() < (startMillis + 7000))) {
+    playAudio(welcomeAudio, sizeof(welcomeAudio));
+  } else {
+    stopAudio();
+    isWelcomePlaying = false;
+  }
+
   loadBMEReadings();
   checkAndsendToAlexaBMEReadings();
   loadMotionReadings();
@@ -506,6 +518,8 @@ String camelCaseToWordsUntillFirstColon(String input) {
 }
 
 boolean checkAndPlayAlarm() {
+  if (isWelcomePlaying)
+    return false;
   if (alarmEnabled && hour() == alarmHrs && minute() == alarmMins) {
     playAudio(alarmAudio, sizeof(alarmAudio));
     return true;
