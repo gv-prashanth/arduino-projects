@@ -112,11 +112,14 @@ void setupDisplay() {
   printTextOnLastRowAsScroll();
 }
 
-void displayScreen() {
+void displayScreen(boolean dimScreen) {
   if (!displayOn)
     return;
   unsigned long currentMillis = millis();
-  lcd.backlight();
+  if(dimScreen)
+    lcd.noBacklight();
+  else
+    lcd.backlight();
   printClockOnFirstThreeRowsEverySecond();
   if (currentMillis - scrollPreviousMillis >= scrollSpeed) {
     scrollPreviousMillis = currentMillis;

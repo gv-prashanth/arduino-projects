@@ -13,7 +13,8 @@ textPosition_t scrollAlign = PA_CENTER;
 int scrollSpeed = 40;           // Adjust the scrolling speed
 int ANIMATION_OVERHEAD = 2500;  //ms
 const boolean SHOW_TIME_FREQUENTLY = true;
-int INTENSITY = 0;
+int INTENSITY = 0;      //0 min to 15 max
+int MAXINTENSITY = 5;  //0 min to 15 max
 boolean displayDayInClock = true;
 
 //Dont touch below
@@ -97,9 +98,13 @@ String getClockString() {
   return toReturn;
 }
 
-void displayScreen() {
+void displayScreen(boolean dimScreen) {
   if (!displayOn)
     return;
+  if(dimScreen)
+    P.setIntensity(MAXINTENSITY);
+  else
+    P.setIntensity(INTENSITY);
   boolean mainMessageDisplayComplete = P.displayAnimate();
   if (SHOW_TIME_FREQUENTLY) {
     unsigned long currentTime = millis();

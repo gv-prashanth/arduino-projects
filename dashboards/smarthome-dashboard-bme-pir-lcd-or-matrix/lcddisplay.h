@@ -83,6 +83,6 @@ void setupDisplay() {
   setDisplayMessage("Please Wait...");
 }
 
-void displayScreen() {
+void displayScreen(boolean dimScreen) {
   //Nothing. It will automatically keep showing.
 }

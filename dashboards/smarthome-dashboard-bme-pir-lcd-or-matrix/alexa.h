@@ -72,17 +72,6 @@ void fauxmoLoop() {
   //}
 }
 
-boolean areStringsEqual(const String str1, const String str2) {
-  // Convert String objects to char arrays for strcmp
-  char charArray1[str1.length() + 1];
-  char charArray2[str2.length() + 1];
-  str1.toCharArray(charArray1, sizeof(charArray1));
-  str2.toCharArray(charArray2, sizeof(charArray2));
-
-  // Compare strings
-  return strcmp(charArray1, charArray2) == 0;
-}
-
 void checkForChangeAndSendToAlexa() {
   String meessageToSend;
   if(alarmEnabled)

@@ -20,7 +20,7 @@ String DEVICEKEY = "DeskClock";                           //"DeskClock"
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
 const int PIR_PIN = 14;                                   //14 for LCD, 2 for Matrix
-const unsigned long PIR_TURN_OFF_TIME = 600000;           //ms
+const unsigned long PIR_TURN_OFF_TIME = 300000;           //ms
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
 float PRECISSION_AQI = 10.0;                              //value
@@ -38,6 +38,7 @@ struct SensorData {
   String key;
   String deviceReading;
   String readingTime;
+  boolean inNeedOfAttention;
 };
 std::vector<SensorData> globalDataEntries;  // Global vector to store the data
 boolean motionDetectedRecently;
@@ -52,7 +53,9 @@ int alarmHrs = 0;                                                               
 int alarmMins = 0;                                                                         //0 to 60
 boolean alarmEnabled;
 boolean sendSensorValueToAlexa(String name, String reading);  // Helper functions declarations
+boolean areStringsEqual(const String str1, const String str2);  // Helper functions declarations
 #include "alexa.h"
+boolean isAttention;
 
 #define LCD_DISPLAY 1
 #define MATRIX_DISPLAY 2
@@ -114,8 +117,8 @@ void loop() {
     turnOffDisplay();  //switch off everything by Clearing the display and turn off the backlight
   }
   alexaLoop();
-  checkAndPlayAlarm();
-  displayScreen();
+  boolean isAlarmPlaying = checkAndPlayAlarm();
+  displayScreen((isAttention && attention_dim()) || (isAlarmPlaying && attention_dim()));
 }
 
 void preProcessAndSetDisplayFrequently() {
@@ -127,6 +130,7 @@ void preProcessAndSetDisplayFrequently() {
     }
     String preProcess = preProcessMessage(String(globalDataEntries[indexToDisplay].key) + String(" is ") + String(globalDataEntries[indexToDisplay].deviceReading));
     setDisplayMessage(preProcess);
+    isAttention = globalDataEntries[indexToDisplay].inNeedOfAttention;
     lastScreenChangeTime = currentTime;
   }
 }
@@ -213,6 +217,7 @@ void parsePayload() {
     welcome.key = String("Welcome");
     welcome.deviceReading = String(DISPLAY_HEADER);
     welcome.readingTime = String("now");
+    welcome.inNeedOfAttention = false;
     globalDataEntries.push_back(welcome);
     jsonIndex++;
 
@@ -222,6 +227,7 @@ void parsePayload() {
     calendar.key = String("Calendar");
     calendar.deviceReading = String(dayShortStr(weekday())) + ", " + String(monthShortStr(month())) + " " + String(day()) + ", " + String(year());
     calendar.readingTime = String("now");
+    calendar.inNeedOfAttention = false;
     globalDataEntries.push_back(calendar);
     jsonIndex++;
 
@@ -232,6 +238,7 @@ void parsePayload() {
       entry.key = String(kv.key().c_str());
       entry.deviceReading = String(kv.value()["deviceReading"]);
       entry.readingTime = String(kv.value()["readingTime"]);
+      entry.inNeedOfAttention = areStringsEqual(String(kv.value()["inNeedOfAttention"]), "true");
       globalDataEntries.push_back(entry);
       jsonIndex++;
     }
@@ -504,4 +511,50 @@ boolean checkAndPlayAlarm() {
     stopAudio();
     return false;
   }
+}
+
+boolean areStringsEqual(const String str1, const String str2) {
+  // Convert String objects to char arrays for strcmp
+  char charArray1[str1.length() + 1];
+  char charArray2[str2.length() + 1];
+  str1.toCharArray(charArray1, sizeof(charArray1));
+  str2.toCharArray(charArray2, sizeof(charArray2));
+
+  // Compare strings
+  return strcmp(charArray1, charArray2) == 0;
+}
+
+unsigned long attention_previousMillis = 0;  // will store last time LED was updated
+const long attention_highInterval = 500;     // interval for high state (milliseconds)
+const long attention_lowInterval = 2000;       // interval for low state (milliseconds)
+bool attention_isHigh = false;                // flag to track the state
+
+// Function to return true every 2 seconds and false every 2 seconds
+bool attention_dim() {
+  // Get the current time
+  unsigned long currentMillis = millis();
+
+  // Check if it's time to toggle the state
+  if (attention_isHigh && (currentMillis - attention_previousMillis >= attention_highInterval)) {
+    // Save the current time for the next iteration
+    attention_previousMillis = currentMillis;
+
+    // Switch to low state
+    attention_isHigh = false;
+
+    // Return the current state
+    return false;
+  } else if (!attention_isHigh && (currentMillis - attention_previousMillis >= attention_lowInterval)) {
+    // Save the current time for the next iteration
+    attention_previousMillis = currentMillis;
+
+    // Switch to high state
+    attention_isHigh = true;
+
+    // Return the current state
+    return true;
+  }
+
+  // If it's not time to toggle, return the current state
+  return attention_isHigh;
 }
