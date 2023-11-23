@@ -16,8 +16,8 @@ const char* ssid = "XXX";
 const char* password = "YYY";
 const String droid = "ZZZ";
 const String DISPLAY_HEADER = "DROID HOME";               //"\x03 DROID \x03" for Matrix, "DROID HOME" for LCD
-#define DEVICE "DESK CLOCK"                               //"DESK CLOCK"
-String DEVICEKEY = "DeskClock";                           //"DeskClock"
+#define DEVICE "DESK ALARM"                               //"DESK CLOCK"
+String DEVICEKEY = "DeskAlarm";                           //"DeskClock"
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
 const int PIR_PIN = 14;                                   //14 for LCD, 2 for Matrix

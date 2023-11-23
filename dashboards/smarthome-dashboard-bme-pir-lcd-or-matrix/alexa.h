@@ -75,7 +75,7 @@ void fauxmoLoop() {
 void checkForChangeAndSendToAlexa() {
   String meessageToSend;
   if(alarmEnabled)
-    meessageToSend = "on%2E%20" + String(alarmHrs) + "Hr%20" + String(alarmMins)+ "Min";
+    meessageToSend = String(alarmHrs) + "Hr%20" + String(alarmMins)+ "Min";
   else
     meessageToSend = "off";
   if (!areStringsEqual(meessageToSend, lastSentMessage)) {
