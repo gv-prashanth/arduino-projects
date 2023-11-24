@@ -1,5 +1,5 @@
 //First record audio file
-//Convert to wav using https://cloudconvert.com/m4a-to-wav
+//Convert to wav using https://cloudconvert.com
 //Compress wav using https://www.freeconvert.com/wav-compressor
 //Generate hex using https://tomeko.net/online_tools/file_to_hex.php?lang=en
 const unsigned char alarmAudio[] PROGMEM = {

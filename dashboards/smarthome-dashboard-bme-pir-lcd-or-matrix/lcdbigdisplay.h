@@ -116,7 +116,7 @@ void displayScreen(boolean dimScreen) {
   if (!displayOn)
     return;
   unsigned long currentMillis = millis();
-  if(dimScreen)
+  if (dimScreen)
     lcd.noBacklight();
   else
     lcd.backlight();

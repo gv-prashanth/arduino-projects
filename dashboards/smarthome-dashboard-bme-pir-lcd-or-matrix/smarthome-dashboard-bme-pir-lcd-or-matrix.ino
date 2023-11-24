@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <BearSSLHelpers.h>
@@ -5,7 +6,12 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <TimeLib.h>
-#include "audio.h"
+#include "stringutils.h"
+#include "AudioFileSourcePROGMEM.h"
+#include "AudioGeneratorWAV.h"
+#include "AudioOutputI2SNoDAC.h"
+#include "fauxmoESP.h"
+#include <WiFiClientSecure.h>
 #include "alarmaudio.h"
 #include "welcomeaudio.h"
 
@@ -50,16 +56,26 @@ float bme_readTemperature, bme_readPressure, bme_readHumidity, bme_readAltitude,
 float prev_bme_readTemperature, prev_bme_readHumidity, prev_bme_aqi;
 boolean BMEChangeDetected;
 SensorData getSpecificSensorData(String keyToGet);  // Helper functions declarations
-//String replaceString(String input, const String& search, const String& replace);  // Helper functions declarations
-String replaceFirstOccurrence(String input, const String& search, const String& replace);  // Helper functions declarations
-int alarmHrs = 0;                                                                          //24 hrs format
-int alarmMins = 0;                                                                         //0 to 60
+int alarmHrs = 0;                                   //24 hrs format
+int alarmMins = 0;                                  //0 to 60
 boolean alarmEnabled;
-boolean sendSensorValueToAlexa(String name, String reading);    // Helper functions declarations
-boolean areStringsEqual(const String str1, const String str2);  // Helper functions declarations
-#include "alexa.h"
+boolean alarmStarted;
 boolean isAttention;
-unsigned long startMillis;
+fauxmoESP fauxmo;
+volatile boolean takeActionToSwitchOnDevice, takeActionToSwitchOffDevice;
+volatile int deviceValue = 255;
+String lastSentMessage;
+unsigned long attention_previousMillis = 0;  // will store last time LED was updated
+bool attention_isHigh = false;               // flag to track the state
+//First record audio file
+//Convert to wav using https://cloudconvert.com
+//Compress wav using https://www.freeconvert.com/wav-compressor
+//Generate hex using https://tomeko.net/online_tools/file_to_hex.php?lang=en
+AudioGeneratorWAV* wav;
+AudioFileSourcePROGMEM* file;
+AudioOutputI2SNoDAC* out;
+static unsigned long last = millis();
+static unsigned long startMillis = millis();
 boolean isWelcomePlaying;
 
 #define LCD_DISPLAY 1
@@ -99,7 +115,7 @@ void setup() {
   setupDisplay();
   setupWifi();
   setupBME();
-  alexaSetup();
+  fauxmoSetup();
   BMEChangeDetected = true;
   motionDetectedRecently = true;
   //Lets fetch and parse once to be ready to display immediatly.
@@ -111,16 +127,16 @@ void setup() {
   parsePayload();
   startMillis = millis();
   isWelcomePlaying = true;
+  startAudio(welcomeAudio, sizeof(welcomeAudio));
 }
 
 void loop() {
-  if (isWelcomePlaying && (millis() < (startMillis + 7000))) {
-    playAudio(welcomeAudio, sizeof(welcomeAudio));
-  } else {
-    stopAudio();
-    isWelcomePlaying = false;
+  if (isWelcomePlaying) {
+    if ((millis() > (startMillis + 7500))) {
+      stopAudio();
+      isWelcomePlaying = false;
+    }
   }
-
   loadBMEReadings();
   checkAndsendToAlexaBMEReadings();
   loadMotionReadings();
@@ -130,9 +146,12 @@ void loop() {
   } else {
     turnOffDisplay();  //switch off everything by Clearing the display and turn off the backlight
   }
-  alexaLoop();
-  boolean isAlarmPlaying = checkAndPlayAlarm();
-  displayScreen((isAttention && attention_dim()) || (isAlarmPlaying && attention_dim()));
+  fauxmoLoop();
+  checkAndSetAlarm();
+  checkAndsendToAlexaAlarmReadings();
+  checkAndStartAlarm();
+  audioLoopSection();
+  displayScreen((isAttention && attention_dim()) || (alarmStarted && attention_dim()));
 }
 
 void preProcessAndSetDisplayFrequently() {
@@ -187,6 +206,7 @@ void setupWifi() {
 }
 
 void fetchPayload() {
+  Serial.println("begining the data fetch now");
   // Create a WiFiClientSecure object for HTTPS
   BearSSL::WiFiClientSecure client;
   client.setInsecure();  // Ignore SSL certificate validation (use for testing only)
@@ -216,7 +236,8 @@ void fetchPayload() {
 }
 
 void parsePayload() {
-  DynamicJsonDocument doc(3072);  // Adjust the size based on your JSON data size
+  Serial.println("begining the payload parse now");
+  DynamicJsonDocument doc(2048);  // Adjust the size based on your JSON data size
 
   // Deserialize the JSON data
   DeserializationError error = deserializeJson(doc, payload);
@@ -271,16 +292,6 @@ String preProcessMessage(String str) {
   return str;
 }
 
-String replaceFirstOccurrence(const String input, const String& match, const String& replace) {
-  String output = input;
-  int startPos = output.indexOf(match);
-
-  if (startPos != -1) {
-    output = output.substring(0, startPos) + replace + output.substring(startPos + match.length());
-  }
-  return output;
-}
-
 void checkAndsendToAlexaBMEReadings() {
   if (BMEChangeDetected) {
     Serial.print("Temperature = ");
@@ -326,99 +337,6 @@ boolean sendSensorValueToAlexa(String name, String reading) {
     Serial.printf("[HTTPS] Unable to connect\n");
   }
   return toReturn;
-}
-
-/*
-String replaceString(String input, const String& search, const String& replace) {
-  int index = 0;
-  while ((index = input.indexOf(search, index)) != -1) {
-    input = input.substring(0, index) + replace + input.substring(index + search.length());
-    index += replace.length();
-  }
-  return input;
-}
-*/
-
-String convertToUppercaseBeforeColon(String input) {
-  int colonIndex = input.indexOf(':');  // Find the position of the first colon
-
-  if (colonIndex != -1) {
-    // Extract the part before the colon
-    String partBeforeColon = input.substring(0, colonIndex);
-
-    // Convert the extracted part to uppercase
-    partBeforeColon.toUpperCase();
-
-    // Construct the final output string
-    String output = partBeforeColon + input.substring(colonIndex);
-
-    return output;
-  } else {
-    // If no colon is found, return the input string as it is
-    return input;
-  }
-}
-
-String replaceMultipleSpaces(String input) {
-  while (input.indexOf("  ") != -1) {
-    input.replace("  ", " ");
-  }
-  return input;
-}
-
-String modifyStringToCapitalAfterColon(String input) {
-  // Find the position of ": "
-  int colonSpaceIndex = input.indexOf(": ");
-
-  // Check if ": " was found
-  if (colonSpaceIndex != -1 && colonSpaceIndex < input.length() - 2) {
-    // Get the character after ": "
-    char charToCapitalize = input.charAt(colonSpaceIndex + 2);
-
-    // Check if the character is an alphabet letter
-    if (isAlpha(charToCapitalize)) {
-      // Convert the character to uppercase
-      charToCapitalize = toupper(charToCapitalize);
-
-      // Replace the original character with the uppercase one
-      input.setCharAt(colonSpaceIndex + 2, charToCapitalize);
-    }
-  }
-
-  // Return the modified string
-  return input;
-}
-
-String removeLastFullStop(String inputString) {
-  int stringLength = inputString.length();
-
-  // Check if the string is empty or if the last character is not a period
-  if (stringLength == 0 || inputString.charAt(stringLength - 1) != '.') {
-    return inputString;
-  }
-
-  // Remove the last character (period)
-  inputString.remove(stringLength - 1);
-  return inputString;
-}
-
-String trimString(String inputString) {
-  // Trim leading spaces
-  int startIndex = 0;
-  while (inputString.charAt(startIndex) == ' ') {
-    startIndex++;
-  }
-
-  // Trim trailing spaces
-  int endIndex = inputString.length() - 1;
-  while (inputString.charAt(endIndex) == ' ') {
-    endIndex--;
-  }
-
-  // Extract the trimmed substring
-  String trimmedString = inputString.substring(startIndex, endIndex + 1);
-
-  return trimmedString;
 }
 
 SensorData getSpecificSensorData(String keyToGet) {
@@ -493,55 +411,19 @@ void fetchAndLoadCurrentTimeFromWeb() {
   }
 }
 
-String camelCaseToWordsUntillFirstColon(String input) {
-  String output = "";
-  bool colonFound = false;
-
-  for (int i = 0; i < input.length(); i++) {
-    if (input[i] == ':') {
-      colonFound = true;
-    }
-
-    if (!colonFound) {
-      if (i > 0 && isUpperCase(input[i]) && !isUpperCase(input[i - 1])) {
-        output += " ";  // Add a space before adding the uppercase letter
-        output += input[i];
-      } else {
-        output += input[i];
-      }
-    } else {
-      output += input[i];
-    }
-  }
-
-  return output;
-}
-
-boolean checkAndPlayAlarm() {
-  if (isWelcomePlaying)
-    return false;
+void checkAndStartAlarm() {
   if (alarmEnabled && hour() == alarmHrs && minute() == alarmMins) {
-    playAudio(alarmAudio, sizeof(alarmAudio));
-    return true;
+    if (!alarmStarted) {
+      startAudio(alarmAudio, sizeof(alarmAudio));
+      alarmStarted = true;
+    }
   } else {
-    stopAudio();
-    return false;
+    if (alarmStarted) {
+      stopAudio();
+      alarmStarted = false;
+    }
   }
 }
-
-boolean areStringsEqual(const String str1, const String str2) {
-  // Convert String objects to char arrays for strcmp
-  char charArray1[str1.length() + 1];
-  char charArray2[str2.length() + 1];
-  str1.toCharArray(charArray1, sizeof(charArray1));
-  str2.toCharArray(charArray2, sizeof(charArray2));
-
-  // Compare strings
-  return strcmp(charArray1, charArray2) == 0;
-}
-
-unsigned long attention_previousMillis = 0;  // will store last time LED was updated
-bool attention_isHigh = false;               // flag to track the state
 
 // Function to return true every 2 seconds and false every 2 seconds
 bool attention_dim() {
@@ -571,4 +453,146 @@ bool attention_dim() {
 
   // If it's not time to toggle, return the current state
   return attention_isHigh;
+}
+
+void checkAndsendToAlexaAlarmReadings() {
+  String meessageToSend;
+  if (alarmEnabled)
+    meessageToSend = String(alarmHrs) + "Hr%20" + String(alarmMins) + "Min";
+  else
+    meessageToSend = "off";
+  if (!areStringsEqual(meessageToSend, lastSentMessage)) {
+    // If your device state is changed by any other means (MQTT, physical button,...)
+    // you can instruct the library to report the new state to Alexa on next request:
+    fauxmo.setState(DEVICE, alarmEnabled ? true : false, deviceValue);
+    if (sendSensorValueToAlexa(DEVICEKEY, meessageToSend))
+      lastSentMessage = meessageToSend;
+  }
+}
+
+void populateHrsMinsFromDeviceValue() {
+  float perc = (float(deviceValue) / 255.0) * 100;
+  int minutesSinceMidnight = perc * 15;  //since 1% aprox equals 15min
+  // Calculate hours and minutes
+  int hoursAlarm = minutesSinceMidnight / 60;
+  int minutesAlarm = minutesSinceMidnight % 60;
+  // Ensure that the values are within the valid range
+  hoursAlarm = hoursAlarm % 24;
+  minutesAlarm = minutesAlarm % 60;
+  //set alarmhrs
+  alarmHrs = hoursAlarm;
+  alarmMins = minutesAlarm;
+}
+
+void checkAndSetAlarm() {
+  if (takeActionToSwitchOnDevice) {
+    alarmEnabled = true;
+    takeActionToSwitchOnDevice = false;
+    populateHrsMinsFromDeviceValue();
+  }
+
+  if (takeActionToSwitchOffDevice) {
+    alarmEnabled = false;
+    takeActionToSwitchOffDevice = false;
+    populateHrsMinsFromDeviceValue();
+  }
+}
+
+void fauxmoSetup() {
+  // By default, fauxmoESP creates it's own webserver on the defined port
+  // The TCP port must be 80 for gen3 devices (default is 1901)
+  // This has to be done before the call to enable()
+  fauxmo.createServer(true);  // not needed, this is the default value
+  fauxmo.setPort(80);         // This is required for gen3 devices
+
+  // You have to call enable(true) once you have a WiFi connection
+  // You can enable or disable the library at any moment
+  // Disabling it will prevent the devices from being discovered and switched
+  fauxmo.enable(true);
+
+  // You can use different ways to invoke alexa to modify the devices state:
+  // "Alexa, turn yellow lamp on"
+  // "Alexa, turn on yellow lamp
+  // "Alexa, set yellow lamp to fifty" (50 means 50% of brightness, note, this example does not use this functionality)
+
+  // Add virtual devices
+  fauxmo.addDevice(DEVICE);
+
+  fauxmo.onSetState([](unsigned char device_id, const char* device_name, bool state, unsigned char value) {
+    // Callback when a command from Alexa is received.
+    // You can use device_id or device_name to choose the element to perform an action onto (relay, LED,...)
+    // State is a boolean (ON/OFF) and value a number from 0 to 255 (if you say "set kitchen light to 50%" you will receive a 128 here).
+    // Just remember not to delay too much here, this is a callback, exit as soon as possible.
+    // If you have to do something more involved here set a flag and process it in your main loop.
+
+    Serial.printf("[MAIN] Device #%d (%s) state: %s value: %d\n", device_id, device_name, state ? "ON" : "OFF", value);
+
+    // Checking for device_id is simpler if you are certain about the order they are loaded and it does not change.
+    // Otherwise comparing the device_name is safer.
+
+    if (strcmp(device_name, DEVICE) == 0) {
+      if (state == HIGH) {
+        takeActionToSwitchOnDevice = true;
+      } else {
+        takeActionToSwitchOffDevice = true;
+      }
+      deviceValue = (int)value;
+    }
+  });
+}
+
+void fauxmoLoop() {
+  // fauxmoESP uses an async TCP server but a sync UDP server
+  // Therefore, we have to manually poll for UDP packets
+  fauxmo.handle();
+
+  // This is a sample code to output free heap every 5 seconds
+  // This is a cheap way to detect memory leaks
+  if (millis() - last > 10000) {
+    last = millis();
+    Serial.printf("[MAIN] Free heap: %d bytes\n", ESP.getFreeHeap());
+  }
+}
+
+volatile boolean playAudio;
+const unsigned char* globalAudioData = nullptr;
+size_t globalDataSize = 0;
+
+void stopAudio() {
+  if (wav != nullptr) {
+    wav->stop();
+    playAudio = false;
+    Serial.println("Audio stopped");
+  }
+}
+
+void startAudio(const unsigned char audioData[], size_t dataSize) {
+  stopAudio();
+  delete file;
+  delete out;
+  delete wav;
+
+  file = new AudioFileSourcePROGMEM(audioData, dataSize);
+  out = new AudioOutputI2SNoDAC();
+  wav = new AudioGeneratorWAV();
+  playAudio = true;
+  wav->begin(file, out);
+  // Save audio data and size to global variables
+  globalAudioData = audioData;
+  globalDataSize = dataSize;
+
+  Serial.println("Audio triggered");
+}
+
+void audioLoopSection() {
+  if (wav != nullptr) {
+    if (wav->isRunning()) {
+      if (!wav->loop()) wav->stop();
+    } else {
+      if (playAudio && globalAudioData != nullptr) {
+        Serial.println("This Audio session is done. Starting new session");
+        startAudio(globalAudioData, globalDataSize);
+      }
+    }
+  }
 }
