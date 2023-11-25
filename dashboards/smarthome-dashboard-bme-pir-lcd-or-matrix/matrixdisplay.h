@@ -25,13 +25,19 @@ unsigned long animationFinishTime;
 unsigned long clockPreviousMillis, scrollPreviousMillis = 0;
 boolean displayOn = true;
 
+const unsigned long blinkDelayTime = 100;  // Delay in milliseconds
+unsigned long blinkPreviousMillis = 0;
+int blinkValue = 0;
+bool blinkIncreasing = true;
+
 void setDisplayMessage(String str) {
   str = replaceFirstOccurrence(str, " degree celsius", String("\xB0") + "C");
   str = replaceFirstOccurrence(str, "CALENDAR: ", "");
   str = replaceFirstOccurrence(str, "WELCOME: ", "");
   displayOn = true;
-  customText = "  " + str + "  ";
+  customText = str;
   Serial.println(customText);
+  P.displayClear();
   P.displayText(customText.c_str(), scrollAlign, scrollSpeed, scrollEffect, scrollEffect);
 }
 
@@ -98,16 +104,39 @@ String getClockString() {
   return toReturn;
 }
 
+int blinkCountUpDown() {
+  if (blinkIncreasing) {
+    blinkValue++;
+    if (blinkValue == MAXINTENSITY) {
+      blinkIncreasing = false;
+    }
+  } else {
+    blinkValue--;
+    if (blinkValue == INTENSITY) {
+      blinkIncreasing = true;
+    }
+  }
+
+  return blinkValue;
+}
+
 void displayScreen(boolean dimScreen) {
+  unsigned long currentTime = millis();
   if (!displayOn)
     return;
-  if (dimScreen)
-    P.setIntensity(MAXINTENSITY);
-  else
+  if (dimScreen) {
+    if (currentTime - blinkPreviousMillis >= ((DIM_DURATION/(MAXINTENSITY-INTENSITY))/2)) {
+      blinkPreviousMillis = currentTime;
+
+      blinkValue = blinkCountUpDown();
+      // Do something with the value, for example, print it to the Serial Monitor
+      //Serial.println(blinkValue);
+      P.setIntensity(blinkValue);
+    }
+  } else
     P.setIntensity(INTENSITY);
   boolean mainMessageDisplayComplete = P.displayAnimate();
   if (SHOW_TIME_FREQUENTLY) {
-    unsigned long currentTime = millis();
     if (mainMessageDisplayComplete && !prevMainMessageDisplayComplete) {
       animationFinishTime = currentTime;
     }
