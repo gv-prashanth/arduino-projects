@@ -22,17 +22,17 @@ const char* ssid = "XXX";
 const char* password = "YYY";
 const String droid = "ZZZ";
 const String DISPLAY_HEADER = "DROID HOME";               //"\x03 DROID \x03" for Matrix, "DROID HOME" for LCD
-#define DEVICE "DESK ALARM"                               //"DESK CLOCK"
-String DEVICEKEY = "DeskAlarm";                           //"DeskClock"
+#define DEVICE "DESK ALARM"                               //"DESK ALARM", "HALL ALARM"
+String DEVICEKEY = "DeskAlarm";                           //"DeskAlarm", "HallAlarm"
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
 const int PIR_PIN = 14;                                   //14 for LCD, 2 for Matrix
-const unsigned long PIR_TURN_OFF_TIME = 300000;           //ms
+const unsigned long PIR_TURN_OFF_TIME = 300000;           //ms, 300000 for LCD, 120000 for Matrix
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
 float PRECISSION_AQI = 10.0;                              //value
-const long DIM_DURATION = 500;                            // interval for high state (milliseconds)
-const long NOT_DIM_DURATION = 2000;                       // interval for low state (milliseconds)
+const long DIM_DURATION = 500;                            // interval for high state (milliseconds) 500 for LCD, 2000 for Matrix
+const long NOT_DIM_DURATION = 2000;                       // interval for low state (milliseconds) 2000 for LCD, 500 for Matrix
 #define SEALEVELPRESSURE_HPA (1013.25)
 
 // Dont touch below
@@ -156,7 +156,7 @@ void loop() {
 
 void preProcessAndSetDisplayFrequently() {
   unsigned long currentTime = millis();
-  if (payload != "" && (currentTime - lastScreenChangeTime > SCREEN_CYCLE_FREQUENCY)) {
+  if (payload != "" && !globalDataEntries.empty() && globalDataEntries.size() > 0 && (currentTime - lastScreenChangeTime > SCREEN_CYCLE_FREQUENCY)) {
     indexToDisplay++;
     if (indexToDisplay >= globalDataEntries.size()) {
       indexToDisplay = 0;
@@ -222,13 +222,16 @@ void fetchPayload() {
   if (httpResponseCode > 0) {
     Serial.print("HTTP Response Code: ");
     Serial.println(httpResponseCode);
-
-    payload = http.getString();
-    Serial.println("Response payload:");
-    Serial.println(payload);
-
+    if (httpResponseCode == HTTP_CODE_OK) {
+      payload = http.getString();
+      Serial.println("Response payload:");
+      Serial.println(payload);
+    } else {
+      Serial.print("Error on HTTPS request2: ");
+      Serial.println(httpResponseCode);
+    }
   } else {
-    Serial.print("Error on HTTPS request: ");
+    Serial.print("Error on HTTPS request3: ");
     Serial.println(httpResponseCode);
   }
 
@@ -374,12 +377,12 @@ void fetchAndLoadCurrentTimeFromWeb() {
 
     if (httpCode > 0) {
       if (httpCode == HTTP_CODE_OK) {
-        String payload = http.getString();
+        String webPayload = http.getString();
 
         // Parse the JSON response to extract the time and date
-        int location = payload.indexOf("datetime");
+        int location = webPayload.indexOf("datetime");
         if (location != -1) {
-          String time = payload.substring(location + 11, location + 30);  // Extract the time part from the response
+          String time = webPayload.substring(location + 11, location + 30);  // Extract the time part from the response
           Serial.println(time);
           int year = time.substring(0, 4).toInt();
           int month = time.substring(5, 7).toInt();
