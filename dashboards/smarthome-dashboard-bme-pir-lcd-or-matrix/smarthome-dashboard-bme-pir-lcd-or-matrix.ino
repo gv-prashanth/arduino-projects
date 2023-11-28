@@ -34,6 +34,8 @@ float PRECISSION_AQI = 10.0;                              //value
 const long DIM_DURATION = 500;                            // interval for high state (milliseconds) 500 for LCD, 2000 for Matrix
 const long NOT_DIM_DURATION = 2000;                       // interval for low state (milliseconds) 2000 for LCD, 500 for Matrix
 #define SEALEVELPRESSURE_HPA (1013.25)
+const unsigned long ALEXA_LAG = 10000;
+const unsigned long WELCOME_AUDIO_DURATION = 7500;
 
 // Dont touch below
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
@@ -77,6 +79,8 @@ AudioOutputI2SNoDAC* out;
 static unsigned long last = millis();
 static unsigned long startMillis = millis();
 boolean isWelcomePlaying;
+unsigned long sendToAlexaTime;
+boolean alarmChangeDetectedRecently;
 
 #define LCD_DISPLAY 1
 #define MATRIX_DISPLAY 2
@@ -131,8 +135,9 @@ void setup() {
 }
 
 void loop() {
+  unsigned long curTime = millis();
   if (isWelcomePlaying) {
-    if ((millis() > (startMillis + 7500))) {
+    if (curTime > (startMillis + WELCOME_AUDIO_DURATION)) {
       stopAudio();
       isWelcomePlaying = false;
     }
@@ -148,7 +153,15 @@ void loop() {
   }
   fauxmoLoop();
   checkAndSetAlarm();
-  checkAndsendToAlexaAlarmReadings();
+  if (curTime > sendToAlexaTime)
+    checkAndsendToAlexaAlarmReadings();
+  if (alarmChangeDetectedRecently) {
+    String alarmHrMinStr = DEVICEKEY + String(": ") + formatHrsMins(alarmHrs, alarmMins, true);
+    alarmHrMinStr = camelCaseToWordsUntillFirstColon(alarmHrMinStr);
+    alarmHrMinStr = convertToUppercaseBeforeColon(alarmHrMinStr);
+    setDisplayMessage(alarmHrMinStr);
+    alarmChangeDetectedRecently = false;
+  }
   checkAndStartAlarm();
   audioLoopSection();
   displayScreen((isAttention && attention_dim()) || (alarmStarted && attention_dim()));
@@ -313,9 +326,9 @@ void checkAndsendToAlexaBMEReadings() {
     Serial.print(bme_readAltitude);
     Serial.println(" m");
     if (bme_readTemperature != 0 && BME_TYPE == 1)
-      sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20at%20" + String((int)bme_readHumidity) + "%25%20humidity");  //sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25%20humidity");
+      sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20at%20" + String((int)bme_readHumidity) + "%25%20humidity");
     if (bme_readTemperature != 0 && BME_TYPE == 2) {
-      sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20at%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20" + capitalizeFirstNCharacters("aqi", bme_aqiAccuracy));  //sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20aqi");
+      sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20at%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20" + capitalizeFirstNCharacters("aqi", bme_aqiAccuracy));
     }
     BMEChangeDetected = false;
   }
@@ -460,9 +473,11 @@ bool attention_dim() {
 
 void checkAndsendToAlexaAlarmReadings() {
   String meessageToSend;
-  if (alarmEnabled)
-    meessageToSend = String(alarmHrs) + "Hr%20" + String(alarmMins) + "Min";
-  else
+  if (alarmEnabled) {
+    meessageToSend = formatHrsMins(alarmHrs, alarmMins, true);
+    meessageToSend = replaceFirstOccurrence(meessageToSend, ":", "%3A");
+    meessageToSend = replaceFirstOccurrence(meessageToSend, " ", "%20");
+  } else
     meessageToSend = "off";
   if (!areStringsEqual(meessageToSend, lastSentMessage)) {
     // If your device state is changed by any other means (MQTT, physical button,...)
@@ -491,12 +506,15 @@ void checkAndSetAlarm() {
   if (takeActionToSwitchOnDevice) {
     alarmEnabled = true;
     takeActionToSwitchOnDevice = false;
+    sendToAlexaTime = millis() + ALEXA_LAG;
+    alarmChangeDetectedRecently = true;
     populateHrsMinsFromDeviceValue();
   }
 
   if (takeActionToSwitchOffDevice) {
     alarmEnabled = false;
     takeActionToSwitchOffDevice = false;
+    sendToAlexaTime = millis() + ALEXA_LAG;
     populateHrsMinsFromDeviceValue();
   }
 }

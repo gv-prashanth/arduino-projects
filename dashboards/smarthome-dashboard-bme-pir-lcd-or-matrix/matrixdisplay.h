@@ -62,37 +62,7 @@ String getClockString() {
   // Use the internal clock to print the time
   if (timeStatus() == timeSet) {
 
-    String hrString = "";
-    String minString = "";
-    int hr = hour();
-    bool isPM = hr >= 12;  // Check if it's PM
-    if (hr > 12) {
-      hr -= 12;  // Convert 24-hour to 12-hour format
-    }
-    if (hr == 0) {
-      hr = 12;  // 0:00 should be 12:00 AM
-    }
-
-    if (hr < 10) {
-      //Serial.print("0");
-      hrString += "0";
-    }
-
-    //Serial.print(hr);
-    hrString += hr;
-    //Serial.print(":");
-
-    if (minute() < 10) {
-      //Serial.print("0");
-      minString += "0";
-    }
-    //Serial.print(minute());
-    minString += minute();
-    //Serial.println();
-
-    toReturn += hrString;
-    toReturn += ":";
-    toReturn += minString;
+    toReturn += formatHrsMins(hour(), minute(), false);
 
     //Date
     if (displayDayInClock) {

@@ -136,3 +136,45 @@ String trimString(String inputString) {
 
   return trimmedString;
 }
+
+String formatHrsMins(int hr, int minute, boolean requiredAMPM) {
+  String toReturn = "";
+  String hrString = "";
+  String minString = "";
+
+  bool isPM = hr >= 12;  // Check if it's PM
+  if (hr > 12) {
+    hr -= 12;  // Convert 24-hour to 12-hour format
+  }
+  if (hr == 0) {
+    hr = 12;  // 0:00 should be 12:00 AM
+  }
+
+  if (hr < 10) {
+    //Serial.print("0");
+    hrString += "0";
+  }
+
+  //Serial.print(hr);
+  hrString += hr;
+  //Serial.print(":");
+
+  if (minute < 10) {
+    //Serial.print("0");
+    minString += "0";
+  }
+  //Serial.print(minute());
+  minString += minute;
+  //Serial.println();
+
+  toReturn += hrString;
+  toReturn += ":";
+  toReturn += minString;
+  if (requiredAMPM) {
+    if (isPM)
+      toReturn += " PM";
+    else
+      toReturn += " AM";
+  }
+  return toReturn;
+}
