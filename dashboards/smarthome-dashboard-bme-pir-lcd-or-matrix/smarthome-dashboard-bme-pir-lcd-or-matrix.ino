@@ -36,6 +36,7 @@ const long NOT_DIM_DURATION = 2000;                       // interval for low st
 #define SEALEVELPRESSURE_HPA (1013.25)
 const unsigned long ALEXA_LAG = 10000;
 const unsigned long WELCOME_AUDIO_DURATION = 7500;
+const unsigned long API_TIMEOUT = 3000;
 
 // Dont touch below
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
@@ -223,9 +224,11 @@ void fetchPayload() {
   // Create a WiFiClientSecure object for HTTPS
   BearSSL::WiFiClientSecure client;
   client.setInsecure();  // Ignore SSL certificate validation (use for testing only)
+  client.setTimeout(API_TIMEOUT);  // 1 second timeout
 
   // Make a GET request
   HTTPClient http;
+  http.setTimeout(API_TIMEOUT);  // 1 second timeout
 
   // Set the WiFiClientSecure object for the HTTPClient
   http.begin(client, serverAddress + endpoint);
@@ -338,7 +341,9 @@ boolean sendSensorValueToAlexa(String name, String reading) {
   boolean toReturn = false;
   WiFiClientSecure client;
   client.setInsecure();
+  client.setTimeout(API_TIMEOUT);
   HTTPClient https;
+  https.setTimeout(API_TIMEOUT);
   String fullUrl = serverAddress + "/droid/" + droid + "/upsert/intent/" + name + "/reading/" + reading;
   Serial.println("Requesting " + fullUrl);
   if (https.begin(client, fullUrl)) {
@@ -369,22 +374,12 @@ SensorData getSpecificSensorData(String keyToGet) {
   return result;
 }
 
-String capitalizeFirstNCharacters(String result, int n) {
-  if (n >= 0 && n <= result.length()) {
-    // Capitalize the first n characters of the string
-    for (int i = 0; i < n; i++) {
-      result[i] = toupper(result[i]);
-    }
-  } else {
-    // Handle invalid input by returning the original string
-    Serial.println("Invalid value of n. Returning the input string unchanged.");
-  }
-  return result;  // Return the capitalized string or the original string if input is invalid
-}
-
 void fetchAndLoadCurrentTimeFromWeb() {
   HTTPClient http;
   WiFiClient wifiClient;
+  wifiClient.setTimeout(API_TIMEOUT);  // 1 second timeout
+  http.setTimeout(API_TIMEOUT);  // 1 second timeout
+
   if (http.begin(wifiClient, WORLD_TIME_API)) {
     int httpCode = http.GET();
 

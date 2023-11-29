@@ -178,3 +178,16 @@ String formatHrsMins(int hr, int minute, boolean requiredAMPM) {
   }
   return toReturn;
 }
+
+String capitalizeFirstNCharacters(String result, int n) {
+  if (n >= 0 && n <= result.length()) {
+    // Capitalize the first n characters of the string
+    for (int i = 0; i < n; i++) {
+      result[i] = toupper(result[i]);
+    }
+  } else {
+    // Handle invalid input by returning the original string
+    Serial.println("Invalid value of n. Returning the input string unchanged.");
+  }
+  return result;  // Return the capitalized string or the original string if input is invalid
+}
