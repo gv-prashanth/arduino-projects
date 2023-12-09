@@ -219,10 +219,11 @@ void displayAQI() {
   display.print(aqi);
   display.setCursor(80, 33);
   display.setTextSize(2);
-  display.print("AIRQ");
-  display.setCursor(120, 0);
-  display.setTextSize(1);
-  display.print(aqiAccuracy);
+  //display.print("AIRQ");
+  display.print(capitalizeFirstNCharacters("aqi", aqiAccuracy));
+  //display.setCursor(120, 0);
+  //display.setTextSize(1);
+  //display.print(aqiAccuracy);
   displayLogo();
   display.display();
 }
@@ -461,4 +462,17 @@ void setupEPROMAndBME() {
   // Print the header
   output = "Timestamp [ms], raw temperature [°C], pressure [hPa], raw relative humidity [%], gas [Ohm], IAQ, IAQ accuracy, temperature [°C], relative humidity [%]";
   Serial.println(output);
+}
+
+String capitalizeFirstNCharacters(String result, int n) {
+  if (n >= 0 && n <= result.length()) {
+    // Capitalize the first n characters of the string
+    for (int i = 0; i < n; i++) {
+      result[i] = toupper(result[i]);
+    }
+  } else {
+    // Handle invalid input by returning the original string
+    Serial.println("Invalid value of n. Returning the input string unchanged.");
+  }
+  return result;  // Return the capitalized string or the original string if input is invalid
 }
