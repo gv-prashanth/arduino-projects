@@ -16,6 +16,7 @@ const boolean SHOW_TIME_FREQUENTLY = true;
 int INTENSITY = 0;     //0 min to 15 max
 int MAXINTENSITY = 5;  //0 min to 15 max
 boolean displayDayInClock = true;
+boolean toResetIntensity;
 
 //Dont touch below
 MD_Parola P = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
@@ -95,6 +96,7 @@ void displayLoop(boolean dimScreen) {
   if (!displayOn)
     return;
   if (dimScreen) {
+    toResetIntensity = true;
     if (currentTime - blinkPreviousMillis >= ((DIM_DURATION/(MAXINTENSITY-INTENSITY))/2)) {
       blinkPreviousMillis = currentTime;
 
@@ -103,8 +105,12 @@ void displayLoop(boolean dimScreen) {
       //Serial.println(blinkValue);
       P.setIntensity(blinkValue);
     }
-  } else
-    P.setIntensity(INTENSITY);
+  } else{
+    if(toResetIntensity){
+      P.setIntensity(INTENSITY);
+      toResetIntensity = false;
+    }
+  }
   boolean mainMessageDisplayComplete = P.displayAnimate();
   if (SHOW_TIME_FREQUENTLY) {
     if (mainMessageDisplayComplete && !prevMainMessageDisplayComplete) {
