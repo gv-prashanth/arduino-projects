@@ -7,17 +7,13 @@
 #include <SPI.h>
 #include <TimeLib.h>
 #include "stringutils.h"
-#include "AudioFileSourcePROGMEM.h"
-#include "AudioGeneratorWAV.h"
-#include "AudioOutputI2SNoDAC.h"
 #include "fauxmoESP.h"
 #include <WiFiClientSecure.h>
-#include "alarmaudio.h"
-#include "welcomeaudio.h"
 
 // Configurations
 #define DISPLAY_TYPE LCD_BIG_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY, LCD_BIG_DISPLAY
 #define BME_TYPE BME280               // BME680, BME280
+#define ALARM_TYPE EXTERNAL_ALARM     // INTERNAL_ALARM, EXTERNAL_ALARM
 const char* ssid = "XXX";
 const char* password = "YYY";
 const String droid = "ZZZ";
@@ -27,6 +23,7 @@ String DEVICEKEY = "DeskAlarm";                           //"DeskAlarm", "HallAl
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
 const int PIR_PIN = 14;                                   //14 for LCD, 2 for Matrix
+const int ALARM_PIN = 30;                                 //30 for LCD, 30 for Matrix
 const unsigned long PIR_TURN_OFF_TIME = 300000;           //ms, 300000 for LCD, 120000 for Matrix
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
@@ -35,7 +32,6 @@ const long DIM_DURATION = 500;                            // interval for high s
 const long NOT_DIM_DURATION = 2000;                       // interval for low state (milliseconds) 2000 for LCD, 500 for Matrix
 #define SEALEVELPRESSURE_HPA (1013.25)
 const unsigned long ALEXA_LAG = 10000;
-const unsigned long WELCOME_AUDIO_DURATION = 7500;
 const unsigned long API_TIMEOUT = 3000;
 
 // Dont touch below
@@ -53,33 +49,24 @@ struct SensorData {
   boolean inNeedOfAttention;
 };
 std::vector<SensorData> globalDataEntries;  // Global vector to store the data
-boolean motionDetectedRecently;
+boolean motionDetectedRecently = true;
 //BME readings
 float bme_readTemperature, bme_readPressure, bme_readHumidity, bme_readAltitude, bme_aqi, bme_aqiAccuracy;
 float prev_bme_readTemperature, prev_bme_readHumidity, prev_bme_aqi;
-boolean BMEChangeDetected;
+boolean BMEChangeDetected = true;
 SensorData getSpecificSensorData(String keyToGet);  // Helper functions declarations
 int alarmHrs = 0;                                   //24 hrs format
 int alarmMins = 0;                                  //0 to 60
 boolean alarmEnabled;
-boolean alarmStarted;
-boolean isAttention;
+boolean isAlarmState;
+boolean isAttentionState;
 fauxmoESP fauxmo;
 volatile boolean takeActionToSwitchOnDevice, takeActionToSwitchOffDevice;
 volatile int deviceValue = 255;
 String lastSentMessage;
 unsigned long attention_previousMillis = 0;  // will store last time LED was updated
 bool attention_isHigh = false;               // flag to track the state
-//First record audio file
-//Convert to wav using https://cloudconvert.com
-//Compress wav using https://www.freeconvert.com/wav-compressor
-//Generate hex using https://tomeko.net/online_tools/file_to_hex.php?lang=en
-AudioGeneratorWAV* wav;
-AudioFileSourcePROGMEM* file;
-AudioOutputI2SNoDAC* out;
 static unsigned long last = millis();
-static unsigned long startMillis = millis();
-boolean isWelcomePlaying;
 unsigned long sendToAlexaTime;
 boolean alarmChangeDetectedRecently;
 
@@ -114,37 +101,49 @@ boolean alarmChangeDetectedRecently;
 #error "Library selection not defined."
 #endif
 
+#define INTERNAL_ALARM 1
+#define EXTERNAL_ALARM 2
+#ifdef ALARM_TYPE
+#if ALARM_TYPE == INTERNAL_ALARM
+#include "internalalarm.h"          // Include and use the internalalarm library
+#elif ALARM_TYPE == EXTERNAL_ALARM  // Include and use the externalalarm library
+#include "externalalarm.h"
+#else
+#error "Invalid library selection."
+#endif
+#else
+#error "Library selection not defined."
+#endif
+
 void setup() {
   Serial.begin(115200);
-  pinMode(PIR_PIN, INPUT);  //Setup the PIR
+  pinMode(PIR_PIN, INPUT);       //Setup the PIR
+  pinMode(ALARM_PIN, OUTPUT);    //Setup the ALARM
+  digitalWrite(ALARM_PIN, LOW);  //Set it to low when starting
   setupDisplay();
   setupWifi();
   setupBME();
   fauxmoSetup();
-  BMEChangeDetected = true;
-  motionDetectedRecently = true;
   //Lets fetch and parse once to be ready to display immediatly.
   while (timeStatus() != timeSet) {
     Serial.println("trying to fetch time");
     fetchAndLoadCurrentTimeFromWeb();
   }
-  fetchPayload();
-  parsePayload();
-  startMillis = millis();
-  isWelcomePlaying = true;
-  startAudio(welcomeAudio, sizeof(welcomeAudio));
+  fetchAndParseFromURLFrequently();
 }
 
 void loop() {
-  unsigned long curTime = millis();
-  if (isWelcomePlaying) {
-    if (curTime > (startMillis + WELCOME_AUDIO_DURATION)) {
-      stopAudio();
-      isWelcomePlaying = false;
-    }
-  }
+  //BME Section
   loadBMEReadings();
   checkAndsendToAlexaBMEReadings();
+
+  //Alarm Section
+  fauxmoLoop();
+  checkAndSetAlarm();
+  checkAndStartAlarm();
+  checkAndsendToAlexaAlarmReadings();
+
+  //Display Section
   loadMotionReadings();
   if (motionDetectedRecently) {
     fetchAndParseFromURLFrequently();
@@ -152,20 +151,10 @@ void loop() {
   } else {
     turnOffDisplay();  //switch off everything by Clearing the display and turn off the backlight
   }
-  fauxmoLoop();
-  checkAndSetAlarm();
-  if (curTime > sendToAlexaTime)
-    checkAndsendToAlexaAlarmReadings();
-  if (alarmChangeDetectedRecently) {
-    String alarmHrMinStr = DEVICEKEY + String(": ") + formatHrsMins(alarmHrs, alarmMins, true);
-    alarmHrMinStr = camelCaseToWordsUntillFirstColon(alarmHrMinStr);
-    alarmHrMinStr = convertToUppercaseBeforeColon(alarmHrMinStr);
-    setDisplayMessage(alarmHrMinStr);
-    alarmChangeDetectedRecently = false;
-  }
-  checkAndStartAlarm();
-  audioLoopSection();
-  displayScreen((isAttention && attention_dim()) || (alarmStarted && attention_dim()));
+
+  // Loops
+  alarmLoop();
+  displayLoop((isAttentionState || isAlarmState) && attention_dim());
 }
 
 void preProcessAndSetDisplayFrequently() {
@@ -177,8 +166,16 @@ void preProcessAndSetDisplayFrequently() {
     }
     String preProcess = preProcessMessage(String(globalDataEntries[indexToDisplay].key) + String(" is ") + String(globalDataEntries[indexToDisplay].deviceReading));
     setDisplayMessage(preProcess);
-    isAttention = globalDataEntries[indexToDisplay].inNeedOfAttention;
+    isAttentionState = globalDataEntries[indexToDisplay].inNeedOfAttention;
     lastScreenChangeTime = currentTime;
+  } else {
+    if (alarmChangeDetectedRecently) {
+      String alarmHrMinStr = DEVICEKEY + String(": ") + formatHrsMins(alarmHrs, alarmMins, true);
+      alarmHrMinStr = camelCaseToWordsUntillFirstColon(alarmHrMinStr);
+      alarmHrMinStr = convertToUppercaseBeforeColon(alarmHrMinStr);
+      setDisplayMessage(alarmHrMinStr);
+      alarmChangeDetectedRecently = false;
+    }
   }
 }
 
@@ -223,7 +220,7 @@ void fetchPayload() {
   Serial.println("begining the data fetch now");
   // Create a WiFiClientSecure object for HTTPS
   BearSSL::WiFiClientSecure client;
-  client.setInsecure();  // Ignore SSL certificate validation (use for testing only)
+  client.setInsecure();            // Ignore SSL certificate validation (use for testing only)
   client.setTimeout(API_TIMEOUT);  // 1 second timeout
 
   // Make a GET request
@@ -378,7 +375,7 @@ void fetchAndLoadCurrentTimeFromWeb() {
   HTTPClient http;
   WiFiClient wifiClient;
   wifiClient.setTimeout(API_TIMEOUT);  // 1 second timeout
-  http.setTimeout(API_TIMEOUT);  // 1 second timeout
+  http.setTimeout(API_TIMEOUT);        // 1 second timeout
 
   if (http.begin(wifiClient, WORLD_TIME_API)) {
     int httpCode = http.GET();
@@ -424,14 +421,14 @@ void fetchAndLoadCurrentTimeFromWeb() {
 
 void checkAndStartAlarm() {
   if (alarmEnabled && hour() == alarmHrs && minute() == alarmMins) {
-    if (!alarmStarted) {
-      startAudio(alarmAudio, sizeof(alarmAudio));
-      alarmStarted = true;
+    if (!isAlarmState) {
+      startAlarm();
+      isAlarmState = true;
     }
   } else {
-    if (alarmStarted) {
-      stopAudio();
-      alarmStarted = false;
+    if (isAlarmState) {
+      stopAlarm();
+      isAlarmState = false;
     }
   }
 }
@@ -467,19 +464,21 @@ bool attention_dim() {
 }
 
 void checkAndsendToAlexaAlarmReadings() {
-  String meessageToSend;
-  if (alarmEnabled) {
-    meessageToSend = formatHrsMins(alarmHrs, alarmMins, true);
-    meessageToSend = replaceFirstOccurrence(meessageToSend, ":", "%3A");
-    meessageToSend = replaceFirstOccurrence(meessageToSend, " ", "%20");
-  } else
-    meessageToSend = "off";
-  if (!areStringsEqual(meessageToSend, lastSentMessage)) {
-    // If your device state is changed by any other means (MQTT, physical button,...)
-    // you can instruct the library to report the new state to Alexa on next request:
-    fauxmo.setState(DEVICE, alarmEnabled ? true : false, deviceValue);
-    if (sendSensorValueToAlexa(DEVICEKEY, meessageToSend))
-      lastSentMessage = meessageToSend;
+  if (millis() > sendToAlexaTime) {
+    String meessageToSend;
+    if (alarmEnabled) {
+      meessageToSend = formatHrsMins(alarmHrs, alarmMins, true);
+      meessageToSend = replaceFirstOccurrence(meessageToSend, ":", "%3A");
+      meessageToSend = replaceFirstOccurrence(meessageToSend, " ", "%20");
+    } else
+      meessageToSend = "off";
+    if (!areStringsEqual(meessageToSend, lastSentMessage)) {
+      // If your device state is changed by any other means (MQTT, physical button,...)
+      // you can instruct the library to report the new state to Alexa on next request:
+      fauxmo.setState(DEVICE, alarmEnabled ? true : false, deviceValue);
+      if (sendSensorValueToAlexa(DEVICEKEY, meessageToSend))
+        lastSentMessage = meessageToSend;
+    }
   }
 }
 
@@ -567,48 +566,5 @@ void fauxmoLoop() {
   if (millis() - last > 10000) {
     last = millis();
     Serial.printf("[MAIN] Free heap: %d bytes\n", ESP.getFreeHeap());
-  }
-}
-
-volatile boolean playAudio;
-const unsigned char* globalAudioData = nullptr;
-size_t globalDataSize = 0;
-
-void stopAudio() {
-  if (wav != nullptr) {
-    wav->stop();
-    playAudio = false;
-    Serial.println("Audio stopped");
-  }
-}
-
-void startAudio(const unsigned char audioData[], size_t dataSize) {
-  stopAudio();
-  delete file;
-  delete out;
-  delete wav;
-
-  file = new AudioFileSourcePROGMEM(audioData, dataSize);
-  out = new AudioOutputI2SNoDAC();
-  wav = new AudioGeneratorWAV();
-  playAudio = true;
-  wav->begin(file, out);
-  // Save audio data and size to global variables
-  globalAudioData = audioData;
-  globalDataSize = dataSize;
-
-  Serial.println("Audio triggered");
-}
-
-void audioLoopSection() {
-  if (wav != nullptr) {
-    if (wav->isRunning()) {
-      if (!wav->loop()) wav->stop();
-    } else {
-      if (playAudio && globalAudioData != nullptr) {
-        Serial.println("This Audio session is done. Starting new session");
-        startAudio(globalAudioData, globalDataSize);
-      }
-    }
   }
 }

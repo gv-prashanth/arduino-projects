@@ -112,7 +112,7 @@ void setupDisplay() {
   printTextOnLastRowAsScroll();
 }
 
-void displayScreen(boolean dimScreen) {
+void displayLoop(boolean dimScreen) {
   if (!displayOn)
     return;
   unsigned long currentMillis = millis();

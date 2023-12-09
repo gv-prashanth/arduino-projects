@@ -90,7 +90,7 @@ int blinkCountUpDown() {
   return blinkValue;
 }
 
-void displayScreen(boolean dimScreen) {
+void displayLoop(boolean dimScreen) {
   unsigned long currentTime = millis();
   if (!displayOn)
     return;
