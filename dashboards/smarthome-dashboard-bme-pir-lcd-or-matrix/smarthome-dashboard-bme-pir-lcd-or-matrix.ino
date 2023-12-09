@@ -12,7 +12,7 @@
 
 // Configurations
 #define DISPLAY_TYPE LCD_BIG_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY, LCD_BIG_DISPLAY
-#define BME_TYPE BME280               // BME680, BME280
+#define BME_TYPE NO_BME               // BME680, BME280, NO_BME
 #define ALARM_TYPE EXTERNAL_ALARM     // INTERNAL_ALARM, EXTERNAL_ALARM
 const char* ssid = "XXX";
 const char* password = "YYY";
@@ -23,7 +23,7 @@ String DEVICEKEY = "DeskAlarm";                           //"DeskAlarm", "HallAl
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
 const int PIR_PIN = 14;                                   //14 for LCD, 2 for Matrix
-const int ALARM_PIN = 30;                                 //30 for LCD, 30 for Matrix
+const int ALARM_PIN = 30;                                 //30 for LCD, 3 for Matrix
 const unsigned long PIR_TURN_OFF_TIME = 300000;           //ms, 300000 for LCD, 120000 for Matrix
 float PRECISSION_TEMP = 1.0;                              //degrees
 float PRECISSION_HUMID = 2.0;                             //percentage
@@ -89,11 +89,14 @@ boolean alarmChangeDetectedRecently;
 
 #define BME280 1
 #define BME680 2
+#define NO_BME 3
 #ifdef BME_TYPE
 #if BME_TYPE == BME280
 #include "bme280.h"       // Include and use the bme280 library
 #elif BME_TYPE == BME680  // Include and use the BME680 library
 #include "bme680.h"
+#elif BME_TYPE == NO_BME  // Dont include anything
+#include "nobme.h"
 #else
 #error "Invalid library selection."
 #endif
@@ -129,7 +132,9 @@ void setup() {
     Serial.println("trying to fetch time");
     fetchAndLoadCurrentTimeFromWeb();
   }
-  fetchAndParseFromURLFrequently();
+  fetchPayload();
+  parsePayload();
+  setAlarmTimeFromCloudToDevice();
 }
 
 void loop() {
@@ -395,14 +400,14 @@ void fetchAndLoadCurrentTimeFromWeb() {
           int hour = time.substring(11, 13).toInt();
           int minute = time.substring(14, 16).toInt();
           int second = time.substring(17, 19).toInt();
+          /*
           Serial.println(year);
           Serial.println(month);
           Serial.println(day);
           Serial.println(hour);
           Serial.println(minute);
           Serial.println(second);
-
-
+          */
           // Set the fetched date and time to the internal clock
           setTime(hour, minute, second, day, month, year);  // Set time (HH, MM, SS, DD, MM, YYYY)
           Serial.println("Time fetched and set.");
@@ -567,4 +572,62 @@ void fauxmoLoop() {
     last = millis();
     Serial.printf("[MAIN] Free heap: %d bytes\n", ESP.getFreeHeap());
   }
+}
+
+void setAlarmTimeFromCloudToDevice() {
+  String timeString = getSpecificSensorData(DEVICEKEY).deviceReading;
+
+  if (timeString.isEmpty())
+    return;
+
+  // Convert String to const char*
+  const char* timeStringCstr = timeString.c_str();
+
+  // Parse the time string
+  int hours, minutes;
+  char ampm[3];
+
+  // Check the return value of sscanf to ensure successful parsing
+  if (sscanf(timeStringCstr, "%d:%d %2s", &hours, &minutes, ampm) == 3) {
+    // Adjust hours based on AM/PM
+    if (strcmp(ampm, "PM") == 0 && hours != 12) {
+      hours += 12;
+    } else if (strcmp(ampm, "AM") == 0 && hours == 12) {
+      hours = 0;
+    }
+
+    // Update global variables
+    alarmEnabled = true;
+    alarmHrs = hours;
+    alarmMins = minutes;
+    reversePopulateDeviceValueFromHrsMins();
+    /*
+    Serial.println(alarmEnabled);
+    Serial.println(alarmHrs);
+    Serial.println(alarmMins);
+    Serial.println(deviceValue);
+    */
+    // Update alexa also
+    fauxmo.setState(DEVICE, alarmEnabled ? true : false, deviceValue);
+    Serial.println("Alarm set from cloud");
+  } else {
+    // Handle the case where parsing fails
+    Serial.println("Error: Invalid time format");
+    // You can add additional error-handling logic here if needed
+  }
+}
+
+void reversePopulateDeviceValueFromHrsMins() {
+  // Ensure that the values are within the valid range
+  float m_alarmHrs = alarmHrs % 24;
+  float m_alarmMins = alarmMins % 60;
+
+  // Calculate total minutes since midnight
+  float minutesSinceMidnight = (m_alarmHrs * 60) + m_alarmMins;
+
+  // Calculate the percentage based on 15 minutes per percent
+  float perc = minutesSinceMidnight / 15.0;
+
+  // Calculate the device value based on the percentage and the range [0, 255]
+  deviceValue = (perc / 100.0) * 255;
 }
