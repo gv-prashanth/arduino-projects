@@ -14,7 +14,7 @@ int scrollSpeed = 40;           // Adjust the scrolling speed
 int ANIMATION_OVERHEAD = 2500;  //ms
 const boolean SHOW_TIME_FREQUENTLY = true;
 int INTENSITY = 0;     //0 min to 15 max
-int MAXINTENSITY = 5;  //0 min to 15 max
+int MAXINTENSITY = 10;  //0 min to 15 max
 boolean displayDayInClock = true;
 boolean toResetIntensity;
 

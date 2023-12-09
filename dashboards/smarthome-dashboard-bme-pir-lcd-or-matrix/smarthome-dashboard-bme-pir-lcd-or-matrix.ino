@@ -13,7 +13,7 @@
 // Configurations
 #define DISPLAY_TYPE LCD_BIG_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY, LCD_BIG_DISPLAY
 #define BME_TYPE NO_BME               // BME680, BME280, NO_BME
-#define ALARM_TYPE EXTERNAL_ALARM     // INTERNAL_ALARM, EXTERNAL_ALARM
+#define ALARM_TYPE INTERNAL_ALARM     // INTERNAL_ALARM, EXTERNAL_ALARM
 const char* ssid = "XXX";
 const char* password = "YYY";
 const String droid = "ZZZ";
