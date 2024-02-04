@@ -126,14 +126,14 @@ void setup() {
   setupDisplay();
   setupWifi();
   setupBME();
-  fauxmoSetup();
   //Lets fetch and parse once to be ready to display immediatly.
   while (timeStatus() != timeSet) {
     Serial.println("trying to fetch time");
     fetchAndLoadCurrentTimeFromWeb();
   }
-  fetchPayload();
-  parsePayload();
+  fauxmoSetup();
+  while (!fetchAndParseFromURL())
+    ;
   setAlarmTimeFromCloudToDevice();
 }
 
@@ -187,10 +187,16 @@ void preProcessAndSetDisplayFrequently() {
 void fetchAndParseFromURLFrequently() {
   unsigned long currentTime = millis();
   if (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY) {
-    fetchPayload();
-    parsePayload();
-    lastFetchTime = currentTime;
+    if (fetchAndParseFromURL())
+      lastFetchTime = currentTime;
   }
+}
+
+boolean fetchAndParseFromURL() {
+  boolean isFetchSuccess = fetchPayload();
+  if (isFetchSuccess)
+    return parsePayload();
+  return isFetchSuccess;
 }
 
 void loadMotionReadings() {
@@ -221,7 +227,8 @@ void setupWifi() {
   Serial.printf("[WIFI] STATION Mode, SSID: %s, IP address: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
 }
 
-void fetchPayload() {
+boolean fetchPayload() {
+  boolean toReturn = false;
   Serial.println("begining the data fetch now");
   // Create a WiFiClientSecure object for HTTPS
   BearSSL::WiFiClientSecure client;
@@ -244,6 +251,7 @@ void fetchPayload() {
       payload = http.getString();
       Serial.println("Response payload:");
       Serial.println(payload);
+      toReturn = true;
     } else {
       Serial.print("Error on HTTPS request2: ");
       Serial.println(httpResponseCode);
@@ -254,9 +262,11 @@ void fetchPayload() {
   }
 
   http.end();
+  return toReturn;
 }
 
-void parsePayload() {
+boolean parsePayload() {
+  boolean toReturn = false;
   Serial.println("begining the payload parse now");
   DynamicJsonDocument doc(2048);  // Adjust the size based on your JSON data size
 
@@ -298,7 +308,10 @@ void parsePayload() {
       globalDataEntries.push_back(entry);
       jsonIndex++;
     }
+
+    toReturn = true;
   }
+  return toReturn;
 }
 
 String preProcessMessage(String str) {
