@@ -22,6 +22,7 @@
 #define MAX_DISTANCE 200 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
 
 const int RETRY_ATTEMPTS = 20;
+const String TANK_NAME = "tankone";
 float battVolts;   // made global for wider avaliblity throughout a sketch if needed, example for a low voltage alarm, etc value is volts X 100, 5 vdc = 500
 
 RH_ASK driver;
@@ -46,11 +47,11 @@ void setup()
 void loop()
 {
   for (int i = 0; i <= 3; i++) battVolts = getBandgap(); //4 readings required for best stable value?
-  Serial.print("Battery Vcc volts =  ");
-  Serial.println(battVolts / 100);
-  Serial.print("Analog pin 0 voltage = ");
-  Serial.println(map(analogRead(0), 0, 1023, 0, battVolts));
-  Serial.println();
+  //Serial.print("Battery Vcc volts =  ");
+  //Serial.println(battVolts / 100);
+  //Serial.print("Analog pin 0 voltage = ");
+  //Serial.println(map(analogRead(0), 0, 1023, 0, battVolts));
+  //Serial.println();
 
   //get average distance and VCC
   float distance = getMeanDistance();
@@ -61,7 +62,7 @@ void loop()
   String distanceString = String(distance);
   //const char *msg = distanceString.c_str();
   String VccString = String(battVolts);
-  String totalMessage = distanceString +","+VccString;
+  String totalMessage = distanceString +","+VccString+","+TANK_NAME;
   const char *msg = totalMessage.c_str();
   for (int i = 0; i < RETRY_ATTEMPTS; i++) {
     driver.send((uint8_t *)msg, strlen(msg));

@@ -14,6 +14,7 @@
 
 #define TRANSMISSION_TYPE RH  // RH, LORA - Change PINS Below
 #define DISPLAY_TYPE LCD  // NONE, LCD, OLED - Change PINS Below
+const String TANK_NAME = "tankone";
 
 //Pin Configurations
 const int sumpMotorTriggerPin = 8;        // sump pump driver pin
