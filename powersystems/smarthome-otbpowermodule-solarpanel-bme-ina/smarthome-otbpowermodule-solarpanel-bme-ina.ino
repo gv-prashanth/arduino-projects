@@ -15,10 +15,12 @@
 #define SEALEVELPRESSURE_HPA (1013.25)
 #define WIFI_SSID "GTS"
 #define WIFI_PASS "0607252609"
-#define SOLAR_DEVICE_NAME "SolarPanel"
 #define WEATHER_DEVICE_NAME "Weather"
+#define SOLAR_DEVICE_NAME "SolarSystem"
+const uint8_t WIRE_SDA = 2;        //2 for system, 0 for panel
+const uint8_t WIRE_SCL = 0;        //0 for system, 2 for panel
+const int sleepTimeSeconds = 180;  // Configure deep sleep in between measurements
 const String DROID_ID = "C3PO";
-const int sleepTimeSeconds = 15;  // Configure deep sleep in between measurements
 
 float PRECISSION_POWER_A = 0.5;    //w
 float PRECISSION_VOLTAGE_A = 0.2;  //v
@@ -55,7 +57,7 @@ void setup() {
   wifiSetup();
 
   Serial.println(F("BME Initializing..."));
-  Wire.begin(0, 2);  // SDA, SCL
+  Wire.begin(WIRE_SDA, WIRE_SCL);  // SDA, SCL
   boolean bmestatus = bme.begin(0x76);
   if (!bmestatus) {
     error += "bme";
@@ -73,9 +75,15 @@ void setup() {
   INAChangeDetected = true;
   BMEChangeDetected = true;
   Serial.println("Errors: " + error);
+
+  customloop();
 }
 
 void loop() {
+  //Nothing much here.
+}
+
+void customloop() {
   loadINAReadings();
   checkAndsendToAlexaINAReadings();
   loadBMEReadings();
@@ -164,7 +172,8 @@ void checkAndsendToAlexaINAReadings() {
     Serial.print(B_power_W);
     Serial.println(" W");
 
-    String basicMessage = error + "Panel%20" + String((float)(A_power_W)) + "W%2C%20" + String((float)A_loadvoltage) + "V%2E%20" + "Battery%20" + String((float)(B_power_W)) + "W%2C%20" + String((float)B_loadvoltage) + "V";
+    //String basicMessage = error + "Panel%20" + String((float)(A_power_W)) + "W%2C%20" + String((float)A_loadvoltage) + "V%2E%20" + "Battery%20" + String((float)(B_power_W)) + "W%2C%20" + String((float)B_loadvoltage) + "V";
+    String basicMessage = "Panel%20" + String((float)(A_power_W)) + "W%2C%20" + String((float)A_loadvoltage) + "V%2E%20" + "Battery%20" + String((float)(B_power_W)) + "W%2C%20" + String((float)B_loadvoltage) + "V";
     sendSensorValueToAlexa(SOLAR_DEVICE_NAME, basicMessage);
     INAChangeDetected = false;
   }

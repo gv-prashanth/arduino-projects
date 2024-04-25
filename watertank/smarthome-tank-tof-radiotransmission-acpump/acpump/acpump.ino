@@ -12,16 +12,13 @@
    SumpReceiverIndicatorPin  13 connected with Red LED through 150E resistor to ground indicating RF Link.
 */
 
-#include <RH_ASK.h>
-#ifdef RH_HAVE_HARDWARE_SPI
-#include <SPI.h>  // Not actually used but needed to compile
-#endif
-#include <LiquidCrystal.h>
+#define TRANSMISSION_TYPE RH  // RH, LORA - Change PINS Below
+#define DISPLAY_TYPE LCD  // NONE, LCD, OLED - Change PINS Below
 
 //Pin Configurations
 const int sumpMotorTriggerPin = 8;        // sump pump driver pin
-const int SumpDangerIndicatorPin = 9;     // Sump danger level led pin
-const int SumpReceiverIndicatorPin = 13;  // Sump receiver indication led pin
+const int SumpDangerIndicatorPin = 10;     // Sump danger level led pin
+const int SumpReceiverIndicatorPin = 9;  // Sump receiver indication led pin
 
 //Functional Configurations
 const unsigned long TRANSMISSION_TRESHOLD_TIME = 36000;          // in milliseconds
@@ -34,26 +31,57 @@ const float DIAMETER_OF_TANK = 108.0;                            //in centimers
 const float TANK_TOLERANCE = 20.0;                               // in centimeters
 const unsigned long DISPLAY_DURATION = 10000;                    //in milliseconds
 const float VOLTAGE_TOLERANCE = 0.1;                             //volts
-// initialize the library by associating any needed LCD interface pin with the arduino pin number it is connected to
-const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+
 
 //Dont touch below stuff
 unsigned long lastSuccesfulOverheadTransmissionTime, lastSwitchOffTime, lastSwitchOnTime, batchTimestamp, todayTracker_volume, todayTracker_time, todayTracker_switchOffHeight, batchCounter, displayChange;
 float cached_overheadTankWaterLevel, cached_overheadTankWaterLevel_thisBatchAverage, cached_overheadTankWaterLevel_prevBatchAverage, cached_overheadTankWaterLevel_prevprevBatchAverage, cached_transmitterVcc, prevOverheadVoltage;
 boolean firstTimeStarting, isMotorRunning, wasMotorInDangerInLastRun, prevLoopIsConnectionWithinTreshold, sendToAlexa;
 int prevTankPercentage, displayScreen;
-RH_ASK driver;
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+int calculateTankPercentage();
+boolean isConnectionWithinTreshold();
+unsigned long calculateVolumeConsumedSoFar();
+int calculateHoursConsumedSoFar();
+
+#define RH 1
+#define LORA 2
+#ifdef TRANSMISSION_TYPE
+#if TRANSMISSION_TYPE == RH
+#include "rh.h"                   // Include and use the RH_ASK display library
+#elif TRANSMISSION_TYPE == LORA       // Include and use the LoRa display library
+#include "lor.h"
+#else
+#error "Invalid library selection."
+#endif
+#else
+#error "Library selection not defined."
+#endif
+
+#define NONE 1
+#define LCD 2
+#define OLED 3
+#ifdef DISPLAY_TYPE
+#if DISPLAY_TYPE == NONE
+#include "none.h"                   // Include and use the none display library
+#elif DISPLAY_TYPE == LCD       // Include and use the Lcd display library
+#include "lcd.h"
+#elif DISPLAY_TYPE == OLED       // Include and use the oled display library
+#include "oled.h"
+#else
+#error "Invalid library selection."
+#endif
+#else
+#error "Library selection not defined."
+#endif
 
 void setup() {
   // initialize serial communication with computer:
   //DONT DISABLE.
   Serial.begin(9600);  // Mandatory if you want to use alexa integration.
 
-  if (!driver.init())
-    Serial.println("init failed");
+  setupTransmission();
 
-  lcd.begin(16, 2);
+  setupDisplay();
 
   // initialize the sumpMotorTriggerPin pin, SumpDangerIndicatorPin as Output
   pinMode(sumpMotorTriggerPin, OUTPUT);
@@ -103,7 +131,7 @@ void loop() {
       cached_overheadTankWaterLevel_prevprevBatchAverage = -1;
       switchOnMotor();
       wasMotorInDangerInLastRun = false;
-      Serial.println("No water in overhead tank. Also sump has water. Switching ON!");
+      //Serial.println("No water in overhead tank. Also sump has water. Switching ON!");
     } else if (!overheadBottomHasWater() && isRecentlySwitchedOff()) {
       //Serial.println("No water in overhead tank. But very recently switched Off. Lets wait for protection time and then check.");
     } else {
@@ -112,7 +140,7 @@ void loop() {
   }
 
   //do all displays
-  displayLCDInfo();
+  displayScreenInfo();
   trackAndDisplayConnectionStrength();
   displaySumpDangerIndicator();
   checkAndSendToAlexa();
@@ -171,47 +199,6 @@ boolean isConnectionWithinTreshold() {
   }
 }
 
-void loadAndCacheOverheadTransmissions() {
-  uint8_t buf[RH_ASK_MAX_MESSAGE_LEN];
-  uint8_t buflen = sizeof(buf);
-  unsigned long currentTime = millis();
-  if (driver.recv(buf, &buflen))  // Non-blocking
-  {
-    int i;
-    // Message with a good checksum received, dump it.
-    //driver.printBuffer("Got:", buf, buflen);
-    String fullString = (char*)buf;
-    int index = fullString.indexOf(',');
-    String respString = fullString.substring(0, index);
-    String vccString = fullString.substring(index + 1);
-    //sometimes we are getting zero vcc from above. in such case, we used the cached value rather than setting it to zero in our receiver variable.
-    if (vccString.toFloat() > 0)
-      cached_transmitterVcc = vccString.toFloat() / 100;
-    cached_overheadTankWaterLevel = HEIGHT_OF_TOF_SENSOR_FROM_GROUND - respString.toFloat();
-    lastSuccesfulOverheadTransmissionTime = currentTime;
-
-    cached_overheadTankWaterLevel_thisBatchAverage = ((batchCounter * cached_overheadTankWaterLevel_thisBatchAverage) / (batchCounter + 1)) + (cached_overheadTankWaterLevel / (batchCounter + 1));
-    batchCounter++;
-    if (currentTime - batchTimestamp > BATCH_DURATION) {
-      batchTimestamp = currentTime;
-      cached_overheadTankWaterLevel_prevprevBatchAverage = cached_overheadTankWaterLevel_prevBatchAverage;
-      cached_overheadTankWaterLevel_prevBatchAverage = cached_overheadTankWaterLevel_thisBatchAverage;
-      batchCounter = 0;
-    }
-    /*
-    Serial.print("Tank water: ");
-    Serial.print(cached_overheadTankWaterLevel);
-    Serial.print(" cm. ");
-    Serial.print("Prev: ");
-    Serial.print(cached_overheadTankWaterLevel_prevBatchAverage);
-    Serial.print(" cm. ");
-    Serial.print("PrevPrev: ");
-    Serial.print(cached_overheadTankWaterLevel_prevprevBatchAverage);
-    Serial.println(" cm.");
-    */
-  }
-}
-
 boolean isMotorInDanger() {
   unsigned long currentTime = millis();
   if (!isMotorRunning)
@@ -234,32 +221,6 @@ boolean overheadBottomHasWater() {
 
 boolean overheadTopHasWater() {
   return cached_overheadTankWaterLevel > HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND;
-}
-
-void displayLCDInfo() {
-  if (isConnectionWithinTreshold() && displayScreen == 1) {
-    lcd.setCursor(0, 0);
-    lcd.print(String("Capacity: ") + String(calculateTankPercentage()) + String("%          "));
-    lcd.setCursor(0, 1);
-    lcd.print(String("Usage: ") + String(calculateVolumeConsumedSoFar()) + String("L/") + String(calculateHoursConsumedSoFar()) + String("H          "));
-  } else if (isConnectionWithinTreshold() && displayScreen == 2) {
-    lcd.setCursor(0, 0);
-    lcd.print(String("Level: ") + String((int)cached_overheadTankWaterLevel) + String("cm          "));
-    lcd.setCursor(0, 1);
-    lcd.print(String("Battery: ") + String(cached_transmitterVcc) + String("v          "));
-  } else {
-    lcd.setCursor(0, 0);
-    lcd.print(String("NO SIGNAL!!!"));
-    lcd.setCursor(0, 1);
-    lcd.print(String("Battery: ") + String(cached_transmitterVcc) + String("v          "));
-  }
-  unsigned long currentTime = millis();
-  if (currentTime - displayChange > DISPLAY_DURATION) {
-    displayScreen++;
-    if (displayScreen > 2)
-      displayScreen = 1;
-    displayChange = currentTime;
-  }
 }
 
 int calculateTankPercentage() {

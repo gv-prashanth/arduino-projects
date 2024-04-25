@@ -1,0 +1,6 @@
+void setupDisplay(){
+}
+
+void displayScreenInfo() {
+
+}
