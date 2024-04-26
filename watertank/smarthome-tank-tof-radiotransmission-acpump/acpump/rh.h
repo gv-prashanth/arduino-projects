@@ -28,14 +28,12 @@ void loadAndCacheOverheadTransmissions() {
     String vccString = vccTankString.substring(0, index);
     String tankString = vccTankString.substring(index + 1);
     //Check for tank String and then resume
-    if(tankString==TANK_NAME) {
-      Serial.println("vccString: "+vccString);
-      Serial.println("tankString: "+tankString);
-      Serial.println("Received Message from "+tankString+". And will be processed since receiver is configured to "+TANK_NAME);
-    }else {
+    if (!tankString.startsWith(TANK_NAME))
       return;
-    }
-
+    //Serial.println("respString: " + respString);
+    //Serial.println("vccString: " + vccString);
+    //Serial.println("tankString: " + tankString);
+    //Serial.println("Received Message from " + tankString + ". And will be processed since receiver is configured to " + TANK_NAME);
     //sometimes we are getting zero vcc from above. in such case, we used the cached value rather than setting it to zero in our receiver variable.
     if (vccString.toFloat() > 0)
       cached_transmitterVcc = vccString.toFloat() / 100;

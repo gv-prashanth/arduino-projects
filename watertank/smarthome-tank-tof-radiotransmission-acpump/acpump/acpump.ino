@@ -14,12 +14,12 @@
 
 #define TRANSMISSION_TYPE RH  // RH, LORA - Change PINS Below
 #define DISPLAY_TYPE LCD  // NONE, LCD, OLED - Change PINS Below
-const String TANK_NAME = "tankone";
+const String TANK_NAME = "GTSPureWaterTank";
 
 //Pin Configurations
 const int sumpMotorTriggerPin = 8;        // sump pump driver pin
-const int SumpDangerIndicatorPin = 10;     // Sump danger level led pin
-const int SumpReceiverIndicatorPin = 9;  // Sump receiver indication led pin
+const int SumpDangerIndicatorPin = 9;     // Sump danger level led pin
+const int SumpReceiverIndicatorPin = 13;  // Sump receiver indication led pin
 
 //Functional Configurations
 const unsigned long TRANSMISSION_TRESHOLD_TIME = 36000;          // in milliseconds

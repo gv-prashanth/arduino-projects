@@ -22,7 +22,7 @@
 #define MAX_DISTANCE 200 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
 
 const int RETRY_ATTEMPTS = 20;
-const String TANK_NAME = "tankone";
+const String TANK_NAME = "GTSPureWaterTank";
 float battVolts;   // made global for wider avaliblity throughout a sketch if needed, example for a low voltage alarm, etc value is volts X 100, 5 vdc = 500
 
 RH_ASK driver;
