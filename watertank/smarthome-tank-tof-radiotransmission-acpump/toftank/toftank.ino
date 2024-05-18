@@ -13,7 +13,7 @@
 #include <DeepSleep.h>
 #include <NewPing.h>
 
-#define TRANSMISSION_TYPE LORA  // RH, LORA - Change PINS Below
+#define TRANSMISSION_TYPE RH  // RH, LORA - Change PINS Below
 #define TRIGGER_PIN  7  // Arduino pin tied to trigger pin on the ultrasonic sensor.
 #define ECHO_PIN     8  // Arduino pin tied to echo pin on the ultrasonic sensor.
 #define MAX_DISTANCE 200 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
