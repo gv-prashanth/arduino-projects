@@ -270,17 +270,17 @@ void checkAndSendToAlexa() {
     String voltageInEncodedString = String(destination);
     if (isMotorRunning) {
       if (wasMotorInDangerInLastRun) {
-        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20Voltage%20is%20" + voltageInEncodedString + "%20volts%2E%20There%20was%20dry%20run%2E");
+        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20ON%2E%20Voltage%20" + voltageInEncodedString + "%20volts%2E%20DRY%20RUN%2E");
       } else {
-        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20running%2E%20");
+        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20ON%2E");
       }
     } else {
       if (wasMotorInDangerInLastRun) {
-        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20is%20off%2E%20Voltage%20is%20" + voltageInEncodedString + "%20volts%2E%20There%20was%20dry%20run%2E");
+        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20OFF%2E%20Voltage%20" + voltageInEncodedString + "%20volts%2E%20DRY%20RUN%2E");
       } else if (!isConnectionWithinTreshold()) {
-        sendSensorValueToAlexa("not%20receiving%20from%20overhead%20tank%2E%20Last%20received%20Voltage%20is%20" + voltageInEncodedString + "%20volts%2E");
+        sendSensorValueToAlexa("not%20receiving%2E%20Last%20Voltage%20" + voltageInEncodedString + "%20volts%2E");
       } else {
-        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20");
+        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25");
       }
     }
     sendToAlexa = false;
