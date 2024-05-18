@@ -17,9 +17,9 @@
 const String TANK_NAME = "GTSPureWaterTank";
 
 //Pin Configurations
-const int sumpMotorTriggerPin = 8;        // sump pump driver pin
-const int SumpDangerIndicatorPin = 9;     // Sump danger level led pin
-const int SumpReceiverIndicatorPin = 13;  // Sump receiver indication led pin
+const int sumpMotorTriggerPin = 8;        // sump pump driver pin. 8 for Arduino, 3 for ESP
+const int SumpDangerIndicatorPin = 9;     // Sump danger level led pin. 9 for Arduino, 0 for ESP
+const int SumpReceiverIndicatorPin = 13;  // Sump receiver indication led pin. 13 for Arduino, 2 for ESP
 
 //Functional Configurations
 const unsigned long TRANSMISSION_TRESHOLD_TIME = 36000;          // in milliseconds
@@ -43,13 +43,15 @@ int calculateTankPercentage();
 boolean isConnectionWithinTreshold();
 unsigned long calculateVolumeConsumedSoFar();
 int calculateHoursConsumedSoFar();
+void loadAndCacheOverheadTransmissions(String fullString);
+int signalStrength;
 
 #define RH 1
 #define LORA 2
 #ifdef TRANSMISSION_TYPE
 #if TRANSMISSION_TYPE == RH
-#include "rh.h"                   // Include and use the RH_ASK display library
-#elif TRANSMISSION_TYPE == LORA       // Include and use the LoRa display library
+#include "rh.h"                  // Include and use the RH_ASK display library
+#elif TRANSMISSION_TYPE == LORA  // Include and use the LoRa display library
 #include "lor.h"
 #else
 #error "Invalid library selection."
@@ -63,10 +65,10 @@ int calculateHoursConsumedSoFar();
 #define OLED 3
 #ifdef DISPLAY_TYPE
 #if DISPLAY_TYPE == NONE
-#include "none.h"                   // Include and use the none display library
-#elif DISPLAY_TYPE == LCD       // Include and use the Lcd display library
+#include "none.h"          // Include and use the none display library
+#elif DISPLAY_TYPE == LCD  // Include and use the Lcd display library
 #include "lcd.h"
-#elif DISPLAY_TYPE == OLED       // Include and use the oled display library
+#elif DISPLAY_TYPE == OLED  // Include and use the oled display library
 #include "oled.h"
 #else
 #error "Invalid library selection."
@@ -108,7 +110,7 @@ void setup() {
 
 void loop() {
   // read values from all sensors
-  loadAndCacheOverheadTransmissions();
+  fetchOverheadReading();
 
   if (isMotorRunning) {
     if (!isConnectionWithinTreshold()) {
@@ -285,4 +287,46 @@ void checkAndSendToAlexa() {
     }
     sendToAlexa = false;
   }
+}
+
+void loadAndCacheOverheadTransmissions(String fullString) {
+  unsigned long currentTime = millis();
+  int index = fullString.indexOf(',');
+  String respString = fullString.substring(0, index);
+  String vccTankString = fullString.substring(index + 1);
+  index = vccTankString.indexOf(',');
+  String vccString = vccTankString.substring(0, index);
+  String tankString = vccTankString.substring(index + 1);
+  //Check for tank String and then resume
+  if (!tankString.startsWith(TANK_NAME))
+    return;
+  //Serial.println("respString: " + respString);
+  //Serial.println("vccString: " + vccString);
+  //Serial.println("tankString: " + tankString);
+  //Serial.println("Received Message from " + tankString + ". And will be processed since receiver is configured to " + TANK_NAME);
+  //sometimes we are getting zero vcc from above. in such case, we used the cached value rather than setting it to zero in our receiver variable.
+  if (vccString.toFloat() > 0)
+    cached_transmitterVcc = vccString.toFloat() / 100;
+  cached_overheadTankWaterLevel = HEIGHT_OF_TOF_SENSOR_FROM_GROUND - respString.toFloat();
+  lastSuccesfulOverheadTransmissionTime = currentTime;
+
+  cached_overheadTankWaterLevel_thisBatchAverage = ((batchCounter * cached_overheadTankWaterLevel_thisBatchAverage) / (batchCounter + 1)) + (cached_overheadTankWaterLevel / (batchCounter + 1));
+  batchCounter++;
+  if (currentTime - batchTimestamp > BATCH_DURATION) {
+    batchTimestamp = currentTime;
+    cached_overheadTankWaterLevel_prevprevBatchAverage = cached_overheadTankWaterLevel_prevBatchAverage;
+    cached_overheadTankWaterLevel_prevBatchAverage = cached_overheadTankWaterLevel_thisBatchAverage;
+    batchCounter = 0;
+  }
+  /*
+    Serial.print("Tank water: ");
+    Serial.print(cached_overheadTankWaterLevel);
+    Serial.print(" cm. ");
+    Serial.print("Prev: ");
+    Serial.print(cached_overheadTankWaterLevel_prevBatchAverage);
+    Serial.print(" cm. ");
+    Serial.print("PrevPrev: ");
+    Serial.print(cached_overheadTankWaterLevel_prevprevBatchAverage);
+    Serial.println(" cm.");
+  */  
 }

@@ -1,12 +1,12 @@
 #include <LoRa.h>
 #include <Wire.h>
 
-#define SS 15
-#define RST 16
-#define DIO0 2
+#define SS 15 //Only if ESP is used. Comment out incase of Arduino
+#define RST 16 //Only if ESP is used. Comment out incase of Arduino
+#define DIO0 9 //Only if ESP is used. Comment out incase of Arduino
 
 void setupTransmission() {
-  LoRa.setPins(SS, RST, DIO0);
+  LoRa.setPins(SS, RST, DIO0); //Only if ESP is used. Comment out incase of Arduino
   Wire.begin();
 
   if (!LoRa.begin(433E6)) {
@@ -16,47 +16,18 @@ void setupTransmission() {
   }
 }
 
-void loadAndCacheOverheadTransmissions() {
+void fetchOverheadReading() {
   int packetSize = LoRa.parsePacket();
-  unsigned long currentTime = millis();
+  //Serial.println("attempting to read:"+packetSize);
+  String fullString = "";
   if (packetSize)  // Non-blocking
   {
-    //Serial.print("Receiving Data: ");
-    String fullString = "";
+    //Serial.println("Receiving Data: ");
     while (LoRa.available()) {
       fullString = LoRa.readString();
     }
-    //int i;
-    // Message with a good checksum received, dump it.
-    //driver.printBuffer("Got:", buf, buflen);
-    
-    int index = fullString.indexOf(',');
-    String respString = fullString.substring(0, index);
-    String vccString = fullString.substring(index + 1);
-    //sometimes we are getting zero vcc from above. in such case, we used the cached value rather than setting it to zero in our receiver variable.
-    if (vccString.toFloat() > 0)
-      cached_transmitterVcc = vccString.toFloat() / 100;
-    cached_overheadTankWaterLevel = HEIGHT_OF_TOF_SENSOR_FROM_GROUND - respString.toFloat();
-    lastSuccesfulOverheadTransmissionTime = currentTime;
-
-    cached_overheadTankWaterLevel_thisBatchAverage = ((batchCounter * cached_overheadTankWaterLevel_thisBatchAverage) / (batchCounter + 1)) + (cached_overheadTankWaterLevel / (batchCounter + 1));
-    batchCounter++;
-    if (currentTime - batchTimestamp > BATCH_DURATION) {
-      batchTimestamp = currentTime;
-      cached_overheadTankWaterLevel_prevprevBatchAverage = cached_overheadTankWaterLevel_prevBatchAverage;
-      cached_overheadTankWaterLevel_prevBatchAverage = cached_overheadTankWaterLevel_thisBatchAverage;
-      batchCounter = 0;
-    }
-    /*
-    Serial.print("Tank water: ");
-    Serial.print(cached_overheadTankWaterLevel);
-    Serial.print(" cm. ");
-    Serial.print("Prev: ");
-    Serial.print(cached_overheadTankWaterLevel_prevBatchAverage);
-    Serial.print(" cm. ");
-    Serial.print("PrevPrev: ");
-    Serial.print(cached_overheadTankWaterLevel_prevprevBatchAverage);
-    Serial.println(" cm.");
-    */
+    //Serial.println(fullString);
+    loadAndCacheOverheadTransmissions(fullString);
+    signalStrength = LoRa.packetRssi();
   }
 }

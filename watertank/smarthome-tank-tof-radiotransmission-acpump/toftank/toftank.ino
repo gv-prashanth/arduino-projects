@@ -10,49 +10,53 @@
    sumpMotorTriggerPin driver attached to pin 5  with 10k resistor to ground
 */
 
-#include <RH_ASK.h>
-#ifdef RH_HAVE_HARDWARE_SPI
-#include <SPI.h> // Not actually used but needed to compile
-#endif
 #include <DeepSleep.h>
 #include <NewPing.h>
 
+#define TRANSMISSION_TYPE LORA  // RH, LORA - Change PINS Below
 #define TRIGGER_PIN  7  // Arduino pin tied to trigger pin on the ultrasonic sensor.
 #define ECHO_PIN     8  // Arduino pin tied to echo pin on the ultrasonic sensor.
 #define MAX_DISTANCE 200 // Maximum distance we want to ping for (in centimeters). Maximum sensor distance is rated at 400-500cm.
 
 const int RETRY_ATTEMPTS = 20;
 const String TANK_NAME = "GTSPureWaterTank";
+
+//Dont touch below code
+#define RH 1
+#define LORA 2
+#ifdef TRANSMISSION_TYPE
+#if TRANSMISSION_TYPE == RH
+#include "rh.h"                   // Include and use the RH_ASK display library
+#elif TRANSMISSION_TYPE == LORA       // Include and use the LoRa display library
+#include "lor.h"
+#else
+#error "Invalid library selection."
+#endif
+#else
+#error "Library selection not defined."
+#endif
 float battVolts;   // made global for wider avaliblity throughout a sketch if needed, example for a low voltage alarm, etc value is volts X 100, 5 vdc = 500
 
-RH_ASK driver;
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, MAX_DISTANCE); // NewPing setup of pins and maximum distance.
 DeepSleep deepSleep;
 
 void setup()
 {
-#ifdef RH_HAVE_SERIAL
-  Serial.begin(38400);    // Debugging only
-  Serial.print("volts X 100");
-  Serial.println( "\r\n\r\n" );
-#endif
-  if (!driver.init())
-#ifdef RH_HAVE_SERIAL
-    Serial.println("init failed");
-#else
-    ;
-#endif
+  Serial.begin(9600);  // Debugging only
+  Serial.print("Setting up Transmission");
+  setupTransmission();
 }
 
 void loop()
 {
   for (int i = 0; i <= 3; i++) battVolts = getBandgap(); //4 readings required for best stable value?
-  //Serial.print("Battery Vcc volts =  ");
-  //Serial.println(battVolts / 100);
-  //Serial.print("Analog pin 0 voltage = ");
-  //Serial.println(map(analogRead(0), 0, 1023, 0, battVolts));
-  //Serial.println();
-
+  /*
+  Serial.print("Battery Vcc volts =  ");
+  Serial.println(battVolts / 100);
+  Serial.print("Analog pin 0 voltage = ");
+  Serial.println(map(analogRead(0), 0, 1023, 0, battVolts));
+  Serial.println();
+  */
   //get average distance and VCC
   float distance = getMeanDistance();
   float battVolts = getMeanVcc();
@@ -63,12 +67,7 @@ void loop()
   //const char *msg = distanceString.c_str();
   String VccString = String(battVolts);
   String totalMessage = distanceString +","+VccString+","+TANK_NAME;
-  const char *msg = totalMessage.c_str();
-  for (int i = 0; i < RETRY_ATTEMPTS; i++) {
-    driver.send((uint8_t *)msg, strlen(msg));
-    driver.waitPacketSent();
-    //Serial.print(distance); Serial.println(" cm");delay(100);
-  }
+  transmitUsingTransmitter(totalMessage);
   //sleep for 8 sec
   deepSleep.sleepForEightSecondsUnlessInterrupted();
 }

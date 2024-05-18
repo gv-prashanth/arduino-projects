@@ -31,7 +31,7 @@ void displayScreenInfo() {
     display.setFont(ArialMT_Plain_16);
     display.drawString(0, 0, ("LEVL : ") + String((int)cached_overheadTankWaterLevel) + String("cm"));
     display.drawString(0, 24, ("BATT : ") + String((0.24) + (cached_transmitterVcc)) + String("v"));
-    display.drawString(0, 48, ("RSSI : ") + String(LoRa.packetRssi()));
+    display.drawString(0, 48, ("RSSI : ") + String(signalStrength));
     display.display();
 
   } else {
@@ -39,7 +39,7 @@ void displayScreenInfo() {
     display.setFont(ArialMT_Plain_16);
     display.drawString(0, 0, " NO SIGNAL !!!");
     display.drawString(0, 24, ("BATT : ") + String(cached_transmitterVcc) + String("v"));
-    display.drawString(0, 48, ("RSSI : ") + String(LoRa.packetRssi()));
+    display.drawString(0, 48, ("RSSI : ") + String(signalStrength));
     display.display();
   }
   unsigned long currentTime = millis();
