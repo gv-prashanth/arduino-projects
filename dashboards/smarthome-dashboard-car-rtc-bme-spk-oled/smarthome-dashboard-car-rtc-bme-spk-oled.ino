@@ -92,7 +92,8 @@ void loop() {
   gatherBMEReadings();
   gatherClockReadings();
   playNotificationIfRequired();
-  displaySequentially();
+  if(!audioPlaying)
+    displaySequentially();
 }
 
 void playNotificationIfRequired() {
