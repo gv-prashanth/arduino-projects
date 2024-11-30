@@ -24,7 +24,7 @@ const int SumpReceiverIndicatorPin = 13;  // Sump receiver indication led pin. 1
 //Functional Configurations
 const unsigned long TRANSMISSION_TRESHOLD_TIME = 36000;          // in milliseconds
 const unsigned long PROTECTION_BETWEEN_SWITCH_OFF_ON = 1800000;  //in milliseconds
-const unsigned long MAX_ALLOWED_RUNTIME_OF_MOTOR = 1800000;      //in milliseconds
+const unsigned long MAX_ALLOWED_RUNTIME_OF_MOTOR = 5400000;      //in milliseconds
 const unsigned long BATCH_DURATION = 120000;                     //in milliseconds
 const float HEIGHT_OF_TOF_SENSOR_FROM_GROUND = 115.0;            // in centimeters
 const float HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND = 108.0;        // in centimeters
@@ -150,10 +150,27 @@ void loop() {
 }
 
 void displaySumpDangerIndicator() {
-  if (wasMotorInDangerInLastRun)
-    digitalWrite(SumpDangerIndicatorPin, HIGH);
-  else
+  if (wasMotorInDangerInLastRun) {
+    if(overheadBottomHasWater()) {
+      //danger but the bottom still has water. So lets just give a small warning display
+      danger_blinkLED(SumpDangerIndicatorPin, 1000);
+    } else{
+      //danger AND bottom is running low on water. Send a high alert
+      digitalWrite(SumpDangerIndicatorPin, HIGH);
+    }
+  } else
     digitalWrite(SumpDangerIndicatorPin, LOW);
+}
+
+void danger_blinkLED(int danger_blinkPin, unsigned long danger_blinkInterval) {
+  static unsigned long danger_blinkPreviousMillis = 0; // Static variable to keep track of time
+  static bool danger_blinkState = LOW; // Static variable to track LED state
+
+  if (millis() - danger_blinkPreviousMillis >= danger_blinkInterval) {
+    danger_blinkPreviousMillis = millis(); // Update the timestamp
+    danger_blinkState = !danger_blinkState; // Toggle LED state
+    digitalWrite(danger_blinkPin, danger_blinkState); // Apply the new state to the LED
+  }
 }
 
 void trackAndDisplayConnectionStrength() {
@@ -219,11 +236,14 @@ boolean isRecentlySwitchedOff() {
 }
 
 boolean overheadBottomHasWater() {
-  return cached_overheadTankWaterLevel > (HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND - TANK_TOLERANCE);
+  if(!wasMotorInDangerInLastRun)
+    return cached_overheadTankWaterLevel > (HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND - TANK_TOLERANCE);//basecase when last run wasnt danger
+  else
+    return cached_overheadTankWaterLevel > (TANK_TOLERANCE);//exception when last run was danger
 }
 
 boolean overheadTopHasWater() {
-  return cached_overheadTankWaterLevel > HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND;
+  return cached_overheadTankWaterLevel >= HEIGHT_OF_TANK_DRAIN_OUT_FROM_GROUND;
 }
 
 int calculateTankPercentage() {
@@ -255,6 +275,8 @@ void sendSensorValueToAlexa(String reading) {
   Serial.println("WaterTank " + reading);  // Mandatory if you want to use alexa integration.
 }
 
+//TODO: Rather than doing checks using above methods. We should be doing ALL if checks based on the pin value is high or low. That should be the way in which we decide on what message to send.
+//For example, we should be checking the dangerPIN rather than wasMotorInDangerInLastRun variable
 void checkAndSendToAlexa() {
   if (abs(prevTankPercentage - ((int)calculateTankPercentage())) >= 1) {
     sendToAlexa = true;
@@ -271,18 +293,18 @@ void checkAndSendToAlexa() {
     //String voltageInEncodedString = String((int)overheadVoltage);
     String voltageInEncodedString = String(destination);
     if (isMotorRunning) {
-      if (wasMotorInDangerInLastRun) {
-        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20ON%2E%20Voltage%20" + voltageInEncodedString + "%20volts%2E%20DRY%20RUN%2E");
+      if (wasMotorInDangerInLastRun && !overheadBottomHasWater()) {
+        sendSensorValueToAlexa("" + String(calculateTankPercentage()) + "%25%2E%20Motor%20ON%2E%20Voltage%20" + voltageInEncodedString + "%20volts%2E%20DRY%20RUN%2E");
       } else {
-        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20ON%2E");
+        sendSensorValueToAlexa("" + String(calculateTankPercentage()) + "%25%2E%20Motor%20ON%2E");
       }
     } else {
-      if (wasMotorInDangerInLastRun) {
-        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25%2E%20Motor%20OFF%2E%20Voltage%20" + voltageInEncodedString + "%20volts%2E%20DRY%20RUN%2E");
+      if (wasMotorInDangerInLastRun && !overheadBottomHasWater()) {
+        sendSensorValueToAlexa("" + String(calculateTankPercentage()) + "%25%2E%20Motor%20OFF%2E%20Voltage%20" + voltageInEncodedString + "%20volts%2E%20DRY%20RUN%2E");
       } else if (!isConnectionWithinTreshold()) {
         sendSensorValueToAlexa("not%20receiving%2E%20Last%20Voltage%20" + voltageInEncodedString + "%20volts%2E");
       } else {
-        sendSensorValueToAlexa("at%20" + String(calculateTankPercentage()) + "%25");
+        sendSensorValueToAlexa("" + String(calculateTankPercentage()) + "%25");
       }
     }
     sendToAlexa = false;
