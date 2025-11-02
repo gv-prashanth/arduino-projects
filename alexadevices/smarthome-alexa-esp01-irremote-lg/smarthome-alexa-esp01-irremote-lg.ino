@@ -18,8 +18,8 @@
 
 
 const int MIN_TEMPERATURE = 18;
-const int MAX_TEMPERATURE = 30;
-const String DROID_ID = "C3PO";
+const int MAX_TEMPERATURE = 24;
+const String DROID_ID = "ABCD";
 const uint16_t irLed = 3;
 
 //Dont touch below stuff
@@ -75,12 +75,12 @@ void loop() {
 
 void triggerDeviceOneOn() {
   Ac_Activate(convertValueToTemperature(deviceValueOne), 1, 0);
-  sendSensorValueToAlexa("BedAC", "On%2C%20set%20to%20temperature%20"+String(convertValueToTemperature(deviceValueOne))+"%20degree%20celsius");
+  sendSensorValueToAlexa(DEVICE_ONE, "On%2C%20set%20to%20temperature%20"+String(convertValueToTemperature(deviceValueOne))+"%20degree%20celsius");
 }
 
 void triggerDeviceOneOff() {
   Ac_Power_Down();
-  sendSensorValueToAlexa("BedAC", "Off");
+  sendSensorValueToAlexa(DEVICE_ONE, "Off");
 }
 
 void wifiSetup() {
@@ -113,10 +113,12 @@ int convertValueToTemperature(int value) {
 
 
 void sendSensorValueToAlexa(String name, String reading) {
+  String encodedName = "";
+  for (int i = 0; i < name.length(); i++) encodedName += (name.charAt(i) == ' ') ? "%20" : String(name.charAt(i));
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient https;
-  String fullUrl = "https://home-automation.vadrin.com/droid/" + DROID_ID + "/upsert/intent/" + name + "/reading/" + reading;
+  String fullUrl = "https://home-automation.vadrin.com/droid/" + DROID_ID + "/upsert/intent/" + encodedName + "/reading/" + reading;
   Serial.println("Requesting " + fullUrl);
   if (https.begin(client, fullUrl)) {
     int httpCode = https.GET();
