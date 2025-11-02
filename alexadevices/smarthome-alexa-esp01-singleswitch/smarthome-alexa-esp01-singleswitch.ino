@@ -5,9 +5,6 @@
 #include <ESP8266WiFi.h>
 #endif
 #include "fauxmoESP.h"
-#include <IRremoteESP8266.h>
-#include <IRsend.h>
-#include <ir_Daikin.h>
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
 
@@ -15,18 +12,14 @@
 #define SERIAL_BAUDRATE     74880
 #define WIFI_SSID           "XXXXXXX"
 #define WIFI_PASS           "YYYYYYY"
-#define DEVICE_ONE          "Daikin"
+#define DEVICE_ONE          "LAMP"
+#define RELAY_PIN_1         3
 
-
-const int MIN_TEMPERATURE = 18;
-const int MAX_TEMPERATURE = 24;
 const String DROID_ID = "ABCD";
-const uint16_t irLed = 3;
 
 //Dont touch below stuff
 fauxmoESP fauxmo;
 //IRsend irsend(irLed);
-IRDaikinESP irsend(irLed);
 volatile boolean takeActionToSwitchOnDeviceOne = false;
 volatile boolean takeActionToSwitchOffDeviceOne = false;
 volatile int deviceValueOne = 255;
@@ -41,6 +34,9 @@ void setup() {
   // Add device
   fauxmo.addDevice(DEVICE_ONE);
 
+  // LED
+  pinMode(RELAY_PIN_1, OUTPUT);
+  digitalWrite(RELAY_PIN_1, HIGH);
 
   // Callback when a command from Alexa is received.
   fauxmo.onSetState([](unsigned char device_id, const char * device_name, bool state, unsigned char value) {
@@ -57,8 +53,6 @@ void setup() {
 
 
   });
-
-  irsend.begin();
 }
 
 void loop() {
@@ -77,31 +71,13 @@ void loop() {
 
 void triggerDeviceOneOn() {
   Serial.println("DEVICE_ONE SWITCHING ON");
-  //irsend.sendLG(0x8800707);
-  irsend.on();
-  irsend.setMode(kDaikinCool);
-  irsend.setTemp(convertValueToTemperature(deviceValueOne));
-  irsend.setFan(kDaikinFanAuto);
-  irsend.setSwingVertical(false);
-  irsend.setSwingHorizontal(false);
-  irsend.setComfort(true);//irsend.setQuiet(false);// Powerful, Quiet, Comfort, & Econo mode being on are mutually exclusive.  Serial.println(irsend.toString());
-  Serial.println(irsend.toString());
-  irsend.send();
-  sendSensorValueToAlexa(DEVICE_ONE, "On%20"+String(convertValueToTemperature(deviceValueOne))+"%C2%B0C");
+  digitalWrite(RELAY_PIN_1, HIGH);
+  sendSensorValueToAlexa(DEVICE_ONE, "On");
 }
 
 void triggerDeviceOneOff() {
   Serial.println("DEVICE_ONE SWITCHING OFF");
-  //irsend.sendLG(0x88C0051);
-  irsend.off();
-  irsend.setMode(kDaikinCool);
-  irsend.setTemp(convertValueToTemperature(deviceValueOne));
-  irsend.setFan(kDaikinFanAuto);
-  irsend.setSwingVertical(false);
-  irsend.setSwingHorizontal(false);
-  irsend.setComfort(true);//irsend.setQuiet(false);// Powerful, Quiet, Comfort, & Econo mode being on are mutually exclusive.  Serial.println(irsend.toString());
-  Serial.println(irsend.toString());
-  irsend.send();
+  digitalWrite(RELAY_PIN_1, LOW);
   sendSensorValueToAlexa(DEVICE_ONE, "Off");
 }
 
@@ -123,16 +99,6 @@ void fauxmoSetup() {
   fauxmo.setPort(80); // This is required for gen3 devices
   fauxmo.enable(true);
 }
-
-int convertValueToTemperature(int value) {
-  int temp = (100.0 / 255.0) * (value);
-  if (temp <= MIN_TEMPERATURE)
-    temp = MIN_TEMPERATURE;
-  if (temp >= MAX_TEMPERATURE)
-    temp = MAX_TEMPERATURE;
-  return temp;
-}
-
 
 void sendSensorValueToAlexa(String name, String reading) {
   String encodedName = "";
