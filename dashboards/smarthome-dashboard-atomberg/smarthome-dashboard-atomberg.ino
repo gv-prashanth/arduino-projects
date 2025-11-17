@@ -4,9 +4,9 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 
-const char* ssid = "ACT-ai_101743562903";
-const char* password = "22469425";
-const String DROID_ID = "R2D2";
+const char* ssid = "XXXX";
+const char* password = "YYYY";
+const String DROID_ID = "ABCD";
 
 WiFiUDP udp;
 const unsigned int UDP_PORT = 5625;
@@ -46,6 +46,7 @@ String getDeviceName(const String& devId) {
 struct DeviceInfo {
   String deviceId;
   bool power;
+  bool switchOn;
   bool led;
   int speed;
   unsigned long lastHeartbeatTime;
@@ -83,8 +84,19 @@ void sendSensorValueToAlexa(String name, String reading) {
   }
 }
 
+
+void upsertDevice_Switch() {
+  for (int i = 0; i < deviceCount; i++) {
+    if (devices[i].switchOn && (millis() - devices[i].lastHeartbeatTime > 10000)) {
+      //Looks like switch is just turned off
+      devices[i].switchOn = false;
+      sendDeviceDataToAlexa(devices[i].deviceId);
+    }
+  }
+}
+
 // Add or update device
-void upsertDeviceInfo(String devId, bool power, bool led, int speed) {
+void upsertDevice_Info(String devId, bool power, bool led, int speed) {
   int index = findDeviceIndex(devId);
 
   if (index == -1) {
@@ -92,6 +104,7 @@ void upsertDeviceInfo(String devId, bool power, bool led, int speed) {
     if (deviceCount < 20) {
       devices[deviceCount].deviceId = devId;
       devices[deviceCount].power = power;
+      devices[deviceCount].switchOn = true;
       devices[deviceCount].led = led;
       devices[deviceCount].speed = speed;
       devices[deviceCount].lastHeartbeatTime = millis();
@@ -100,6 +113,7 @@ void upsertDeviceInfo(String devId, bool power, bool led, int speed) {
   } else {
     // UPDATE existing device
     devices[index].power = power;
+    devices[index].switchOn = true;
     devices[index].led = led;
     devices[index].speed = speed;
     devices[index].lastHeartbeatTime = millis();
@@ -108,21 +122,20 @@ void upsertDeviceInfo(String devId, bool power, bool led, int speed) {
   sendDeviceDataToAlexa(devId);
 }
 
-void sendDeviceDataToAlexa(String devId){
+void sendDeviceDataToAlexa(String devId) {
   int currentDeviceIndex = findDeviceIndex(devId);
   String constructDeviceMessage;
-
-  if (devices[currentDeviceIndex].power) {
-    constructDeviceMessage = "On";
-    if (devices[currentDeviceIndex].speed == 0) {
-      //constructDeviceMessage += ".%20Standby.";
-    }else {
-      constructDeviceMessage += ".%20Speed%20" + String(devices[currentDeviceIndex].speed) + ".";
+  if (devices[currentDeviceIndex].switchOn) {
+    if (devices[currentDeviceIndex].power && devices[currentDeviceIndex].speed != 0) {
+      constructDeviceMessage = "On.%20Speed%20" + String(devices[currentDeviceIndex].speed) + ".";
+    }else if(!devices[currentDeviceIndex].power && devices[currentDeviceIndex].speed != 0){
+      constructDeviceMessage = "On.%20Standby.";
+    }else{
+      constructDeviceMessage = "On";
     }
   } else {
     constructDeviceMessage = "Off";
   }
-
   //Serial.println(constructDeviceMessage);
   sendSensorValueToAlexa(getDeviceName(devId), constructDeviceMessage);
 }
@@ -215,15 +228,6 @@ void printAllDevices() {
   }
 }
 
-
-void turnOffHeartlessDevices() {
-  for (int i = 0; i < deviceCount; i++) {
-    if (devices[i].power && (millis() - devices[i].lastHeartbeatTime > 10000)) {
-      upsertDeviceInfo(devices[i].deviceId, false, false, 0);
-    }
-  }
-}
-
 String getDeviceIdFromHeartbeat(const String& input) {
   int pos = input.indexOf('_');
   if (pos == -1) {
@@ -234,62 +238,64 @@ String getDeviceIdFromHeartbeat(const String& input) {
   }
 }
 
+void processHeartbeat(String incomingString) {
+  if (incomingString.indexOf('_') != -1) {
+    String devId = getDeviceIdFromHeartbeat(incomingString);
+    // Since its not there in collection create a record and register its as switchOn
+    // Also, if its already created but tracked as switchOff, then track it as switchOn
+    if (findDeviceIndex(devId) == -1 || !devices[findDeviceIndex(devId)].switchOn) {
+      upsertDevice_Info(devId, false, false, 0);
+    }
+    trackHeartbeatTime(devId);
+  }
+}
+
+void processFanEvent(String incomingString) {
+  // decode HEX → ASCII JSON
+  String jsonText = hexToAscii(incomingString);
+  DynamicJsonDocument doc(1024);
+  if (deserializeJson(doc, jsonText)) return;
+  String device_id = doc["device_id"];
+  String message_id = doc["message_id"];
+  String state_string = doc["state_string"];
+
+  //Skip-2. Sometimes when we keep the mobile app open these messages spam us
+  if (message_id == "internet_query") return;
+
+  // Extract encoded first field
+  int firstComma = state_string.indexOf(",");
+  String firstField = state_string.substring(0, firstComma);
+  uint32_t encodedValue = (uint32_t)strtoul(firstField.c_str(), NULL, 10);
+  bool power = (encodedValue & 0x10) > 0;
+  bool led = (encodedValue & 0x20) > 0;
+  int speed = (encodedValue & 0x07);
+  upsertDevice_Info(device_id, power, led, speed);
+}
+
 // ---------------------------------------------------------------------------
 // MAIN LOOP
 // ---------------------------------------------------------------------------
 void loop() {
-
   // ---- READ UDP PACKETS ----
   int packetSize = udp.parsePacket();
   if (packetSize) {
     char incoming[2048];
     int len = udp.read(incoming, sizeof(incoming) - 1);
     if (len > 0) incoming[len] = 0;
-    String hexString = String(incoming);
-    // check if its heardbeat message or state transition message
-    if (!isHexString(hexString)) {
-      // check if it is a device heart beat
-      if (hexString.indexOf('_') != -1) {
-        String devId = getDeviceIdFromHeartbeat(hexString);
-        // Auto discover- check if this device is not yet added to device collection
-        if (findDeviceIndex(devId) == -1) {
-          //since its not there create a record
-          upsertDeviceInfo(devId, true, false, 0);
-        } else {
-          //since its already discovered just track its heartbeat
-          trackHeartbeatTime(devId);
-        }
-      }
-      return;
+    String incomingString = String(incoming);
+    if (isHexString(incomingString)) {
+      //Fan just sent a fan event
+      processFanEvent(incomingString);
+    } else {
+      //its just a heart beat message
+      processHeartbeat(incomingString);
     }
-    // decode HEX → ASCII JSON
-    String jsonText = hexToAscii(hexString);
-    DynamicJsonDocument doc(1024);
-    if (deserializeJson(doc, jsonText)) return;
-    String device_id = doc["device_id"];
-    String message_id = doc["message_id"];
-    String state_string = doc["state_string"];
-
-    //Skip-2. Sometimes when we keep the mobile app open these messages spam us
-    if (message_id == "internet_query") return;
-
-    // Extract encoded first field
-    int firstComma = state_string.indexOf(",");
-    String firstField = state_string.substring(0, firstComma);
-    uint32_t encodedValue = (uint32_t)strtoul(firstField.c_str(), NULL, 10);
-    bool power = (encodedValue & 0x10) > 0;
-    bool led = (encodedValue & 0x20) > 0;
-    int speed = (encodedValue & 0x07);
-    upsertDeviceInfo(device_id, power, led, speed);
   }
-
-  // ---- Remove DEVICES with no heartbeat ----
-  turnOffHeartlessDevices();
-  
+  // ---- Turn off DEVICES with no heartbeat----
+  upsertDevice_Switch();
   // ---- PRINT DEVICES EVERY 5 SECONDS ----
   if (millis() - lastPrintTime >= 5000) {
     lastPrintTime = millis();
     printAllDevices();
   }
-
 }
