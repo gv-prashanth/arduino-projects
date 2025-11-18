@@ -64,31 +64,68 @@ int findDeviceIndex(const String& devId) {
   return -1;
 }
 
-void sendSensorValueToAlexa(String name, String reading) {
-  String encodedName = "";
-  for (int i = 0; i < name.length(); i++) encodedName += (name.charAt(i) == ' ') ? "%20" : String(name.charAt(i));
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient https;
-  String fullUrl = "https://home-automation.vadrin.com/droid/" + DROID_ID + "/upsert/intent/" + encodedName + "/reading/" + reading;
-  Serial.println("Requesting " + fullUrl);
-  if (https.begin(client, fullUrl)) {
-    int httpCode = https.GET();
-    Serial.println("============== Response code: " + String(httpCode));
-    if (httpCode > 0) {
-      Serial.println(https.getString());
-    }
-    https.end();
-  } else {
-    Serial.printf("[HTTPS] Unable to connect\n");
+// ---------------------------------------------------------------------------
+// Forward declarations
+// ---------------------------------------------------------------------------
+void sendDeviceDataToAlexa(String devId);
+
+// ---------------------------------------------------------------------------
+// Safe URL encoding for names (spaces -> %20)
+// ---------------------------------------------------------------------------
+String urlEncodeSpaces(const String& name) {
+  String encoded = "";
+  for (int i = 0; i < name.length(); i++) {
+    char c = name.charAt(i);
+    if (c == ' ') encoded += "%20";
+    else encoded += c;
   }
+  return encoded;
 }
 
+// ---------------------------------------------------------------------------
+// sendSensorValueToAlexa (ONLY called when WiFi is connected)
+// ---------------------------------------------------------------------------
+void sendSensorValueToAlexa(String name, String reading) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[sendSensorValueToAlexa] WiFi not connected - skipping send");
+    return;
+  }
 
+  String encodedName = urlEncodeSpaces(name);
+  WiFiClientSecure client;
+  client.setInsecure();  // accept all certs - keep if you already used it
+  client.setTimeout(30);  // small read timeout (seconds)
+
+  HTTPClient https;
+  String fullUrl = "https://home-automation.vadrin.com/droid/" + DROID_ID + "/upsert/intent/" + encodedName + "/reading/" + reading;
+  Serial.println("[sendSensorValueToAlexa] Requesting " + fullUrl);
+
+  // Begin connection
+  if (!https.begin(client, fullUrl)) {
+    Serial.println("[sendSensorValueToAlexa] HTTPS begin() failed");
+    return;
+  }
+
+  // Make GET (this call is blocking but we guard it by skipping if WiFi down and using short read timeout)
+  int httpCode = https.GET();
+  Serial.println("[sendSensorValueToAlexa] Response code: " + String(httpCode));
+  if (httpCode > 0) {
+    String payload = https.getString();
+    Serial.println(payload);
+  } else {
+    Serial.println("[sendSensorValueToAlexa] HTTPS GET failed or timed out");
+  }
+
+  https.end();
+}
+
+// ---------------------------------------------------------------------------
+// Upsert helpers
+// ---------------------------------------------------------------------------
 void upsertDevice_Switch() {
   for (int i = 0; i < deviceCount; i++) {
     if (devices[i].switchOn && (millis() - devices[i].lastHeartbeatTime > 10000)) {
-      //Looks like switch is just turned off
+      // Looks like switch is just turned off
       devices[i].switchOn = false;
       sendDeviceDataToAlexa(devices[i].deviceId);
     }
@@ -124,26 +161,33 @@ void upsertDevice_Info(String devId, bool power, bool led, int speed) {
 
 void sendDeviceDataToAlexa(String devId) {
   int currentDeviceIndex = findDeviceIndex(devId);
+  if (currentDeviceIndex < 0) return;
+
   String constructDeviceMessage;
   if (devices[currentDeviceIndex].switchOn) {
     if (devices[currentDeviceIndex].power && devices[currentDeviceIndex].speed != 0) {
       constructDeviceMessage = "On.%20Speed%20" + String(devices[currentDeviceIndex].speed) + ".";
-    }else if(!devices[currentDeviceIndex].power && devices[currentDeviceIndex].speed != 0){
+    } else if (!devices[currentDeviceIndex].power && devices[currentDeviceIndex].speed != 0) {
       constructDeviceMessage = "On.%20Standby.";
-    }else{
+    } else {
       constructDeviceMessage = "On";
     }
   } else {
     constructDeviceMessage = "Off";
   }
-  //Serial.println(constructDeviceMessage);
-  sendSensorValueToAlexa(getDeviceName(devId), constructDeviceMessage);
+
+  // Only attempt network call when WiFi connected — sendSensorValueToAlexa also double-checks
+  if (WiFi.status() == WL_CONNECTED) {
+    sendSensorValueToAlexa(getDeviceName(devId), constructDeviceMessage);
+  } else {
+    Serial.println("[sendDeviceDataToAlexa] WiFi down. Skipping Alexa update for " + devId);
+  }
 }
 
 void trackHeartbeatTime(String devId) {
   int index = findDeviceIndex(devId);
   if (index == -1) {
-    // NEW device. Some1 has to add the device before I begin to track its heartbeat
+    // NEW device. No need to track its heartbeat
   } else {
     // UPDATE existing device
     devices[index].lastHeartbeatTime = millis();
@@ -164,24 +208,79 @@ String hexToAscii(const String& hex) {
 }
 
 // ---------------------------------------------------------------------------
-// WiFi
+// WiFi recovery/watcher
 // ---------------------------------------------------------------------------
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
+unsigned long lastWiFiCheck = 0;
+bool udpStarted = false;
 
-  Serial.println("Connecting to WiFi...");
+void ensureUDPStarted() {
+  if (!udpStarted) {
+    if (udp.begin(UDP_PORT)) {
+      udpStarted = true;
+      Serial.println("[ensureUDPStarted] UDP begun on port " + String(UDP_PORT));
+    } else {
+      Serial.println("[ensureUDPStarted] UDP begin failed");
+    }
+  }
+}
+
+void stopUDP() {
+  // There's no direct udp.stop(); but we can set flag so begin will be called again on reconnect
+  udpStarted = false;
+  // On some platforms you can call udp.stop(); but leaving it to re-begin is acceptable.
+  Serial.println("[stopUDP] Marking UDP as stopped; will re-init after reconnect");
+}
+
+// Called regularly from loop, lightweight
+void ensureWiFiConnected() {
+  // check only periodically
+  if (millis() - lastWiFiCheck < 5000) return;
+  lastWiFiCheck = millis();
+
+  wl_status_t s = WiFi.status();
+  if (s == WL_CONNECTED) {
+    // Ensure UDP started after a reconnect or initial connect
+    ensureUDPStarted();
+    return;
+  }
+
+  Serial.println("[ensureWiFiConnected] WiFi not connected. Attempting reconnect.");
+
+  // Try a short reconnect attempt (non-blocking overall)
+  WiFi.disconnect(true);  // clear previous settings and reconnect fresh
+  delay(200);
   WiFi.begin(ssid, password);
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+  unsigned long start = millis();
+  // wait up to 6 seconds but without blocking too long
+  while (WiFi.status() != WL_CONNECTED && (millis() - start) < 6000) {
+    delay(200);
     Serial.print(".");
   }
-  Serial.println("\nConnected!");
-  Serial.println("IP Address: " + WiFi.localIP().toString());
 
-  udp.begin(UDP_PORT);
-  Serial.println("Listening on UDP port 5625...");
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n[ensureWiFiConnected] Reconnected to WiFi. IP: " + WiFi.localIP().toString());
+    // re-init UDP if needed
+    ensureUDPStarted();
+  } else {
+    Serial.println("\n[ensureWiFiConnected] Reconnect attempt failed. Will retry later.");
+  }
+}
+
+// Optionally, detect WiFi events and react immediately
+void onWiFiEvent(WiFiEvent_t event) {
+  switch (event) {
+    case SYSTEM_EVENT_STA_GOT_IP:
+      Serial.println("[WiFiEvent] GOT_IP: " + WiFi.localIP().toString());
+      ensureUDPStarted();
+      break;
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+      Serial.println("[WiFiEvent] DISCONNECTED");
+      stopUDP();
+      break;
+    default:
+      break;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +314,9 @@ void printAllDevices() {
     Serial.print("  Name: ");
     Serial.println(getDeviceName(devices[i].deviceId));
 
+    Serial.print("  switchOn: ");
+    Serial.println(devices[i].switchOn);
+
     Serial.print("  Power: ");
     Serial.println(devices[i].power);
 
@@ -231,7 +333,7 @@ void printAllDevices() {
 String getDeviceIdFromHeartbeat(const String& input) {
   int pos = input.indexOf('_');
   if (pos == -1) {
-    // No '-' found, print full string
+    // No '_' found, return full string
     return input;
   } else {
     return input.substring(0, pos);
@@ -254,17 +356,22 @@ void processFanEvent(String incomingString) {
   // decode HEX → ASCII JSON
   String jsonText = hexToAscii(incomingString);
   DynamicJsonDocument doc(1024);
-  if (deserializeJson(doc, jsonText)) return;
-  String device_id = doc["device_id"];
-  String message_id = doc["message_id"];
-  String state_string = doc["state_string"];
+  DeserializationError err = deserializeJson(doc, jsonText);
+  if (err) {
+    Serial.println("[processFanEvent] JSON parse failed");
+    return;
+  }
 
-  //Skip-2. Sometimes when we keep the mobile app open these messages spam us
+  String device_id = doc["device_id"] | "";
+  String message_id = doc["message_id"] | "";
+  String state_string = doc["state_string"] | "";
+
+  // Skip-2. Sometimes when we keep the mobile app open these messages spam us
   if (message_id == "internet_query") return;
 
   // Extract encoded first field
   int firstComma = state_string.indexOf(",");
-  String firstField = state_string.substring(0, firstComma);
+  String firstField = (firstComma == -1) ? state_string : state_string.substring(0, firstComma);
   uint32_t encodedValue = (uint32_t)strtoul(firstField.c_str(), NULL, 10);
   bool power = (encodedValue & 0x10) > 0;
   bool led = (encodedValue & 0x20) > 0;
@@ -273,29 +380,86 @@ void processFanEvent(String incomingString) {
 }
 
 // ---------------------------------------------------------------------------
+// LOAD DEFAULT DEVICES FROM masterNames[]
+// power = false, led = false, speed = 0
+// ---------------------------------------------------------------------------
+void loadDefaultDevices() {
+  for (int i = 0; i < masterCount; i++) {
+    upsertDevice_Info(masterNames[i].deviceId, false, false, 0);
+  }
+  Serial.println("Default devices loaded from masterNames.");
+}
+
+// ---------------------------------------------------------------------------
 // MAIN LOOP
 // ---------------------------------------------------------------------------
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  Serial.println("Connecting to WiFi...");
+  WiFi.onEvent(onWiFiEvent);
+  WiFi.begin(ssid, password);
+
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < 10000) {
+    delay(200);
+    Serial.print(".");
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nConnected!");
+    Serial.println("IP Address: " + WiFi.localIP().toString());
+  } else {
+    Serial.println("\nInitial WiFi connect failed - will continue and try reconnects in loop.");
+  }
+
+  // start UDP if WiFi is already connected; otherwise the ensureWiFiConnected will start it
+  if (WiFi.status() == WL_CONNECTED) {
+    ensureUDPStarted();
+  } else {
+    udpStarted = false;
+  }
+
+  // Load master device defaults
+  loadDefaultDevices();
+}
+
 void loop() {
-  // ---- READ UDP PACKETS ----
-  int packetSize = udp.parsePacket();
-  if (packetSize) {
-    char incoming[2048];
-    int len = udp.read(incoming, sizeof(incoming) - 1);
-    if (len > 0) incoming[len] = 0;
-    String incomingString = String(incoming);
-    if (isHexString(incomingString)) {
-      //Fan just sent a fan event
-      processFanEvent(incomingString);
-    } else {
-      //its just a heart beat message
-      processHeartbeat(incomingString);
+  // ---- WiFi watchdog (non blocking overall) ----
+  ensureWiFiConnected();
+
+  // ---- READ UDP PACKETS (only if UDP is started)----
+  if (udpStarted) {
+    int packetSize = udp.parsePacket();
+    if (packetSize) {
+      // Keep buffer on stack; ensure also we don't overflow
+      static char incoming[2048];
+      int len = udp.read(incoming, sizeof(incoming) - 1);
+      if (len > 0) incoming[len] = 0;
+      else incoming[0] = 0;
+
+      String incomingString = String(incoming);
+      // Decide if this is a HEX (fan event) or plain heartbeat
+      if (isHexString(incomingString)) {
+        // Fan event from device
+        processFanEvent(incomingString);
+      } else {
+        // Heartbeat / other
+        processHeartbeat(incomingString);
+      }
     }
   }
+
   // ---- Turn off DEVICES with no heartbeat----
   upsertDevice_Switch();
+
   // ---- PRINT DEVICES EVERY 5 SECONDS ----
   if (millis() - lastPrintTime >= 5000) {
     lastPrintTime = millis();
     printAllDevices();
   }
+
+  // Yield to other tasks and keep things responsive
+  delay(10);
 }
