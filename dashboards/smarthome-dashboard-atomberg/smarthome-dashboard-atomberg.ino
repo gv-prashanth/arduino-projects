@@ -102,7 +102,6 @@ void sendSensorValueToAlexa(String name, String reading) {
 
   // Begin connection
   if (!https.begin(client, fullUrl)) {
-    Serial.println("[sendSensorValueToAlexa] HTTPS begin() failed");
     Serial.println("[sendSensorValueToAlexa] HTTPS begin() failed — restarting ESP32");
     delay(500);
     ESP.restart();
