@@ -103,7 +103,9 @@ void sendSensorValueToAlexa(String name, String reading) {
   // Begin connection
   if (!https.begin(client, fullUrl)) {
     Serial.println("[sendSensorValueToAlexa] HTTPS begin() failed");
-    return;
+    Serial.println("[sendSensorValueToAlexa] HTTPS begin() failed — restarting ESP32");
+    delay(500);
+    ESP.restart();
   }
 
   // Make GET (this call is blocking but we guard it by skipping if WiFi down and using short read timeout)
@@ -113,7 +115,9 @@ void sendSensorValueToAlexa(String name, String reading) {
     String payload = https.getString();
     Serial.println(payload);
   } else {
-    Serial.println("[sendSensorValueToAlexa] HTTPS GET failed or timed out");
+    Serial.println("[sendSensorValueToAlexa] HTTPS GET failed or timed out — restarting ESP32");
+    delay(500);
+    ESP.restart();
   }
 
   https.end();
@@ -328,6 +332,9 @@ void printAllDevices() {
 
     Serial.println("-------------------------");
   }
+  Serial.print("Free Heap: ");
+  Serial.print(ESP.getFreeHeap());
+  Serial.println(" bytes");
 }
 
 String getDeviceIdFromHeartbeat(const String& input) {
