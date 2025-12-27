@@ -1,9 +1,78 @@
-/**************** MEMORY OPTIMIZED + DEBUG LOGGING ENABLED *******************/
-#include <WiFi.h>
+/*
+================================================================================
+ ESP32 / ESP8266 – Atomberg Fan Listener → Alexa Updater (UDP → HTTPS Bridge)
+--------------------------------------------------------------------------------
+This firmware listens for UDP broadcasts from Atomberg (and similar) fans,
+decodes their state, maintains an in-memory device registry, and publishes the
+current status to an Alexa-compatible backend via HTTPS.
+
+SUPPORTED BOARDS
+  • ESP32
+  • ESP8266 (libraries auto-selected)
+
+MAIN WORKFLOW
+  1. Connects to WiFi.
+  2. Listens on UDP_PORT for incoming packets.
+     - Hex payloads  → decoded as JSON → fan state extracted.
+     - Plain payload → treated as heartbeat (device presence).
+  3. Tracks devices in memory (power, LED, speed, last heartbeat).
+  4. Builds human-friendly text messages (ex: "On. Speed 3.", "Off").
+  5. URL-encodes values and pushes updates over HTTPS to:
+        https://home-automation.vadrin.com/droid/<DROID_ID>/...
+
+  Devices that stop sending heartbeats are automatically marked "Off".
+
+BUILT-IN SAFETY FEATURES
+  • WiFi watchdog → reboots device if WiFi remains offline too long.
+  • Default device pre-load ensures Alexa has initial values on boot.
+  • Heartbeat-based switch detection to avoid stale states.
+  • Hex decoding and JSON failure handling.
+
+TUNABLE PARAMETERS (IMPORTANT)
+  WIFI CREDENTIALS
+    const char* ssid        – WiFi SSID
+    const char* password    – WiFi password
+
+  CLOUD IDENTIFIER
+    const char* DROID_ID    – Unique backend device identifier
+
+  NETWORK
+    UDP_PORT                – Port where fan broadcasts are received
+
+  WIFI WATCHDOG
+    WIFI_TIMEOUT_REBOOT     – Max allowed WiFi downtime before reboot (ms)
+
+  DEVICE LIMITS
+    MAX_DEVICES             – Maximum number of tracked devices
+    MAX_ID_LEN              – Length of device ID strings
+    MAX_NAME_LEN            – Length of device display names
+
+  HEARTBEAT OFF TIMEOUT
+    (inside upsertDevice_Off)
+    10,000 ms → time with no heartbeat before marking device Off
+
+INTERNAL TABLES
+  masterNames[] maps known hardware IDs → friendly names
+  devices[]     maintains runtime device state cache
+
+NOTE
+  TLS uses "setInsecure()" — acceptable for labs/testing but not ideal for
+  production. Replace with certificate pinning if security is critical.
+
+================================================================================
+*/
+
+#if defined(ESP32)
+  #include <WiFi.h>
+  #include <HTTPClient.h>
+  #include <WiFiClientSecure.h>
+#elif defined(ESP8266)
+  #include <ESP8266WiFi.h>
+  #include <ESP8266HTTPClient.h>
+  #include <WiFiClientSecureBearSSL.h>
+#endif
 #include <WiFiUdp.h>
 #include <ArduinoJson.h>
-#include <HTTPClient.h>
-#include <WiFiClientSecure.h>
 
 #define MAX_DEVICES 20
 #define MAX_ID_LEN 20
@@ -15,7 +84,11 @@ const char* password = "YYYY";
 const char* DROID_ID = "ABCD";
 
 WiFiUDP udp;
-static WiFiClientSecure client;
+#if defined(ESP8266)
+  static BearSSL::WiFiClientSecure client;
+#else
+  static WiFiClientSecure client;
+#endif
 static HTTPClient https;
 
 struct MasterDeviceName {
@@ -45,8 +118,8 @@ uint8_t deviceCount = 0;
 
 // WIFI WATCHDOG SETTINGS
 uint32_t wifiLastConnected = millis();
-const uint32_t WIFI_TIMEOUT_REBOOT = 60000;      // 60 sec offline → reboot
-const uint32_t WIFI_RETRY_INTERVAL = 5000;       // retry every 5 sec
+const uint32_t WIFI_TIMEOUT_REBOOT = 5000;      // 5 sec offline → reboot
+const uint32_t HEAP_PRINT_TIME = 120000;      // 2 minutes
 
 void wifiWatchdog() {
   if (WiFi.status() == WL_CONNECTED) {
@@ -54,15 +127,6 @@ void wifiWatchdog() {
     return;
   }
 
-  // WiFi Lost → check how long
-  if (millis() - wifiLastConnected > WIFI_RETRY_INTERVAL) {
-    Serial.println("[WIFI] Lost. Attempting reconnect...");
-    WiFi.disconnect();
-    WiFi.begin(ssid, password);
-    wifiLastConnected = millis();  // reset timer after retry
-  }
-
-  // Still down too long? → auto restart ESP
   if (millis() - wifiLastConnected > WIFI_TIMEOUT_REBOOT) {
     Serial.println("\n[FAIL] WiFi offline too long → Restarting ESP32...");
     delay(500);
@@ -192,7 +256,7 @@ void upsertDevice(const char* id, bool power, bool led, int speed) {
 
 /**************************** PROCESS FAN EVENT *************************/
 void processFanEvent(const char* hex) {
-  Serial.printf("[UDP] HEX Received (%d bytes) -> Decoding JSON...\n", strlen(hex));
+  //Serial.printf("[UDP] HEX Received (%d bytes) -> Decoding JSON...\n", strlen(hex));
 
   char json[512] = { 0 };
   for (int i = 0, j = 0; i < (int)strlen(hex) && j < 511; i += 2, j++) {
@@ -238,6 +302,7 @@ void upsertDevice_Off() {
       strcpy(msg, "Off");
       char fanName[32];
       getDeviceName(devices[i].deviceId, fanName);
+      Serial.println("[DEVICE] switch Off");
       sendSensorValueToAlexa(fanName, msg);
     }
   }
@@ -271,7 +336,7 @@ void loop() {
   wifiWatchdog();
 
   /* Print heap every 10s */
-  if (millis() - logTimer > 10000) {
+  if (millis() - logTimer > HEAP_PRINT_TIME) {
     logTimer = millis();
     Serial.printf("[HEAP] Free RAM: %u bytes\n", ESP.getFreeHeap());
   }
@@ -283,17 +348,17 @@ void loop() {
     int len = udp.read(buf, sizeof(buf) - 1);
     buf[len] = 0;
 
-    Serial.printf("[UDP] Packet Received (%d bytes) → %s\n", len, buf);
+    //Serial.printf("[UDP] Packet Received (%d bytes) → %s\n", len, buf);
 
     bool isHex = true;
     for (int i = 0; i < len; i++)
       if (!isxdigit(buf[i])) isHex = false;
 
     if (isHex) {
-      Serial.println("[TYPE] → FAN EVENT");
+      //Serial.println("[TYPE] → FAN EVENT");
       processFanEvent(buf);
     } else {
-      Serial.println("[TYPE] → HEARTBEAT");
+      //Serial.println("[TYPE] → HEARTBEAT");
       int idx = findDevice(buf);
       if(idx >= 0)
         devices[idx].lastHeartbeat = millis();
