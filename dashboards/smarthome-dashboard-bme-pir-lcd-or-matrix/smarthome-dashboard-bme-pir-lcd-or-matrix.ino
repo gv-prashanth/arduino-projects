@@ -13,31 +13,33 @@
 // Configurations
 #define DISPLAY_TYPE LCD_BIG_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY, LCD_BIG_DISPLAY
 #define BME_TYPE NO_BME               // BME680, BME280, NO_BME
-#define ALARM_TYPE INTERNAL_ALARM     // INTERNAL_ALARM, EXTERNAL_ALARM
+#define ALARM_TYPE INTERNAL_ALARM             // INTERNAL_ALARM, EXTERNAL_ALARM, SIMPLE_INTERNAL_ALARM
 const char* ssid = "XXX";
 const char* password = "YYY";
-const String droid = "ZZZ";
+const String DROID_ID = "ZZZ";
 const String DISPLAY_HEADER = "DROID HOME";               //"\x03 DROID \x03" for Matrix, "DROID HOME" for LCD
 #define DEVICE "DESK ALARM"                               //"DESK ALARM", "HALL ALARM"
-String DEVICEKEY = "DeskAlarm";                           //"DeskAlarm", "HallAlarm"
+String WEATHERKEY = "Indoor Weather";
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
 const int PIR_PIN = 14;                                   //14 for LCD, 2 for Matrix
-const int ALARM_PIN = 30;                                 //30 for LCD, 3 for Matrix
+const int ALARM_PIN = 30;                                 //30 for INTERNAL_ALARM, 3 for EXTERNAL_ALARM, 3 for SIMPLE_INTERNAL_ALARM, 
 const unsigned long PIR_TURN_OFF_TIME = 300000;           //ms, 300000 for LCD, 120000 for Matrix
-float PRECISSION_TEMP = 1.0;                              //degrees
-float PRECISSION_HUMID = 2.0;                             //percentage
+float PRECISSION_TEMP = 0.3;                              //degrees
+float PRECISSION_HUMID = 5.0;                             //percentage
 float PRECISSION_AQI = 10.0;                              //value
 const long DIM_DURATION = 500;                            // interval for high state (milliseconds) 500 for LCD, 2000 for Matrix
 const long NOT_DIM_DURATION = 2000;                       // interval for low state (milliseconds) 2000 for LCD, 500 for Matrix
 #define SEALEVELPRESSURE_HPA (1013.25)
 const unsigned long ALEXA_LAG = 10000;
 const unsigned long API_TIMEOUT = 3000;
+const unsigned long MAX_DATA_AGE = 15UL * 60UL * 1000UL; // 15 minutes
 
 // Dont touch below
+unsigned long lastSuccessfulFetchTime = 0;
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
 const String WORLD_TIME_API = "http://worldtimeapi.org/api/ip";     // Fetch the time from World Time API
-const String endpoint = "/droid/" + droid + "/intents";
+const String endpoint = "/droid/" + DROID_ID + "/intents";
 String payload;
 int indexToDisplay = 0;
 unsigned long lastFetchTime, lastScreenChangeTime, motionTimestamp;
@@ -52,7 +54,7 @@ std::vector<SensorData> globalDataEntries;  // Global vector to store the data
 boolean motionDetectedRecently = true;
 //BME readings
 float bme_readTemperature, bme_readPressure, bme_readHumidity, bme_readAltitude, bme_aqi, bme_aqiAccuracy;
-float prev_bme_readTemperature, prev_bme_readHumidity, prev_bme_aqi;
+float prev_bme_readTemperature, prev_bme_readHumidity, prev_bme_aqi, prev_bme_aqiAccuracy;
 boolean BMEChangeDetected = true;
 SensorData getSpecificSensorData(String keyToGet);  // Helper functions declarations
 int alarmHrs = 0;                                   //24 hrs format
@@ -69,6 +71,8 @@ bool attention_isHigh = false;               // flag to track the state
 static unsigned long last = millis();
 unsigned long sendToAlexaTime;
 boolean alarmChangeDetectedRecently;
+
+unsigned long phaseStart = 0;
 
 #define LCD_DISPLAY 1
 #define MATRIX_DISPLAY 2
@@ -106,11 +110,14 @@ boolean alarmChangeDetectedRecently;
 
 #define INTERNAL_ALARM 1
 #define EXTERNAL_ALARM 2
+#define SIMPLE_INTERNAL_ALARM 3
 #ifdef ALARM_TYPE
 #if ALARM_TYPE == INTERNAL_ALARM
 #include "internalalarm.h"          // Include and use the internalalarm library
 #elif ALARM_TYPE == EXTERNAL_ALARM  // Include and use the externalalarm library
 #include "externalalarm.h"
+#elif ALARM_TYPE == SIMPLE_INTERNAL_ALARM  // Include and use the externalalarm library
+#include "simpleinternalalarm.h"
 #else
 #error "Invalid library selection."
 #endif
@@ -119,7 +126,7 @@ boolean alarmChangeDetectedRecently;
 #endif
 
 void setup() {
-  Serial.begin(115200);
+  //Serial.begin(115200);        //WARNING: IF YOU TURN SERIAL PRINT, THEN DISCONNECT SPEAKER. LIKEWISE IF YOU CONNECT SPEAKER, THEN DISABLE SERIAL PRINT
   pinMode(PIR_PIN, INPUT);       //Setup the PIR
   pinMode(ALARM_PIN, OUTPUT);    //Setup the ALARM
   digitalWrite(ALARM_PIN, LOW);  //Set it to low when starting
@@ -134,7 +141,10 @@ void setup() {
   fauxmoSetup();
   while (!fetchAndParseFromURL())
     ;
+  lastSuccessfulFetchTime = millis();
   setAlarmTimeFromCloudToDevice();
+
+  phaseStart = micros();
 }
 
 void loop() {
@@ -147,6 +157,9 @@ void loop() {
   checkAndSetAlarm();
   checkAndStartAlarm();
   checkAndsendToAlexaAlarmReadings();
+
+  //Exipre global data
+  expireGlobalDataIfNeeded();
 
   //Display Section
   loadMotionReadings();
@@ -175,7 +188,7 @@ void preProcessAndSetDisplayFrequently() {
     lastScreenChangeTime = currentTime;
   } else {
     if (alarmChangeDetectedRecently) {
-      String alarmHrMinStr = DEVICEKEY + String(": ") + formatHrsMins(alarmHrs, alarmMins, true);
+      String alarmHrMinStr = DEVICE + String(": ") + formatHrsMins(alarmHrs, alarmMins, true);
       alarmHrMinStr = camelCaseToWordsUntillFirstColon(alarmHrMinStr);
       alarmHrMinStr = convertToUppercaseBeforeColon(alarmHrMinStr);
       setDisplayMessage(alarmHrMinStr);
@@ -187,8 +200,10 @@ void preProcessAndSetDisplayFrequently() {
 void fetchAndParseFromURLFrequently() {
   unsigned long currentTime = millis();
   if (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY) {
-    if (fetchAndParseFromURL())
+    if (fetchAndParseFromURL()) {
       lastFetchTime = currentTime;
+      lastSuccessfulFetchTime = currentTime;
+    }
   }
 }
 
@@ -344,9 +359,9 @@ void checkAndsendToAlexaBMEReadings() {
     Serial.print(bme_readAltitude);
     Serial.println(" m");
     if (bme_readTemperature != 0 && BME_TYPE == 1)
-      sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20at%20" + String((int)bme_readHumidity) + "%25%20humidity");
+      sendSensorValueToAlexa(WEATHERKEY, String(bme_readTemperature, 1) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25RH");
     if (bme_readTemperature != 0 && BME_TYPE == 2) {
-      sendSensorValueToAlexa("Indoor", String((int)bme_readTemperature) + "%20degree%20celsius%20at%20" + String((int)bme_readHumidity) + "%25%20humidity%2C%20" + String((int)bme_aqi) + "%20" + capitalizeFirstNCharacters("aqi", bme_aqiAccuracy));
+      sendSensorValueToAlexa(WEATHERKEY, String(bme_readTemperature, 1) + "%C2%B0C%2C%20" + String((int)bme_readHumidity) + "%25RH%2C%20" + String((int)bme_aqi) + capitalizeFirstNCharacters("aqi", bme_aqiAccuracy));
     }
     BMEChangeDetected = false;
   }
@@ -354,12 +369,14 @@ void checkAndsendToAlexaBMEReadings() {
 
 boolean sendSensorValueToAlexa(String name, String reading) {
   boolean toReturn = false;
+  String encodedName = "";
+  for (int i = 0; i < name.length(); i++) encodedName += (name.charAt(i) == ' ') ? "%20" : String(name.charAt(i));
   WiFiClientSecure client;
   client.setInsecure();
   client.setTimeout(API_TIMEOUT);
   HTTPClient https;
   https.setTimeout(API_TIMEOUT);
-  String fullUrl = serverAddress + "/droid/" + droid + "/upsert/intent/" + name + "/reading/" + reading;
+  String fullUrl = serverAddress + "/droid/" + DROID_ID + "/upsert/intent/" + encodedName + "/reading/" + reading;
   Serial.println("Requesting " + fullUrl);
   if (https.begin(client, fullUrl)) {
     int httpCode = https.GET();
@@ -489,12 +506,12 @@ void checkAndsendToAlexaAlarmReadings() {
       meessageToSend = replaceFirstOccurrence(meessageToSend, ":", "%3A");
       meessageToSend = replaceFirstOccurrence(meessageToSend, " ", "%20");
     } else
-      meessageToSend = "off";
+      meessageToSend = "Off";
     if (!areStringsEqual(meessageToSend, lastSentMessage)) {
       // If your device state is changed by any other means (MQTT, physical button,...)
       // you can instruct the library to report the new state to Alexa on next request:
       fauxmo.setState(DEVICE, alarmEnabled ? true : false, deviceValue);
-      if (sendSensorValueToAlexa(DEVICEKEY, meessageToSend))
+      if (sendSensorValueToAlexa(DEVICE, meessageToSend))
         lastSentMessage = meessageToSend;
     }
   }
@@ -588,7 +605,7 @@ void fauxmoLoop() {
 }
 
 void setAlarmTimeFromCloudToDevice() {
-  String timeString = getSpecificSensorData(DEVICEKEY).deviceReading;
+  String timeString = getSpecificSensorData(DEVICE).deviceReading;
 
   if (timeString.isEmpty())
     return;
@@ -643,4 +660,15 @@ void reversePopulateDeviceValueFromHrsMins() {
 
   // Calculate the device value based on the percentage and the range [0, 255]
   deviceValue = (perc / 100.0) * 255;
+}
+
+void expireGlobalDataIfNeeded() {
+  if (lastSuccessfulFetchTime == 0) return;
+
+  if (millis() - lastSuccessfulFetchTime > MAX_DATA_AGE) {
+    if (!globalDataEntries.empty()) {
+      Serial.println("[DATA] Max-age expired. Clearing cached data.");
+      globalDataEntries.clear();
+    }
+  }
 }

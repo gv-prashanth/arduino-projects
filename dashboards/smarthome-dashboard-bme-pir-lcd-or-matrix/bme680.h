@@ -178,11 +178,12 @@ void loadBMEReadings() {
     bme_aqi = iaqSensor.iaq;
     bme_aqiAccuracy = iaqSensor.iaqAccuracy;
 
-    if ((abs(bme_readTemperature - prev_bme_readTemperature) > PRECISSION_TEMP) || (abs(bme_readHumidity - prev_bme_readHumidity) > PRECISSION_HUMID) || (abs(bme_aqi - prev_bme_aqi) > PRECISSION_AQI)) {
+    if ((abs(bme_readTemperature - prev_bme_readTemperature) > PRECISSION_TEMP) || (abs(bme_readHumidity - prev_bme_readHumidity) > PRECISSION_HUMID) || (abs(bme_aqi - prev_bme_aqi) > PRECISSION_AQI) || bme_aqiAccuracy != prev_bme_aqiAccuracy) {
       BMEChangeDetected = true;
       prev_bme_readTemperature = bme_readTemperature;
       prev_bme_readHumidity = bme_readHumidity;
       prev_bme_aqi = bme_aqi;
+      prev_bme_aqiAccuracy = bme_aqiAccuracy;
     }
 
     updateState();
