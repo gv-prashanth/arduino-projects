@@ -16,9 +16,10 @@
 #define ALARM_TYPE INTERNAL_ALARM             // INTERNAL_ALARM, EXTERNAL_ALARM, SIMPLE_INTERNAL_ALARM
 const char* ssid = "XXX";
 const char* password = "YYY";
-const String DROID_ID = "ZZZ";
+const String DROID_ID_FETCH = "ZZZ";
+const String DROID_ID_SEND = "ZZZ";                      // Ideally should be same as DROID_ID_FETCH
 const String DISPLAY_HEADER = "DROID HOME";               //"\x03 DROID \x03" for Matrix, "DROID HOME" for LCD
-#define DEVICE "DESK ALARM"                               //"DESK ALARM", "HALL ALARM"
+#define DEVICE "Room Dashboard"                               //"Living Dashboard", "Hall Dashboard"
 String WEATHERKEY = "Indoor Weather";
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
@@ -39,7 +40,6 @@ const unsigned long MAX_DATA_AGE = 15UL * 60UL * 1000UL; // 15 minutes
 unsigned long lastSuccessfulFetchTime = 0;
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
 const String WORLD_TIME_API = "http://worldtimeapi.org/api/ip";     // Fetch the time from World Time API
-const String endpoint = "/droid/" + DROID_ID + "/intents";
 String payload;
 int indexToDisplay = 0;
 unsigned long lastFetchTime, lastScreenChangeTime, motionTimestamp;
@@ -139,10 +139,20 @@ void setup() {
     fetchAndLoadCurrentTimeFromWeb();
   }
   fauxmoSetup();
-  while (!fetchAndParseFromURL())
-    ;
-  lastSuccessfulFetchTime = millis();
-  setAlarmTimeFromCloudToDevice();
+  if(areStringsEqual(DROID_ID_FETCH, DROID_ID_SEND)){
+    while (!fetchAndParseFromURL(DROID_ID_FETCH))
+      ;
+    lastSuccessfulFetchTime = millis();
+    setAlarmTimeFromCloudToDevice();
+  }else{
+    //In this case, we need to fetch alarm time from DROID_ID_SEND but everything else from DROID_ID_FETCH
+    while (!fetchAndParseFromURL(DROID_ID_SEND))
+      ;
+    setAlarmTimeFromCloudToDevice();
+    while (!fetchAndParseFromURL(DROID_ID_FETCH))
+      ;
+    lastSuccessfulFetchTime = millis();
+  }
 
   phaseStart = micros();
 }
@@ -200,15 +210,15 @@ void preProcessAndSetDisplayFrequently() {
 void fetchAndParseFromURLFrequently() {
   unsigned long currentTime = millis();
   if (currentTime - lastFetchTime > PAYLOAD_SAMPLING_FREQUENCY) {
-    if (fetchAndParseFromURL()) {
+    if (fetchAndParseFromURL(DROID_ID_FETCH)) {
       lastFetchTime = currentTime;
       lastSuccessfulFetchTime = currentTime;
     }
   }
 }
 
-boolean fetchAndParseFromURL() {
-  boolean isFetchSuccess = fetchPayload();
+boolean fetchAndParseFromURL(String droidId) {
+  boolean isFetchSuccess = fetchPayload(droidId);
   if (isFetchSuccess)
     return parsePayload();
   return isFetchSuccess;
@@ -242,7 +252,7 @@ void setupWifi() {
   Serial.printf("[WIFI] STATION Mode, SSID: %s, IP address: %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
 }
 
-boolean fetchPayload() {
+boolean fetchPayload(String droidId) {
   boolean toReturn = false;
   Serial.println("begining the data fetch now");
   // Create a WiFiClientSecure object for HTTPS
@@ -255,7 +265,7 @@ boolean fetchPayload() {
   http.setTimeout(API_TIMEOUT);  // 1 second timeout
 
   // Set the WiFiClientSecure object for the HTTPClient
-  http.begin(client, serverAddress + endpoint);
+  http.begin(client, serverAddress + "/droid/" + droidId + "/intents");
 
   int httpResponseCode = http.GET();
 
@@ -376,7 +386,7 @@ boolean sendSensorValueToAlexa(String name, String reading) {
   client.setTimeout(API_TIMEOUT);
   HTTPClient https;
   https.setTimeout(API_TIMEOUT);
-  String fullUrl = serverAddress + "/droid/" + DROID_ID + "/upsert/intent/" + encodedName + "/reading/" + reading;
+  String fullUrl = serverAddress + "/droid/" + DROID_ID_SEND + "/upsert/intent/" + encodedName + "/reading/" + reading;
   Serial.println("Requesting " + fullUrl);
   if (https.begin(client, fullUrl)) {
     int httpCode = https.GET();
@@ -642,7 +652,7 @@ void setAlarmTimeFromCloudToDevice() {
     Serial.println("Alarm set from cloud");
   } else {
     // Handle the case where parsing fails
-    Serial.println("Error: Invalid time format");
+    Serial.println("Error: Invalid time format. Try Deleting your current record in vadrin home automation portal.");
     // You can add additional error-handling logic here if needed
   }
 }
