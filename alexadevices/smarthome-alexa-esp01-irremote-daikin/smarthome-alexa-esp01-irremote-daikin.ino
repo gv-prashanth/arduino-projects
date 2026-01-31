@@ -33,7 +33,7 @@ volatile int deviceValueOne = 255;
 
 void setup() {
   //NOTE ENABLING SERIAL MONITOR WILL CRASH THE APPLICATION
-  Serial.begin(SERIAL_BAUDRATE);
+  //Serial.begin(SERIAL_BAUDRATE);
 
   wifiSetup();
   fauxmoSetup();
