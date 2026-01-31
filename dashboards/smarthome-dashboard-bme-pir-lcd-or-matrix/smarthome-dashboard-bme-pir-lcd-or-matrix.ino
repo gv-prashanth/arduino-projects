@@ -13,7 +13,7 @@
 // Configurations
 #define DISPLAY_TYPE LCD_BIG_DISPLAY  // LCD_DISPLAY, MATRIX_DISPLAY, LCD_BIG_DISPLAY
 #define BME_TYPE NO_BME               // BME680, BME280, NO_BME
-#define ALARM_TYPE INTERNAL_ALARM             // INTERNAL_ALARM, EXTERNAL_ALARM, SIMPLE_INTERNAL_ALARM
+#define ALARM_TYPE EXTERNAL_ALARM             // INTERNAL_ALARM, EXTERNAL_ALARM, SIMPLE_INTERNAL_ALARM
 const char* ssid = "XXX";
 const char* password = "YYY";
 const String DROID_ID_FETCH = "ZZZ";
@@ -24,7 +24,7 @@ String WEATHERKEY = "Indoor Weather";
 const unsigned long PAYLOAD_SAMPLING_FREQUENCY = 120000;  //ms, 60000 for LCD, 120000 for Matrix, 120000 for LCD_BIG
 const unsigned long SCREEN_CYCLE_FREQUENCY = 15500;       //ms, 5000 for LCD, 15500 for Matrix, 15500 for LCD_BIG
 const int PIR_PIN = 14;                                   //14 for LCD, 2 for Matrix
-const int ALARM_PIN = 30;                                 //30 for INTERNAL_ALARM, 3 for EXTERNAL_ALARM, 3 for SIMPLE_INTERNAL_ALARM, 
+const int ALARM_PIN = 3;                                 //30 for INTERNAL_ALARM, 3 for EXTERNAL_ALARM, 3 for SIMPLE_INTERNAL_ALARM, 
 const unsigned long PIR_TURN_OFF_TIME = 300000;           //ms, 300000 for LCD, 120000 for Matrix
 float PRECISSION_TEMP = 0.3;                              //degrees
 float PRECISSION_HUMID = 5.0;                             //percentage
@@ -677,8 +677,9 @@ void expireGlobalDataIfNeeded() {
 
   if (millis() - lastSuccessfulFetchTime > MAX_DATA_AGE) {
     if (!globalDataEntries.empty()) {
-      Serial.println("[DATA] Max-age expired. Clearing cached data.");
-      globalDataEntries.clear();
+      Serial.println("\n[FAIL] expireGlobalData → Restarting ESP32...");
+      delay(500);
+      ESP.restart();
     }
   }
 }
