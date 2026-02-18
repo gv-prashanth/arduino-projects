@@ -6,6 +6,7 @@
 #include <Wire.h>
 #include <SPI.h>
 #include <TimeLib.h>
+#include <time.h>
 #include "stringutils.h"
 #include "fauxmoESP.h"
 #include <WiFiClientSecure.h>
@@ -39,7 +40,9 @@ const unsigned long MAX_DATA_AGE = 15UL * 60UL * 1000UL; // 15 minutes
 // Dont touch below
 unsigned long lastSuccessfulFetchTime = 0;
 const String serverAddress = "https://home-automation.vadrin.com";  // Note the "https://" prefix
-const String WORLD_TIME_API = "http://worldtimeapi.org/api/ip";     // Fetch the time from World Time API
+const char* NTP_SERVER = "pool.ntp.org";
+const long GMT_OFFSET_SEC = 19800;     // IST offset from UTC in seconds. India Standard Time: UTC + 5:30 -> 5.5 * 60 * 60 = 19800 seconds
+const int DAYLIGHT_OFFSET_SEC = 0;     // IST does not use daylight savings
 String payload;
 int indexToDisplay = 0;
 unsigned long lastFetchTime, lastScreenChangeTime, motionTimestamp;
@@ -417,51 +420,38 @@ SensorData getSpecificSensorData(String keyToGet) {
 }
 
 void fetchAndLoadCurrentTimeFromWeb() {
-  HTTPClient http;
-  WiFiClient wifiClient;
-  wifiClient.setTimeout(API_TIMEOUT);  // 1 second timeout
-  http.setTimeout(API_TIMEOUT);        // 1 second timeout
+  static bool ntpConfigured = false;
 
-  if (http.begin(wifiClient, WORLD_TIME_API)) {
-    int httpCode = http.GET();
-
-    if (httpCode > 0) {
-      if (httpCode == HTTP_CODE_OK) {
-        String webPayload = http.getString();
-
-        // Parse the JSON response to extract the time and date
-        int location = webPayload.indexOf("datetime");
-        if (location != -1) {
-          String time = webPayload.substring(location + 11, location + 30);  // Extract the time part from the response
-          Serial.println(time);
-          int year = time.substring(0, 4).toInt();
-          int month = time.substring(5, 7).toInt();
-          int day = time.substring(8, 10).toInt();
-          int hour = time.substring(11, 13).toInt();
-          int minute = time.substring(14, 16).toInt();
-          int second = time.substring(17, 19).toInt();
-          /*
-          Serial.println(year);
-          Serial.println(month);
-          Serial.println(day);
-          Serial.println(hour);
-          Serial.println(minute);
-          Serial.println(second);
-          */
-          // Set the fetched date and time to the internal clock
-          setTime(hour, minute, second, day, month, year);  // Set time (HH, MM, SS, DD, MM, YYYY)
-          Serial.println("Time fetched and set.");
-        } else {
-          Serial.println("Failed to connect to the time server3");
-        }
-      } else {
-        Serial.println("Failed to connect to the time server2");
-      }
-    }
-    http.end();
-  } else {
-    Serial.println("Failed to connect to the time server1");
+  // Configure NTP once
+  if (!ntpConfigured) {
+    configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
+    ntpConfigured = true;
+    Serial.println("NTP configuration started.");
   }
+
+  // Try to get the current time from the NTP-synchronised system clock
+  time_t now = time(nullptr);
+
+  // If time is not yet valid, return and let the caller retry
+  if (now < 100000) {  // Arbitrary threshold to detect "not set" time
+    Serial.println("NTP time not yet available.");
+    return;
+  }
+
+  struct tm* timeinfo = localtime(&now);
+  if (timeinfo == nullptr) {
+    Serial.println("Failed to obtain time from NTP.");
+    return;
+  }
+
+  // Set TimeLib's internal clock from the NTP time
+  setTime(timeinfo->tm_hour,
+          timeinfo->tm_min,
+          timeinfo->tm_sec,
+          timeinfo->tm_mday,
+          timeinfo->tm_mon + 1,
+          timeinfo->tm_year + 1900);
+  Serial.println("Time fetched from NTP and set.");
 }
 
 void checkAndStartAlarm() {
