@@ -171,9 +171,6 @@ void loop() {
   checkAndStartAlarm();
   checkAndsendToAlexaAlarmReadings();
 
-  //Exipre global data
-  expireGlobalDataIfNeeded();
-
   //Display Section
   loadMotionReadings();
   if (motionDetectedRecently) {
@@ -218,6 +215,8 @@ void fetchAndParseFromURLFrequently() {
       lastSuccessfulFetchTime = currentTime;
     }
   }
+  //Exipre global data
+  expireGlobalDataIfNeeded();
 }
 
 boolean fetchAndParseFromURL(String droidId) {
