@@ -419,6 +419,7 @@ SensorData getSpecificSensorData(String keyToGet) {
 }
 
 void fetchAndLoadCurrentTimeFromWeb() {
+  delay(1000);  // Feed watchdog + give NTP time to sync (configTime is async)
   static bool ntpConfigured = false;
 
   // Configure NTP once
