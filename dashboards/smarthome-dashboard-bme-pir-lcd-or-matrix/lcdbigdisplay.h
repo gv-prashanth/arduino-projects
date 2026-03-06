@@ -41,7 +41,7 @@ void printClockOnFirstThreeRowsEverySecond() {
     clockPreviousMillis = currentMillis;
 
     // Use the internal clock to print the time
-    if (timeStatus() == timeSet) {
+    if (timeStatus() != timeNotSet) {
 
       String hrString = "";
       String minString = "";

@@ -36,6 +36,7 @@ const long NOT_DIM_DURATION = 2000;                       // interval for low st
 const unsigned long ALEXA_LAG = 10000;
 const unsigned long API_TIMEOUT = 3000;
 const unsigned long MAX_DATA_AGE = 15UL * 60UL * 1000UL; // 15 minutes
+const int MAX_FETCH_ATTEMPTS = 10;
 
 // Dont touch below
 unsigned long lastSuccessfulFetchTime = 0;
@@ -137,23 +138,44 @@ void setup() {
   setupWifi();
   setupBME();
   //Lets fetch and parse once to be ready to display immediatly.
-  while (timeStatus() != timeSet) {
+  int fetchAttempts = 0;
+  while (timeStatus() == timeNotSet && fetchAttempts < MAX_FETCH_ATTEMPTS) {
+    fetchAttempts++;
     Serial.println("trying to fetch time");
     fetchAndLoadCurrentTimeFromWeb();
   }
+  if(fetchAttempts >= 10) {
+    Serial.println("\n[FAIL] fetchAndLoadCurrentTimeFromWeb → Failed to fetch in "+String(MAX_FETCH_ATTEMPTS)+" attempts. Restarting ESP.");
+    ESP.restart();
+  }
   fauxmoSetup();
   if(areStringsEqual(DROID_ID_FETCH, DROID_ID_SEND)){
-    while (!fetchAndParseFromURL(DROID_ID_FETCH))
-      ;
+    fetchAttempts = 0;
+    while (fetchAttempts < MAX_FETCH_ATTEMPTS && !fetchAndParseFromURL(DROID_ID_FETCH))
+      fetchAttempts++;
+    if(fetchAttempts >= MAX_FETCH_ATTEMPTS) {
+      Serial.println("\n[FAIL] fetchAndParseFromURL → Failed to fetch in "+String(MAX_FETCH_ATTEMPTS)+" attempts. Restarting ESP.");
+      ESP.restart();
+    }
     lastSuccessfulFetchTime = millis();
     setAlarmTimeFromCloudToDevice();
   }else{
     //In this case, we need to fetch alarm time from DROID_ID_SEND but everything else from DROID_ID_FETCH
-    while (!fetchAndParseFromURL(DROID_ID_SEND))
-      ;
+    fetchAttempts = 0;
+    while (fetchAttempts < MAX_FETCH_ATTEMPTS && !fetchAndParseFromURL(DROID_ID_SEND))
+      fetchAttempts++;
+    if(fetchAttempts >= MAX_FETCH_ATTEMPTS) {
+      Serial.println("\n[FAIL] fetchAndParseFromURL → Failed to fetch in "+String(MAX_FETCH_ATTEMPTS)+" attempts. Restarting ESP.");
+      ESP.restart();
+    }
     setAlarmTimeFromCloudToDevice();
-    while (!fetchAndParseFromURL(DROID_ID_FETCH))
-      ;
+    fetchAttempts = 0;
+    while (fetchAttempts < MAX_FETCH_ATTEMPTS && !fetchAndParseFromURL(DROID_ID_FETCH))
+      fetchAttempts++;
+    if(fetchAttempts >= MAX_FETCH_ATTEMPTS) {
+      Serial.println("\n[FAIL] fetchAndParseFromURL → Failed to fetch in "+String(MAX_FETCH_ATTEMPTS)+" attempts. Restarting ESP.");
+      ESP.restart();
+    }
     lastSuccessfulFetchTime = millis();
   }
 
@@ -174,8 +196,8 @@ void loop() {
   //Display Section
   loadMotionReadings();
   if (motionDetectedRecently) {
-    fetchAndParseFromURLFrequently();
     preProcessAndSetDisplayFrequently();
+    fetchAndParseFromURLFrequently();
   } else {
     turnOffDisplay();  //switch off everything by Clearing the display and turn off the backlight
   }

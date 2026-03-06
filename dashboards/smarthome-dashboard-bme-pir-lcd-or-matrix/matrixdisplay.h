@@ -61,7 +61,7 @@ void setupDisplay() {
 String getClockString() {
   String toReturn = "";
   // Use the internal clock to print the time
-  if (timeStatus() == timeSet) {
+  if (timeStatus() != timeNotSet) {
 
     toReturn += formatHrsMins(hour(), minute(), false);
 
