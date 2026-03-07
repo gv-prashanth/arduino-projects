@@ -20,20 +20,36 @@ bool shouldbeep = false;
 unsigned long lastToggle = 0;
 
 void stopAlarm() {
-  //Put some pin to low
   shouldbeep = false;
+  // Ensure we leave the output in a quiet, deterministic state.
+  toneEnabled = false;
+  pinState = false;
+  digitalWrite(ALARM_PIN, LOW);
   Serial.println("Turning Off the alarm output");
 }
 
 void startAlarm() {
   //Put some pin to high
   shouldbeep = true;
+  // Reset pattern/tone state so we start cleanly.
+  patternIndex = 0;
+  phaseStart = micros();
+  lastToggle = phaseStart;
+  toneEnabled = true;
+  pinState = false;
+  digitalWrite(ALARM_PIN, LOW);
   Serial.println("Turning On the alarm output");
 }
 
 void alarmLoop() {
-  if(!shouldbeep)
+  if(!shouldbeep) {
+    // If we are not actively beeping, keep pin quiet.
+    if (pinState) {
+      pinState = false;
+      digitalWrite(ALARM_PIN, LOW);
+    }
     return;
+  }
   unsigned long now = micros();
 
   // Handle pattern phase change
