@@ -9,7 +9,7 @@
 #include <WiFiClientSecure.h>
 
 
-#define SERIAL_BAUDRATE     74880
+#define SERIAL_BAUDRATE     115200
 #define WIFI_SSID           "XXXXXXX"
 #define WIFI_PASS           "YYYYYYY"
 #define DEVICE_ONE          "LAMP"
@@ -25,8 +25,8 @@ volatile boolean takeActionToSwitchOffDeviceOne = false;
 volatile int deviceValueOne = 255;
 
 void setup() {
-  //NOTE ENABLING SERIAL MONITOR WILL CRASH THE APPLICATION
-  Serial.begin(SERIAL_BAUDRATE);
+  //NOTE ENABLING SERIAL MONITOR MIGHT CRASH THE APPLICATION
+  //Serial.begin(SERIAL_BAUDRATE);
 
   wifiSetup();
   fauxmoSetup();
