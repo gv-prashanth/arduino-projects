@@ -118,8 +118,10 @@ uint8_t deviceCount = 0;
 
 // WIFI WATCHDOG SETTINGS
 uint32_t wifiLastConnected = millis();
-const uint32_t WIFI_TIMEOUT_REBOOT = 5000;      // 5 sec offline → reboot
-const uint32_t HEAP_PRINT_TIME = 120000;      // 2 minutes
+const uint32_t WIFI_RECONNECT_INTERVAL = 15000;  // try reconnect every 15s
+const uint32_t WIFI_TIMEOUT_REBOOT     = 60000;  // 60s offline → last-resort reboot
+const uint32_t HEAP_PRINT_TIME         = 120000;  // 2 minutes
+uint32_t lastReconnectAttempt = 0;
 
 void wifiWatchdog() {
   if (WiFi.status() == WL_CONNECTED) {
@@ -127,30 +129,41 @@ void wifiWatchdog() {
     return;
   }
 
-  if (millis() - wifiLastConnected > WIFI_TIMEOUT_REBOOT) {
-    Serial.println("\n[FAIL] WiFi offline too long → Restarting ESP32...");
+  uint32_t offlineDuration = millis() - wifiLastConnected;
+  Serial.printf("[WIFI] Disconnected for %lu ms\n", (unsigned long)offlineDuration);
+
+  if (millis() - lastReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
+    lastReconnectAttempt = millis();
+    Serial.println("[WIFI] Attempting reconnect...");
+    WiFi.disconnect();
+    delay(100);
+    WiFi.begin(ssid, password);
+  }
+
+  if (offlineDuration > WIFI_TIMEOUT_REBOOT) {
+    Serial.println("\n[FAIL] WiFi offline too long → Restarting ESP...");
     delay(500);
     ESP.restart();
   }
 }
 
 /******************************** UTIL *********************************/
-void getDeviceName(const char* id, char* out) {
-  for (int i = 0; i < sizeof(masterNames) / sizeof(masterNames[0]); i++) {
+void getDeviceName(const char* id, char* out, size_t outSize) {
+  for (int i = 0; i < (int)(sizeof(masterNames) / sizeof(masterNames[0])); i++) {
     if (strcmp(masterNames[i].id, id) == 0) {
-      strcpy(out, masterNames[i].name);
+      snprintf(out, outSize, "%s", masterNames[i].name);
       return;
     }
   }
   char temp[MAX_ID_LEN];
-  for (int i = 0; i < sizeof(masterNames) / sizeof(masterNames[0]); i++) {
+  for (int i = 0; i < (int)(sizeof(masterNames) / sizeof(masterNames[0])); i++) {
     snprintf(temp, sizeof(temp), "%s_R1", masterNames[i].id);
     if (strcmp(temp, id) == 0) {
-      strcpy(out, masterNames[i].name);
+      snprintf(out, outSize, "%s", masterNames[i].name);
       return;
     }
   }
-  strcpy(out, "Unknown Fan");
+  snprintf(out, outSize, "Unknown Fan");
 }
 
 int findDevice(const char* id) {
@@ -214,12 +227,17 @@ void sendSensorValueToAlexa(const char* name, const char* reading) {
   Serial.printf("[HTTP] → Sending to Alexa: %s\n", url);
 
   client.setInsecure();
-  https.begin(client, url);
+  https.setTimeout(5000);
+  if (!https.begin(client, url)) {
+    Serial.println("[HTTP] begin() failed — skipping");
+    return;
+  }
   int code = https.GET();
 
   Serial.printf("[HTTP] Response Code: %d\n", code);
 
   https.end();
+  client.stop();
 }
 
 /****************************** UPSERT DEVICE ***************************/
@@ -230,7 +248,7 @@ void upsertDevice(const char* id, bool power, bool led, int speed) {
 
   if (isNew && deviceCount < MAX_DEVICES) {
     i = deviceCount++;
-    strcpy(devices[i].deviceId, id);
+    snprintf(devices[i].deviceId, sizeof(devices[i].deviceId), "%s", id);
   }
 
   devices[i].power = power;
@@ -243,13 +261,13 @@ void upsertDevice(const char* id, bool power, bool led, int speed) {
                 isNew ? "NEW" : "UPDATE", id, power, led, speed);
 
   char msg[48];
-  if (!devices[i].switchOn) strcpy(msg, "Off");
+  if (!devices[i].switchOn) snprintf(msg, sizeof(msg), "Off");
   else if (power && speed > 0) snprintf(msg, sizeof(msg), "On. Speed %d.", speed);
-  else if (!power && speed > 0) strcpy(msg, "On. Standby.");
-  else strcpy(msg, "On");
+  else if (!power && speed > 0) snprintf(msg, sizeof(msg), "On. Standby.");
+  else snprintf(msg, sizeof(msg), "On");
 
   char fanName[32];
-  getDeviceName(id, fanName);
+  getDeviceName(id, fanName, sizeof(fanName));
 
   sendSensorValueToAlexa(fanName, msg);
 }
@@ -299,9 +317,9 @@ void upsertDevice_Off() {
       // Looks like switch is recently turned off
       devices[i].switchOn = false;
       char msg[48];
-      strcpy(msg, "Off");
+      snprintf(msg, sizeof(msg), "Off");
       char fanName[32];
-      getDeviceName(devices[i].deviceId, fanName);
+      getDeviceName(devices[i].deviceId, fanName, sizeof(fanName));
       Serial.println("[DEVICE] switch Off");
       sendSensorValueToAlexa(fanName, msg);
     }
@@ -313,6 +331,11 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Booting...");
 
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+#if defined(ESP32)
+  WiFi.setSleep(false);
+#endif
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -330,12 +353,14 @@ void setup() {
 
 /******************************* LOOP **********************************/
 uint32_t logTimer = 0;
+uint32_t lastOffCheck = 0;
+const uint32_t OFF_CHECK_INTERVAL = 2000;  // check heartbeat timeouts every 2s
 
 void loop() {
 
   wifiWatchdog();
+  yield();
 
-  /* Print heap every 10s */
   if (millis() - logTimer > HEAP_PRINT_TIME) {
     logTimer = millis();
     Serial.printf("[HEAP] Free RAM: %u bytes\n", ESP.getFreeHeap());
@@ -368,6 +393,11 @@ void loop() {
     }
   }
 
-  // ---- Turn off DEVICES with no heartbeat----
-  upsertDevice_Off();
+  // ---- Turn off DEVICES with no heartbeat (throttled) ----
+  if (millis() - lastOffCheck > OFF_CHECK_INTERVAL) {
+    lastOffCheck = millis();
+    upsertDevice_Off();
+  }
+
+  yield();
 }
