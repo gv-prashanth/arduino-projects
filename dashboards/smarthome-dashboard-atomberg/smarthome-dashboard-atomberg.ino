@@ -237,12 +237,15 @@ void sendSensorValueToAlexa(const char* name, const char* reading) {
     Serial.println("[HTTP] begin() failed — skipping");
     return;
   }
+
+  ESP.wdtFeed();
   int code = https.GET();
+  ESP.wdtFeed();
 
   Serial.printf("[HTTP] Response Code: %d\n", code);
 
   https.end();
-  client.stop();
+  yield();
 }
 
 /****************************** UPSERT DEVICE ***************************/
@@ -340,7 +343,6 @@ void loadDefaultDevices() {
 void upsertDevice_Off() {
   for (int i = 0; i < deviceCount; i++) {
     if (devices[i].switchOn && (millis() - devices[i].lastHeartbeat > 10000)) {
-      // Looks like switch is recently turned off
       devices[i].switchOn = false;
       char msg[48];
       snprintf(msg, sizeof(msg), "Off");
@@ -348,6 +350,7 @@ void upsertDevice_Off() {
       getDeviceName(devices[i].deviceId, fanName, sizeof(fanName));
       Serial.println("[DEVICE] switch Off");
       sendSensorValueToAlexa(fanName, msg);
+      yield();
     }
   }
 }
