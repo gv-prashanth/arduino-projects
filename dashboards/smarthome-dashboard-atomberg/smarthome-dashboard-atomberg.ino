@@ -117,11 +117,12 @@ DeviceInfo devices[MAX_DEVICES];
 uint8_t deviceCount = 0;
 
 // WIFI WATCHDOG SETTINGS
-uint32_t wifiLastConnected = millis();
-const uint32_t WIFI_RECONNECT_INTERVAL = 15000;  // try reconnect every 15s
-const uint32_t WIFI_TIMEOUT_REBOOT     = 60000;  // 60s offline → last-resort reboot
+uint32_t wifiLastConnected = 0;
+const uint32_t WIFI_RECONNECT_INTERVAL = 30000;  // nudge reconnect after 30s offline
+const uint32_t WIFI_TIMEOUT_REBOOT     = 90000;  // 90s offline → last-resort reboot
 const uint32_t HEAP_PRINT_TIME         = 120000;  // 2 minutes
 uint32_t lastReconnectAttempt = 0;
+uint32_t lastWifiLog = 0;
 
 void wifiWatchdog() {
   if (WiFi.status() == WL_CONNECTED) {
@@ -130,14 +131,18 @@ void wifiWatchdog() {
   }
 
   uint32_t offlineDuration = millis() - wifiLastConnected;
-  Serial.printf("[WIFI] Disconnected for %lu ms\n", (unsigned long)offlineDuration);
 
-  if (millis() - lastReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
+  if (millis() - lastWifiLog > 5000) {
+    lastWifiLog = millis();
+    Serial.printf("[WIFI] Disconnected for %lu ms (heap: %u)\n",
+                  (unsigned long)offlineDuration, ESP.getFreeHeap());
+  }
+
+  if (offlineDuration > WIFI_RECONNECT_INTERVAL &&
+      millis() - lastReconnectAttempt > WIFI_RECONNECT_INTERVAL) {
     lastReconnectAttempt = millis();
-    Serial.println("[WIFI] Attempting reconnect...");
-    WiFi.disconnect();
-    delay(100);
-    WiFi.begin(ssid, password);
+    Serial.println("[WIFI] Auto-reconnect may have stalled — nudging...");
+    WiFi.reconnect();
   }
 
   if (offlineDuration > WIFI_TIMEOUT_REBOOT) {
@@ -304,6 +309,7 @@ void loadDefaultDevices() {
   int masterCount = sizeof(masterNames) / sizeof(masterNames[0]);
   for (int i = 0; i < masterCount; i++) {
     upsertDevice(masterNames[i].id, false, false, 0);
+    yield();
   }
   Serial.println("Default devices loaded from masterNames.");
 }
@@ -349,6 +355,9 @@ void setup() {
 
   Serial.println("Loading default devices...");
   loadDefaultDevices();
+
+  wifiLastConnected = millis();
+  Serial.println("Setup complete.");
 }
 
 /******************************* LOOP **********************************/
