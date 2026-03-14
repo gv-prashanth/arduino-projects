@@ -246,12 +246,19 @@ void sendSensorValueToAlexa(const char* name, const char* reading) {
 }
 
 /****************************** UPSERT DEVICE ***************************/
-void upsertDevice(const char* id, bool power, bool led, int speed) {
+void upsertDevice(const char* id, bool power, bool led, int speed,
+                  bool pushToAlexa) {
+
+  if (!id) return;
 
   int i = findDevice(id);
   bool isNew = (i < 0);
 
-  if (isNew && deviceCount < MAX_DEVICES) {
+  if (isNew) {
+    if (deviceCount >= MAX_DEVICES) {
+      Serial.printf("[DEVICE] Table full (%d) — ignoring %s\n", MAX_DEVICES, id);
+      return;
+    }
     i = deviceCount++;
     snprintf(devices[i].deviceId, sizeof(devices[i].deviceId), "%s", id);
   }
@@ -265,9 +272,10 @@ void upsertDevice(const char* id, bool power, bool led, int speed) {
   Serial.printf("[DEVICE] %s %s → Power:%d LED:%d Speed:%d\n",
                 isNew ? "NEW" : "UPDATE", id, power, led, speed);
 
+  if (!pushToAlexa) return;
+
   char msg[48];
-  if (!devices[i].switchOn) snprintf(msg, sizeof(msg), "Off");
-  else if (power && speed > 0) snprintf(msg, sizeof(msg), "On. Speed %d.", speed);
+  if (power && speed > 0) snprintf(msg, sizeof(msg), "On. Speed %d.", speed);
   else if (!power && speed > 0) snprintf(msg, sizeof(msg), "On. Standby.");
   else snprintf(msg, sizeof(msg), "On");
 
@@ -279,10 +287,12 @@ void upsertDevice(const char* id, bool power, bool led, int speed) {
 
 /**************************** PROCESS FAN EVENT *************************/
 void processFanEvent(const char* hex) {
-  //Serial.printf("[UDP] HEX Received (%d bytes) -> Decoding JSON...\n", strlen(hex));
+
+  int hexLen = (int)strlen(hex);
+  if (hexLen < 2 || hexLen > 1024) return;
 
   char json[512] = { 0 };
-  for (int i = 0, j = 0; i < (int)strlen(hex) && j < 511; i += 2, j++) {
+  for (int i = 0, j = 0; i < hexLen && j < 511; i += 2, j++) {
     char h[3] = { hex[i], hex[i + 1], 0 };
     json[j] = (char)strtol(h, NULL, 16);
   }
@@ -295,23 +305,33 @@ void processFanEvent(const char* hex) {
 
   const char* id = doc["device_id"];
   const char* state = doc["state_string"];
-  int comma = strchr(state, ',') ? strchr(state, ',') - state : strlen(state);
-  uint32_t encoded = strtoul(String(state).substring(0, comma).c_str(), NULL, 10);
+  if (!id || !state) {
+    Serial.println("[ERR] Missing device_id or state_string in JSON");
+    return;
+  }
+
+  const char* comma = strchr(state, ',');
+  int commaPos = comma ? (int)(comma - state) : (int)strlen(state);
+  char numBuf[16] = { 0 };
+  if (commaPos > 0 && commaPos < (int)sizeof(numBuf))
+    snprintf(numBuf, sizeof(numBuf), "%.*s", commaPos, state);
+  uint32_t encoded = strtoul(numBuf, NULL, 10);
 
   bool power = (encoded & 0x10) > 0;
   bool led = (encoded & 0x20) > 0;
   int speed = (encoded & 0x07);
 
-  upsertDevice(id, power, led, speed);
+  upsertDevice(id, power, led, speed, true);
 }
 
 void loadDefaultDevices() {
   int masterCount = sizeof(masterNames) / sizeof(masterNames[0]);
   for (int i = 0; i < masterCount; i++) {
-    upsertDevice(masterNames[i].id, false, false, 0);
+    upsertDevice(masterNames[i].id, false, false, 0, false);
     yield();
   }
-  Serial.println("Default devices loaded from masterNames.");
+  Serial.printf("Loaded %d default devices into memory.\n", masterCount);
+  Serial.printf("[BOOT] Heap after defaults: %u bytes\n", ESP.getFreeHeap());
 }
 
 // ---------------------------------------------------------------------------
@@ -335,7 +355,13 @@ void upsertDevice_Off() {
 /****************************** SETUP **********************************/
 void setup() {
   Serial.begin(115200);
-  Serial.println("Booting...");
+  delay(3000);
+  Serial.println("\n\n========== BOOT ==========");
+#if defined(ESP8266)
+  Serial.printf("[BOOT] Reset reason : %s\n", ESP.getResetReason().c_str());
+  Serial.printf("[BOOT] Reset info   : %s\n", ESP.getResetInfo().c_str());
+#endif
+  Serial.printf("[BOOT] Free heap    : %u bytes\n", ESP.getFreeHeap());
 
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
@@ -349,11 +375,12 @@ void setup() {
     delay(250);
   }
   Serial.printf("\n[WiFi] Connected — IP: %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("[BOOT] Heap after WiFi: %u bytes\n", ESP.getFreeHeap());
 
   udp.begin(UDP_PORT);
   Serial.printf("[UDP] Listening on %d\n", UDP_PORT);
 
-  Serial.println("Loading default devices...");
+  Serial.println("Loading default devices into memory...");
   loadDefaultDevices();
 
   wifiLastConnected = millis();
@@ -392,12 +419,14 @@ void loop() {
       //Serial.println("[TYPE] → FAN EVENT");
       processFanEvent(buf);
     } else {
-      //Serial.println("[TYPE] → HEARTBEAT");
       int idx = findDevice(buf);
-      if(idx >= 0)
+      if (idx >= 0) {
         devices[idx].lastHeartbeat = millis();
-      if (idx < 0 || devices[idx].switchOn == false) {
-        upsertDevice(buf, false, false, 0);
+        if (!devices[idx].switchOn) {
+          upsertDevice(buf, false, false, 0, true);
+        }
+      } else if (len > 0 && len < MAX_ID_LEN) {
+        upsertDevice(buf, false, false, 0, true);
       }
     }
   }
