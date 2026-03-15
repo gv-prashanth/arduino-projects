@@ -2,15 +2,11 @@
 ================================================================================
  ESP32 / ESP8266 – Atomberg Fan Listener → Alexa Updater (UDP → HTTPS Bridge)
 --------------------------------------------------------------------------------
- Phase 4 (final) — full feature set:
-   WiFi + UDP + device tracking + hex decode + HTTPS queue + WiFi watchdog
-
- Key design choices to avoid WDT crashes on ESP8266:
-   - BearSSL client + HTTPClient are LOCAL variables (clean state every call)
-   - setBufferSizes(512,512) reduces BearSSL heap from ~16KB to ~1KB
+ Rewritten for ESP8266 stability:
+   - Static global BearSSL client with reduced buffers (configured once)
    - Ring-buffer queue: at most ONE HTTPS call per loop() iteration
-   - WiFi watchdog uses auto-reconnect; reboot only after 90s offline
-   - No HTTPS calls during setup — Alexa updated when real data arrives
+   - WiFi watchdog: auto-reconnect after 30s, reboot after 90s
+   - No HTTPS calls during setup
 ================================================================================
 */
 
@@ -37,6 +33,13 @@ const char* password = "YYYY";
 const char* DROID_ID = "ABCD";
 
 WiFiUDP udp;
+
+#if defined(ESP8266)
+  BearSSL::WiFiClientSecure secureClient;
+#else
+  WiFiClientSecure secureClient;
+#endif
+HTTPClient httpClient;
 
 // ---- Master name table ----
 struct MasterName {
@@ -96,7 +99,6 @@ void wifiWatchdog() {
     return;
   }
   uint32_t offline = millis() - wifiOkAt;
-
   if (offline > 30000 && millis() - lastReconnect > 30000) {
     lastReconnect = millis();
     Serial.printf("[WIFI] Offline %lus — reconnecting\n", offline / 1000);
@@ -122,7 +124,7 @@ void urlEncodeSpaces(const char* in, char* out, int outSize) {
   out[j] = '\0';
 }
 
-// ---- Send ONE message to Alexa (heap-allocated BearSSL to avoid stack smash) ----
+// ---- Send ONE message to Alexa (static client, no stack pressure) ----
 void sendToAlexa(const char* name, const char* reading) {
   if (WiFi.status() != WL_CONNECTED) return;
 
@@ -137,29 +139,12 @@ void sendToAlexa(const char* name, const char* reading) {
 
   Serial.printf("[HTTP] %s\n", url);
 
-#if defined(ESP8266)
-  BearSSL::WiFiClientSecure *client = new BearSSL::WiFiClientSecure();
-#else
-  WiFiClientSecure *client = new WiFiClientSecure();
-#endif
-  if (!client) { Serial.println("[HTTP] OOM"); return; }
-
-#if defined(ESP8266)
-  client->setBufferSizes(512, 512);
-#endif
-  client->setInsecure();
-
-  HTTPClient https;
-  https.setTimeout(5000);
-  if (https.begin(*client, url)) {
-    int code = https.GET();
+  httpClient.setTimeout(5000);
+  if (httpClient.begin(secureClient, url)) {
+    int code = httpClient.GET();
     Serial.printf("[HTTP] %d\n", code);
-    https.end();
-  } else {
-    Serial.println("[HTTP] begin failed");
+    httpClient.end();
   }
-
-  delete client;
 }
 
 bool trySendOneFromQueue() {
@@ -284,7 +269,11 @@ void setup() {
     delay(250);
   }
   Serial.printf("\nIP: %s\n", WiFi.localIP().toString().c_str());
-  Serial.printf("Heap after WiFi: %u\n", ESP.getFreeHeap());
+
+#if defined(ESP8266)
+  secureClient.setBufferSizes(512, 512);
+#endif
+  secureClient.setInsecure();
 
   udp.begin(UDP_PORT);
   loadDefaults();
@@ -300,13 +289,11 @@ uint32_t lastHeapLog  = 0;
 void loop() {
   wifiWatchdog();
 
-  // Heap monitor every 2 minutes
   if (millis() - lastHeapLog > 120000) {
     lastHeapLog = millis();
     Serial.printf("[HEAP] %u bytes (queue: %d)\n", ESP.getFreeHeap(), qCount);
   }
 
-  // 1. Read UDP
   int sz = udp.parsePacket();
   if (sz > 0) {
     char buf[1024];
@@ -331,13 +318,11 @@ void loop() {
     }
   }
 
-  // 2. Check heartbeat timeouts
   if (millis() - lastOffCheck > 2000) {
     lastOffCheck = millis();
     checkHeartbeatOff();
   }
 
-  // 3. Send at most ONE queued Alexa message per loop
   trySendOneFromQueue();
 
   yield();
