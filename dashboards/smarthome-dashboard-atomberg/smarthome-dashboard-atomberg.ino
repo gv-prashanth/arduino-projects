@@ -255,7 +255,7 @@ void checkHeartbeatOff() {
 
 void loadDefaults() {
   for (int i = 0; i < MASTER_COUNT; i++) {
-    upsertDevice(MASTER[i].id, false, false, 0, false);
+    upsertDevice(MASTER[i].id, false, false, 0, true);
     yield();
   }
 }
