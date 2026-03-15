@@ -1,9 +1,17 @@
 /*
-  Phase 3 — Full device tracking + HTTPS to Alexa
-  Key changes from old code:
-    - BearSSL client + HTTPClient are LOCAL variables (clean state every call)
-    - setBufferSizes(512,512) to reduce heap from ~16KB to ~1KB per call
-    - Message queue: state changes enqueue; loop sends at most ONE per cycle
+================================================================================
+ ESP32 / ESP8266 – Atomberg Fan Listener → Alexa Updater (UDP → HTTPS Bridge)
+--------------------------------------------------------------------------------
+ Phase 4 (final) — full feature set:
+   WiFi + UDP + device tracking + hex decode + HTTPS queue + WiFi watchdog
+
+ Key design choices to avoid WDT crashes on ESP8266:
+   - BearSSL client + HTTPClient are LOCAL variables (clean state every call)
+   - setBufferSizes(512,512) reduces BearSSL heap from ~16KB to ~1KB
+   - Ring-buffer queue: at most ONE HTTPS call per loop() iteration
+   - WiFi watchdog uses auto-reconnect; reboot only after 90s offline
+   - No HTTPS calls during setup — Alexa updated when real data arrives
+================================================================================
 */
 
 #if defined(ESP32)
@@ -69,7 +77,6 @@ uint8_t qHead = 0, qCount = 0;
 
 void enqueueAlexa(const char* name, const char* reading) {
   if (qCount >= QUEUE_SIZE) {
-    Serial.println("[Q] Full — dropping oldest");
     qHead = (qHead + 1) % QUEUE_SIZE;
     qCount--;
   }
@@ -77,6 +84,29 @@ void enqueueAlexa(const char* name, const char* reading) {
   snprintf(alexaQ[idx].name, sizeof(alexaQ[idx].name), "%s", name);
   snprintf(alexaQ[idx].reading, sizeof(alexaQ[idx].reading), "%s", reading);
   qCount++;
+}
+
+// ---- WiFi watchdog ----
+uint32_t wifiOkAt = 0;
+uint32_t lastReconnect = 0;
+
+void wifiWatchdog() {
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiOkAt = millis();
+    return;
+  }
+  uint32_t offline = millis() - wifiOkAt;
+
+  if (offline > 30000 && millis() - lastReconnect > 30000) {
+    lastReconnect = millis();
+    Serial.printf("[WIFI] Offline %lus — reconnecting\n", offline / 1000);
+    WiFi.reconnect();
+  }
+  if (offline > 90000) {
+    Serial.println("[WIFI] Offline >90s — reboot");
+    delay(500);
+    ESP.restart();
+  }
 }
 
 // ---- URL-encode spaces ----
@@ -92,7 +122,7 @@ void urlEncodeSpaces(const char* in, char* out, int outSize) {
   out[j] = '\0';
 }
 
-// ---- Send ONE message to Alexa (local BearSSL objects) ----
+// ---- Send ONE message to Alexa (fresh local objects each call) ----
 void sendToAlexa(const char* name, const char* reading) {
   if (WiFi.status() != WL_CONNECTED) return;
 
@@ -232,11 +262,15 @@ void setup() {
   Serial.println("\n\n========== BOOT ==========");
 #if defined(ESP8266)
   Serial.printf("Reset reason: %s\n", ESP.getResetReason().c_str());
+  Serial.printf("Reset info  : %s\n", ESP.getResetInfo().c_str());
 #endif
-  Serial.printf("Free heap: %u\n", ESP.getFreeHeap());
+  Serial.printf("Free heap   : %u bytes\n", ESP.getFreeHeap());
 
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+#if defined(ESP32)
+  WiFi.setSleep(false);
+#endif
   WiFi.begin(ssid, password);
   Serial.print("WiFi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -244,16 +278,28 @@ void setup() {
     delay(250);
   }
   Serial.printf("\nIP: %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("Heap after WiFi: %u\n", ESP.getFreeHeap());
 
   udp.begin(UDP_PORT);
   loadDefaults();
-  Serial.printf("Heap: %u\nPhase 3 ready.\n\n", ESP.getFreeHeap());
+
+  wifiOkAt = millis();
+  Serial.printf("Heap ready: %u\nSetup complete.\n\n", ESP.getFreeHeap());
 }
 
 // ---- Loop ----
 uint32_t lastOffCheck = 0;
+uint32_t lastHeapLog  = 0;
 
 void loop() {
+  wifiWatchdog();
+
+  // Heap monitor every 2 minutes
+  if (millis() - lastHeapLog > 120000) {
+    lastHeapLog = millis();
+    Serial.printf("[HEAP] %u bytes (queue: %d)\n", ESP.getFreeHeap(), qCount);
+  }
+
   // 1. Read UDP
   int sz = udp.parsePacket();
   if (sz > 0) {
