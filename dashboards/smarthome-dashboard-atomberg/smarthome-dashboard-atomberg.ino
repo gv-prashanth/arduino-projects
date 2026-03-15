@@ -1,12 +1,19 @@
 /*
-  Phase 2 — WiFi + UDP + device tracking + hex decode (NO HTTPS)
-  All state changes printed to Serial only.
+  Phase 3 — Full device tracking + HTTPS to Alexa
+  Key changes from old code:
+    - BearSSL client + HTTPClient are LOCAL variables (clean state every call)
+    - setBufferSizes(512,512) to reduce heap from ~16KB to ~1KB per call
+    - Message queue: state changes enqueue; loop sends at most ONE per cycle
 */
 
 #if defined(ESP32)
   #include <WiFi.h>
+  #include <HTTPClient.h>
+  #include <WiFiClientSecure.h>
 #elif defined(ESP8266)
   #include <ESP8266WiFi.h>
+  #include <ESP8266HTTPClient.h>
+  #include <WiFiClientSecureBearSSL.h>
 #endif
 #include <WiFiUdp.h>
 #include <ArduinoJson.h>
@@ -15,6 +22,7 @@
 #define MAX_DEVICES  20
 #define MAX_ID_LEN   20
 #define MAX_NAME_LEN 32
+#define QUEUE_SIZE   10
 
 const char* ssid     = "XXXX";
 const char* password = "YYYY";
@@ -22,6 +30,7 @@ const char* DROID_ID = "ABCD";
 
 WiFiUDP udp;
 
+// ---- Master name table ----
 struct MasterName {
   char id[MAX_ID_LEN];
   char name[MAX_NAME_LEN];
@@ -36,6 +45,7 @@ const MasterName MASTER[] = {
 };
 const int MASTER_COUNT = sizeof(MASTER) / sizeof(MASTER[0]);
 
+// ---- Device registry ----
 struct Device {
   char id[MAX_ID_LEN];
   bool power;
@@ -48,10 +58,86 @@ struct Device {
 Device devices[MAX_DEVICES];
 uint8_t deviceCount = 0;
 
-const char* lookupName(const char* id) {
-  for (int i = 0; i < MASTER_COUNT; i++) {
-    if (strcmp(MASTER[i].id, id) == 0) return MASTER[i].name;
+// ---- Alexa message queue (ring buffer) ----
+struct AlexaMsg {
+  char name[MAX_NAME_LEN];
+  char reading[48];
+};
+
+AlexaMsg alexaQ[QUEUE_SIZE];
+uint8_t qHead = 0, qCount = 0;
+
+void enqueueAlexa(const char* name, const char* reading) {
+  if (qCount >= QUEUE_SIZE) {
+    Serial.println("[Q] Full — dropping oldest");
+    qHead = (qHead + 1) % QUEUE_SIZE;
+    qCount--;
   }
+  int idx = (qHead + qCount) % QUEUE_SIZE;
+  snprintf(alexaQ[idx].name, sizeof(alexaQ[idx].name), "%s", name);
+  snprintf(alexaQ[idx].reading, sizeof(alexaQ[idx].reading), "%s", reading);
+  qCount++;
+}
+
+// ---- URL-encode spaces ----
+void urlEncodeSpaces(const char* in, char* out, int outSize) {
+  int j = 0;
+  for (int i = 0; in[i] && j < outSize - 4; i++) {
+    if (in[i] == ' ') {
+      out[j++] = '%'; out[j++] = '2'; out[j++] = '0';
+    } else {
+      out[j++] = in[i];
+    }
+  }
+  out[j] = '\0';
+}
+
+// ---- Send ONE message to Alexa (local BearSSL objects) ----
+void sendToAlexa(const char* name, const char* reading) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  char encName[96], encReading[96];
+  urlEncodeSpaces(name, encName, sizeof(encName));
+  urlEncodeSpaces(reading, encReading, sizeof(encReading));
+
+  char url[256];
+  snprintf(url, sizeof(url),
+    "https://home-automation.vadrin.com/droid/%s/upsert/intent/%s/reading/%s",
+    DROID_ID, encName, encReading);
+
+  Serial.printf("[HTTP] %s\n", url);
+
+#if defined(ESP8266)
+  BearSSL::WiFiClientSecure client;
+  client.setBufferSizes(512, 512);
+#else
+  WiFiClientSecure client;
+#endif
+  client.setInsecure();
+
+  HTTPClient https;
+  https.setTimeout(5000);
+  if (https.begin(client, url)) {
+    int code = https.GET();
+    Serial.printf("[HTTP] %d\n", code);
+    https.end();
+  } else {
+    Serial.println("[HTTP] begin failed");
+  }
+}
+
+bool trySendOneFromQueue() {
+  if (qCount == 0) return false;
+  sendToAlexa(alexaQ[qHead].name, alexaQ[qHead].reading);
+  qHead = (qHead + 1) % QUEUE_SIZE;
+  qCount--;
+  return true;
+}
+
+// ---- Device helpers ----
+const char* lookupName(const char* id) {
+  for (int i = 0; i < MASTER_COUNT; i++)
+    if (strcmp(MASTER[i].id, id) == 0) return MASTER[i].name;
   char temp[MAX_ID_LEN];
   for (int i = 0; i < MASTER_COUNT; i++) {
     snprintf(temp, sizeof(temp), "%s_R1", MASTER[i].id);
@@ -72,47 +158,42 @@ int findDevice(const char* id) {
   return -1;
 }
 
-int upsertDevice(const char* id, bool power, bool led, int speed) {
+int upsertDevice(const char* id, bool power, bool led, int speed,
+                 bool notify) {
   if (!id) return -1;
   int i = findDevice(id);
   bool isNew = (i < 0);
   if (isNew) {
-    if (deviceCount >= MAX_DEVICES) {
-      Serial.printf("[DEV] Table full — ignoring %s\n", id);
-      return -1;
-    }
+    if (deviceCount >= MAX_DEVICES) return -1;
     i = deviceCount++;
     snprintf(devices[i].id, sizeof(devices[i].id), "%s", id);
   }
-  devices[i].power     = power;
-  devices[i].switchOn  = true;
-  devices[i].led       = led;
-  devices[i].speed     = speed;
+  devices[i].power    = power;
+  devices[i].switchOn = true;
+  devices[i].led      = led;
+  devices[i].speed    = speed;
   devices[i].lastHeartbeat = millis();
 
   const char* name = lookupName(id);
-  if (power && speed > 0)
-    Serial.printf("[DEV] %s → %s: On. Speed %d.\n", isNew ? "NEW" : "UPD", name, speed);
-  else if (!power && speed > 0)
-    Serial.printf("[DEV] %s → %s: On. Standby.\n", isNew ? "NEW" : "UPD", name);
-  else
-    Serial.printf("[DEV] %s → %s: On\n", isNew ? "NEW" : "UPD", name);
+  char msg[48];
+  if (power && speed > 0) snprintf(msg, sizeof(msg), "On. Speed %d.", speed);
+  else if (!power && speed > 0) snprintf(msg, sizeof(msg), "On. Standby.");
+  else snprintf(msg, sizeof(msg), "On");
 
+  Serial.printf("[DEV] %s → %s: %s\n", isNew ? "NEW" : "UPD", name, msg);
+  if (notify) enqueueAlexa(name, msg);
   return i;
 }
 
 void processFanEvent(const char* hex, int hexLen) {
   if (hexLen < 2 || hexLen > 1024) return;
-
   char json[512] = {0};
   for (int i = 0, j = 0; i < hexLen && j < 511; i += 2, j++) {
     char h[3] = { hex[i], hex[i + 1], 0 };
     json[j] = (char)strtol(h, NULL, 16);
   }
-
   StaticJsonDocument<512> doc;
   if (deserializeJson(doc, json)) return;
-
   const char* id    = doc["device_id"];
   const char* state = doc["state_string"];
   if (!id || !state) return;
@@ -123,27 +204,28 @@ void processFanEvent(const char* hex, int hexLen) {
   if (pos > 0 && pos < (int)sizeof(numBuf))
     snprintf(numBuf, sizeof(numBuf), "%.*s", pos, state);
   uint32_t enc = strtoul(numBuf, NULL, 10);
-
-  upsertDevice(id, (enc & 0x10) != 0, (enc & 0x20) != 0, enc & 0x07);
+  upsertDevice(id, (enc & 0x10) != 0, (enc & 0x20) != 0, enc & 0x07, true);
 }
 
 void checkHeartbeatOff() {
   for (int i = 0; i < deviceCount; i++) {
     if (devices[i].switchOn && (millis() - devices[i].lastHeartbeat > 10000)) {
       devices[i].switchOn = false;
-      Serial.printf("[DEV] OFF → %s\n", lookupName(devices[i].id));
+      const char* name = lookupName(devices[i].id);
+      Serial.printf("[DEV] OFF → %s\n", name);
+      enqueueAlexa(name, "Off");
     }
   }
 }
 
 void loadDefaults() {
   for (int i = 0; i < MASTER_COUNT; i++) {
-    upsertDevice(MASTER[i].id, false, false, 0);
+    upsertDevice(MASTER[i].id, false, false, 0, false);
     yield();
   }
-  Serial.printf("Loaded %d defaults.\n", MASTER_COUNT);
 }
 
+// ---- Setup ----
 void setup() {
   Serial.begin(115200);
   delay(2000);
@@ -154,6 +236,7 @@ void setup() {
   Serial.printf("Free heap: %u\n", ESP.getFreeHeap());
 
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
   WiFi.begin(ssid, password);
   Serial.print("WiFi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -163,43 +246,47 @@ void setup() {
   Serial.printf("\nIP: %s\n", WiFi.localIP().toString().c_str());
 
   udp.begin(UDP_PORT);
-  Serial.printf("UDP port %d\n", UDP_PORT);
-
   loadDefaults();
-  Serial.printf("Heap: %u\nPhase 2 ready.\n\n", ESP.getFreeHeap());
+  Serial.printf("Heap: %u\nPhase 3 ready.\n\n", ESP.getFreeHeap());
 }
 
+// ---- Loop ----
 uint32_t lastOffCheck = 0;
 
 void loop() {
+  // 1. Read UDP
   int sz = udp.parsePacket();
   if (sz > 0) {
     char buf[1024];
     int len = udp.read(buf, sizeof(buf) - 1);
     buf[len] = '\0';
 
-    bool isHex = (len > 0);
+    bool isHex = (len > 2);
     for (int i = 0; i < len && isHex; i++)
       if (!isxdigit((unsigned char)buf[i])) isHex = false;
 
-    if (isHex && len > 2) {
+    if (isHex) {
       processFanEvent(buf, len);
     } else {
       int idx = findDevice(buf);
       if (idx >= 0) {
         devices[idx].lastHeartbeat = millis();
         if (!devices[idx].switchOn)
-          upsertDevice(buf, false, false, 0);
+          upsertDevice(buf, false, false, 0, true);
       } else if (len > 0 && len < MAX_ID_LEN) {
-        upsertDevice(buf, false, false, 0);
+        upsertDevice(buf, false, false, 0, true);
       }
     }
   }
 
+  // 2. Check heartbeat timeouts
   if (millis() - lastOffCheck > 2000) {
     lastOffCheck = millis();
     checkHeartbeatOff();
   }
+
+  // 3. Send at most ONE queued Alexa message per loop
+  trySendOneFromQueue();
 
   yield();
 }
