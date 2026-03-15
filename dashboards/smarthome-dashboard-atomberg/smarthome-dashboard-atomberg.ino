@@ -1,5 +1,6 @@
 /*
-  Test 2b — WiFi without WiFi.mode(WIFI_STA), matching original code.
+  Test 2c — WiFi with reduced TX power (10 dBm instead of default 20.5 dBm).
+  This reduces peak current draw from ~300mA to ~100mA, preventing USB voltage dips.
 */
 
 #if defined(ESP32)
@@ -14,21 +15,22 @@ const char* password = "YYYY";
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("Test 2b: WiFi (no mode set)");
+  Serial.println("Test 2c: WiFi reduced TX power");
 
+  WiFi.setOutputPower(10);
   WiFi.begin(ssid, password);
   Serial.print("Connecting");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(250);
   }
-  Serial.printf("\nIP: %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("\nIP: %s  RSSI: %d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
   Serial.printf("Heap: %u\nReady.\n", ESP.getFreeHeap());
 }
 
 uint32_t counter = 0;
 
 void loop() {
-  Serial.printf("alive %lu heap=%u\n", counter++, ESP.getFreeHeap());
+  Serial.printf("alive %lu heap=%u rssi=%d\n", counter++, ESP.getFreeHeap(), WiFi.RSSI());
   delay(2000);
 }
