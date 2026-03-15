@@ -122,15 +122,15 @@ void urlEncodeSpaces(const char* in, char* out, int outSize) {
   out[j] = '\0';
 }
 
-// ---- Send ONE message to Alexa (fresh local objects each call) ----
+// ---- Send ONE message to Alexa (heap-allocated BearSSL to avoid stack smash) ----
 void sendToAlexa(const char* name, const char* reading) {
   if (WiFi.status() != WL_CONNECTED) return;
 
-  char encName[96], encReading[96];
+  char encName[64], encReading[64];
   urlEncodeSpaces(name, encName, sizeof(encName));
   urlEncodeSpaces(reading, encReading, sizeof(encReading));
 
-  char url[256];
+  char url[200];
   snprintf(url, sizeof(url),
     "https://home-automation.vadrin.com/droid/%s/upsert/intent/%s/reading/%s",
     DROID_ID, encName, encReading);
@@ -138,22 +138,28 @@ void sendToAlexa(const char* name, const char* reading) {
   Serial.printf("[HTTP] %s\n", url);
 
 #if defined(ESP8266)
-  BearSSL::WiFiClientSecure client;
-  client.setBufferSizes(512, 512);
+  BearSSL::WiFiClientSecure *client = new BearSSL::WiFiClientSecure();
 #else
-  WiFiClientSecure client;
+  WiFiClientSecure *client = new WiFiClientSecure();
 #endif
-  client.setInsecure();
+  if (!client) { Serial.println("[HTTP] OOM"); return; }
+
+#if defined(ESP8266)
+  client->setBufferSizes(512, 512);
+#endif
+  client->setInsecure();
 
   HTTPClient https;
   https.setTimeout(5000);
-  if (https.begin(client, url)) {
+  if (https.begin(*client, url)) {
     int code = https.GET();
     Serial.printf("[HTTP] %d\n", code);
     https.end();
   } else {
     Serial.println("[HTTP] begin failed");
   }
+
+  delete client;
 }
 
 bool trySendOneFromQueue() {
