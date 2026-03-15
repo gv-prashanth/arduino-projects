@@ -1,5 +1,5 @@
 /*
-  Test 2 — Serial + WiFi only. No UDP, no HTTPS.
+  Test 2b — WiFi without WiFi.mode(WIFI_STA), matching original code.
 */
 
 #if defined(ESP32)
@@ -14,9 +14,8 @@ const char* password = "YYYY";
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("Test 2: WiFi only");
+  Serial.println("Test 2b: WiFi (no mode set)");
 
-  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.print("Connecting");
   while (WiFi.status() != WL_CONNECTED) {
@@ -30,7 +29,6 @@ void setup() {
 uint32_t counter = 0;
 
 void loop() {
-  Serial.printf("alive %lu wifi=%d heap=%u\n",
-    counter++, WiFi.status() == WL_CONNECTED, ESP.getFreeHeap());
+  Serial.printf("alive %lu heap=%u\n", counter++, ESP.getFreeHeap());
   delay(2000);
 }
