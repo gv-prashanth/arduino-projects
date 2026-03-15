@@ -5,15 +5,17 @@
  Listens for UDP broadcasts from Atomberg fans, decodes state, tracks devices,
  and pushes updates to Alexa via HTTPS.
 
- Key ESP8266 stability measures:
-   - WiFi TX power reduced to 10 dBm (prevents USB voltage dips)
-   - Static global BearSSL client with reduced buffers (512,512)
-   - Ring-buffer queue: at most ONE HTTPS call per loop() iteration
-   - All large buffers are static (off the 4KB stack)
-   - WiFi watchdog: auto-reconnect after 30s, reboot after 90s
-   - No HTTPS calls during setup
+ CONFIGURATION
+   SERIAL_LOG    – set false for production (USB power adapter, no computer).
+                   Disables all Serial output, saving CPU and avoiding buffer fills.
+   WIFI_TX_DBM   – WiFi transmit power in dBm. Default 20.5 draws ~300mA peaks
+                   which can brown out the USB-serial chip when powered via USB.
+                   Use 10 for USB-to-computer, 15-20 for USB power adapter.
 ================================================================================
 */
+
+#define SERIAL_LOG    true
+#define WIFI_TX_DBM   10
 
 #if defined(ESP32)
   #include <WiFi.h>
@@ -26,6 +28,14 @@
 #endif
 #include <WiFiUdp.h>
 #include <ArduinoJson.h>
+
+#if SERIAL_LOG
+  #define LOG(...) Serial.printf(__VA_ARGS__)
+  #define LOGLN(s) Serial.println(s)
+#else
+  #define LOG(...) do {} while(0)
+  #define LOGLN(s) do {} while(0)
+#endif
 
 #define UDP_PORT     5625
 #define MAX_DEVICES  20
@@ -106,11 +116,11 @@ void wifiWatchdog() {
   uint32_t offline = millis() - wifiOkAt;
   if (offline > 30000 && millis() - lastReconnect > 30000) {
     lastReconnect = millis();
-    Serial.printf("[WIFI] Offline %lus — reconnecting\n", offline / 1000);
+    LOG("[WIFI] Offline %lus — reconnecting\n", offline / 1000);
     WiFi.reconnect();
   }
   if (offline > 90000) {
-    Serial.println("[WIFI] Offline >90s — reboot");
+    LOGLN("[WIFI] Offline >90s — reboot");
     delay(500);
     ESP.restart();
   }
@@ -140,12 +150,12 @@ void sendToAlexa(const char* name, const char* reading) {
     "https://home-automation.vadrin.com/droid/%s/upsert/intent/%s/reading/%s",
     DROID_ID, encName, encReading);
 
-  Serial.printf("[HTTP] %s\n", url);
+  LOG("[HTTP] %s\n", url);
 
   httpClient.setTimeout(5000);
   if (httpClient.begin(secureClient, url)) {
     int code = httpClient.GET();
-    Serial.printf("[HTTP] %d\n", code);
+    LOG("[HTTP] %d\n", code);
     httpClient.end();
   }
 }
@@ -203,7 +213,7 @@ int upsertDevice(const char* id, bool power, bool led, int speed, bool notify) {
   else if (!power && speed > 0) snprintf(msg, sizeof(msg), "On. Standby.");
   else snprintf(msg, sizeof(msg), "On");
 
-  Serial.printf("[DEV] %s %s: %s\n", isNew ? "NEW" : "UPD", name, msg);
+  LOG("[DEV] %s %s: %s\n", isNew ? "NEW" : "UPD", name, msg);
   if (notify) enqueueAlexa(name, msg);
   return i;
 }
@@ -237,7 +247,7 @@ void checkHeartbeatOff() {
     if (devices[i].switchOn && (millis() - devices[i].lastHeartbeat > 10000)) {
       devices[i].switchOn = false;
       const char* name = lookupName(devices[i].id);
-      Serial.printf("[DEV] OFF %s\n", name);
+      LOG("[DEV] OFF %s\n", name);
       enqueueAlexa(name, "Off");
     }
   }
@@ -252,22 +262,29 @@ void loadDefaults() {
 
 // ==== Setup ====
 void setup() {
+#if SERIAL_LOG
   Serial.begin(115200);
   delay(2000);
-  Serial.println("\n\n========== BOOT ==========");
-#if defined(ESP8266)
-  Serial.printf("Reset reason: %s\n", ESP.getResetReason().c_str());
+  LOGLN("\n\n========== BOOT ==========");
+  #if defined(ESP8266)
+    LOG("Reset reason: %s\n", ESP.getResetReason().c_str());
+  #endif
+  LOG("Free heap   : %u\n", ESP.getFreeHeap());
 #endif
-  Serial.printf("Free heap   : %u\n", ESP.getFreeHeap());
 
-  WiFi.setOutputPower(10);
+  WiFi.setOutputPower(WIFI_TX_DBM);
   WiFi.begin(ssid, password);
+#if SERIAL_LOG
   Serial.print("WiFi");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(250);
   }
-  Serial.printf("\nIP: %s  RSSI: %d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+  LOG("\nIP: %s  RSSI: %d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+#else
+  while (WiFi.status() != WL_CONNECTED) delay(250);
+#endif
+
   WiFi.setAutoReconnect(true);
 
 #if defined(ESP8266)
@@ -279,7 +296,7 @@ void setup() {
   loadDefaults();
 
   wifiOkAt = millis();
-  Serial.printf("Heap: %u\nSetup complete.\n\n", ESP.getFreeHeap());
+  LOG("Heap: %u\nSetup complete.\n\n", ESP.getFreeHeap());
 }
 
 // ==== Loop ====
@@ -291,7 +308,7 @@ void loop() {
 
   if (millis() - lastHeapLog > 120000) {
     lastHeapLog = millis();
-    Serial.printf("[HEAP] %u (queue: %d)\n", ESP.getFreeHeap(), qCount);
+    LOG("[HEAP] %u (queue: %d)\n", ESP.getFreeHeap(), qCount);
   }
 
   int sz = udp.parsePacket();
