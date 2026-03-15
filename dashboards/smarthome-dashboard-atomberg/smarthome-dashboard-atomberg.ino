@@ -14,7 +14,7 @@
 ================================================================================
 */
 
-#define SERIAL_LOG    true
+#define SERIAL_LOG    false
 #define WIFI_TX_DBM   10
 
 #if defined(ESP32)
@@ -247,7 +247,7 @@ void processFanEvent(const char* hex, int hexLen) {
 void checkHeartbeatOff() {
   for (int i = 0; i < deviceCount; i++) {
     if (devices[i].switchOn && (millis() - devices[i].lastHeartbeat > 10000)) {
-      if (devices[i].speed > 0)
+      if (devices[i].speed > 0 && devices[i].power)
         devices[i].lastKnownSpeed = devices[i].speed;
       devices[i].switchOn = false;
       const char* name = lookupName(devices[i].id);
