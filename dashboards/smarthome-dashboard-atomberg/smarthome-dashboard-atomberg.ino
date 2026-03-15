@@ -78,6 +78,7 @@ struct Device {
   bool switchOn;
   bool led;
   int  speed;
+  int  lastKnownSpeed;
   uint32_t lastHeartbeat;
 };
 
@@ -209,8 +210,9 @@ int upsertDevice(const char* id, bool power, bool led, int speed, bool notify) {
 
   const char* name = lookupName(id);
   static char msg[48];
-  if (power && speed > 0) snprintf(msg, sizeof(msg), "On. Speed %d.", speed);
-  else if (!power && speed > 0) snprintf(msg, sizeof(msg), "On. Standby.");
+  if (power && speed > 0) snprintf(msg, sizeof(msg), "On, Speed %d.", speed);
+  else if (!power && speed > 0) snprintf(msg, sizeof(msg), "On, Speed 0.");
+  else if (devices[i].lastKnownSpeed > 0) snprintf(msg, sizeof(msg), "On, Speed %d.", devices[i].lastKnownSpeed);
   else snprintf(msg, sizeof(msg), "On");
 
   LOG("[DEV] %s %s: %s\n", isNew ? "NEW" : "UPD", name, msg);
@@ -245,6 +247,8 @@ void processFanEvent(const char* hex, int hexLen) {
 void checkHeartbeatOff() {
   for (int i = 0; i < deviceCount; i++) {
     if (devices[i].switchOn && (millis() - devices[i].lastHeartbeat > 10000)) {
+      if (devices[i].speed > 0)
+        devices[i].lastKnownSpeed = devices[i].speed;
       devices[i].switchOn = false;
       const char* name = lookupName(devices[i].id);
       LOG("[DEV] OFF %s\n", name);
