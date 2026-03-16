@@ -105,25 +105,36 @@ void enqueueAlexa(const char* name, const char* reading) {
   qCount++;
 }
 
-// ---- WiFi watchdog ----
+// ---- WiFi watchdog (no reboot — escalating recovery) ----
 uint32_t wifiOkAt = 0;
 uint32_t lastReconnect = 0;
+bool wifiWasOffline = false;
 
 void wifiWatchdog() {
   if (WiFi.status() == WL_CONNECTED) {
+    if (wifiWasOffline) {
+      wifiWasOffline = false;
+      LOG("[WIFI] Back online — restarting UDP\n");
+      udp.stop();
+      udp.begin(UDP_PORT);
+    }
     wifiOkAt = millis();
     return;
   }
+
+  wifiWasOffline = true;
   uint32_t offline = millis() - wifiOkAt;
-  if (offline > 30000 && millis() - lastReconnect > 30000) {
+
+  if (offline > 90000 && millis() - lastReconnect > 60000) {
+    lastReconnect = millis();
+    LOG("[WIFI] Offline %lus — full teardown + reconnect\n", offline / 1000);
+    WiFi.disconnect();
+    delay(100);
+    WiFi.begin(ssid, password);
+  } else if (offline > 30000 && millis() - lastReconnect > 30000) {
     lastReconnect = millis();
     LOG("[WIFI] Offline %lus — reconnecting\n", offline / 1000);
     WiFi.reconnect();
-  }
-  if (offline > 90000) {
-    LOGLN("[WIFI] Offline >90s — reboot");
-    delay(500);
-    ESP.restart();
   }
 }
 
@@ -156,7 +167,11 @@ void sendToAlexa(const char* name, const char* reading) {
   httpClient.setTimeout(5000);
   if (httpClient.begin(secureClient, url)) {
     int code = httpClient.GET();
-    LOG("[HTTP] %d\n", code);
+    if (code >= 200 && code < 300) {
+      LOG("[HTTP] %d\n", code);
+    } else {
+      LOG("[HTTP] FAIL %d — skipping\n", code);
+    }
     httpClient.end();
   }
 }
