@@ -135,6 +135,9 @@ void forceWifiRecovery() {
 
 // ---- LED status ----
 enum LedState { LED_SOLID, LED_SLOW_BLINK, LED_FAST_BLINK };
+void setLedState(LedState s);
+void updateLed();
+
 LedState ledState = LED_FAST_BLINK;
 uint32_t lastLedToggle = 0;
 bool ledOn = false;
