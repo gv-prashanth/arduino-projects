@@ -7,15 +7,20 @@
 
  CONFIGURATION
    SERIAL_LOG    – set false for production (USB power adapter, no computer).
-                   Disables all Serial output, saving CPU and avoiding buffer fills.
-   WIFI_TX_DBM   – WiFi transmit power in dBm. Default 20.5 draws ~300mA peaks
-                   which can brown out the USB-serial chip when powered via USB.
+   WIFI_TX_DBM   – WiFi transmit power in dBm.
                    Use 10 for USB-to-computer, 15-20 for USB power adapter.
+
+ LED STATUS (onboard LED, active LOW on ESP8266 GPIO2)
+   Solid ON        – WiFi connected, HTTPS working
+   Slow blink (1s) – WiFi connected but HTTPS is failing
+   Fast blink (¼s) – WiFi disconnected
 ================================================================================
 */
 
 #define SERIAL_LOG    false
 #define WIFI_TX_DBM   10
+#define LED_PIN       2
+#define HTTPS_FAIL_THRESHOLD 5
 
 #if defined(ESP32)
   #include <WiFi.h>
@@ -105,6 +110,65 @@ void enqueueAlexa(const char* name, const char* reading) {
   qCount++;
 }
 
+// ---- HTTPS health tracking ----
+uint8_t httpsFailCount = 0;
+
+void resetSecureClient() {
+  LOG("[HTTPS] Resetting BearSSL client\n");
+  secureClient.stop();
+#if defined(ESP8266)
+  secureClient.setBufferSizes(512, 512);
+#endif
+  secureClient.setInsecure();
+}
+
+void forceWifiRecovery() {
+  LOG("[HTTPS] %d consecutive failures — forcing WiFi recovery\n", httpsFailCount);
+  httpsFailCount = 0;
+  WiFi.disconnect();
+  delay(100);
+  WiFi.begin(ssid, password);
+  resetSecureClient();
+  udp.stop();
+  udp.begin(UDP_PORT);
+}
+
+// ---- LED status ----
+enum LedState { LED_SOLID, LED_SLOW_BLINK, LED_FAST_BLINK };
+LedState ledState = LED_FAST_BLINK;
+uint32_t lastLedToggle = 0;
+bool ledOn = false;
+
+void updateLed() {
+  uint32_t now = millis();
+  switch (ledState) {
+    case LED_SOLID:
+      if (!ledOn) { digitalWrite(LED_PIN, LOW); ledOn = true; }
+      break;
+    case LED_SLOW_BLINK:
+      if (now - lastLedToggle > 1000) {
+        lastLedToggle = now;
+        ledOn = !ledOn;
+        digitalWrite(LED_PIN, ledOn ? LOW : HIGH);
+      }
+      break;
+    case LED_FAST_BLINK:
+      if (now - lastLedToggle > 250) {
+        lastLedToggle = now;
+        ledOn = !ledOn;
+        digitalWrite(LED_PIN, ledOn ? LOW : HIGH);
+      }
+      break;
+  }
+}
+
+void setLedState(LedState s) {
+  if (ledState != s) {
+    ledState = s;
+    lastLedToggle = millis();
+  }
+}
+
 // ---- WiFi watchdog (no reboot — escalating recovery) ----
 uint32_t wifiOkAt = 0;
 uint32_t lastReconnect = 0;
@@ -117,12 +181,19 @@ void wifiWatchdog() {
       LOG("[WIFI] Back online — restarting UDP\n");
       udp.stop();
       udp.begin(UDP_PORT);
+      resetSecureClient();
     }
     wifiOkAt = millis();
+
+    if (httpsFailCount >= HTTPS_FAIL_THRESHOLD)
+      setLedState(LED_SLOW_BLINK);
+    else
+      setLedState(LED_SOLID);
     return;
   }
 
   wifiWasOffline = true;
+  setLedState(LED_FAST_BLINK);
   uint32_t offline = millis() - wifiOkAt;
 
   if (offline > 90000 && millis() - lastReconnect > 60000) {
@@ -169,10 +240,21 @@ void sendToAlexa(const char* name, const char* reading) {
     int code = httpClient.GET();
     if (code >= 200 && code < 300) {
       LOG("[HTTP] %d\n", code);
+      httpsFailCount = 0;
     } else {
-      LOG("[HTTP] FAIL %d — skipping\n", code);
+      LOG("[HTTP] FAIL %d\n", code);
+      httpsFailCount++;
+      if (httpsFailCount == HTTPS_FAIL_THRESHOLD) {
+        forceWifiRecovery();
+      }
     }
     httpClient.end();
+  } else {
+    httpsFailCount++;
+    LOG("[HTTP] begin failed (%d consecutive)\n", httpsFailCount);
+    if (httpsFailCount == HTTPS_FAIL_THRESHOLD) {
+      forceWifiRecovery();
+    }
   }
 }
 
@@ -291,6 +373,9 @@ void setup() {
   LOG("Free heap   : %u\n", ESP.getFreeHeap());
 #endif
 
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);
+
   WiFi.setOutputPower(WIFI_TX_DBM);
   WiFi.begin(ssid, password);
 #if SERIAL_LOG
@@ -315,6 +400,7 @@ void setup() {
   loadDefaults();
 
   wifiOkAt = millis();
+  setLedState(LED_SOLID);
   LOG("Heap: %u\nSetup complete.\n\n", ESP.getFreeHeap());
 }
 
@@ -324,10 +410,11 @@ uint32_t lastHeapLog  = 0;
 
 void loop() {
   wifiWatchdog();
+  updateLed();
 
   if (millis() - lastHeapLog > 120000) {
     lastHeapLog = millis();
-    LOG("[HEAP] %u (queue: %d)\n", ESP.getFreeHeap(), qCount);
+    LOG("[HEAP] %u (queue: %d fails: %d)\n", ESP.getFreeHeap(), qCount, httpsFailCount);
   }
 
   int sz = udp.parsePacket();
