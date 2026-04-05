@@ -17,6 +17,7 @@ void IRAM_ATTR onStepTimer();
 //Setup basic functions
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void setupBase(){
+  Serial.println("[SETUP] Gyro calibration starting...");
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   Wire.setClock(400000);
 
@@ -66,6 +67,10 @@ void setupBase(){
   }
   gyro_pitch_calibration_value /= 500;                                      //Divide the total value by 500 to get the avarage gyro offset
   gyro_yaw_calibration_value /= 500;                                        //Divide the total value by 500 to get the avarage gyro offset
+  Serial.print("[SETUP] Calibration done. pitch_cal=");
+  Serial.print(gyro_pitch_calibration_value);
+  Serial.print(" yaw_cal=");
+  Serial.println(gyro_yaw_calibration_value);
 
   loop_timer = micros() + 4000;                                             //Set the loop_timer variable at the next end loop time
 

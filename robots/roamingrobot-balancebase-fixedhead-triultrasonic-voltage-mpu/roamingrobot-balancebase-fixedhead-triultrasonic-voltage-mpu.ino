@@ -78,7 +78,13 @@ void setup() {
 
 void loop() {
   populateUltrasonicReading();
-  Serial.println(centerReading);
+
+  Serial.print("start="); Serial.print(start);
+  Serial.print(" angle="); Serial.print(angle_gyro, 2);
+  Serial.print(" acc_angle="); Serial.print(angle_acc, 2);
+  Serial.print(" pid="); Serial.print(pid_output, 2);
+  Serial.print(" L="); Serial.print(throttle_left_motor);
+  Serial.print(" R="); Serial.println(throttle_right_motor);
 
   //incase of emergency
   if (isObstacleWithinEmergencyDistance()) {
@@ -161,6 +167,7 @@ boolean isRightDecided() {
 }
 
 void doBIOSManoeuvre() {
+  Serial.println("[BIOS] Phase 1: STOP (10s) - hold robot upright");
   unsigned long botStartTime = millis();
   while (millis() - botStartTime < 10000) {
     baseStop();
@@ -170,6 +177,7 @@ void doBIOSManoeuvre() {
     yield();
   }
 
+  Serial.print("[BIOS] Phase 2: LEFT (5s) start="); Serial.println(start);
   //left
   while (millis() - botStartTime < 15000) {
     baseRotateLeft();
@@ -179,6 +187,7 @@ void doBIOSManoeuvre() {
     yield();
   }
 
+  Serial.println("[BIOS] Phase 3: RIGHT (5s)");
   //right
   while (millis() - botStartTime < 20000) {
     baseRotateRight();
@@ -188,6 +197,7 @@ void doBIOSManoeuvre() {
     yield();
   }
 
+  Serial.println("[BIOS] Phase 4: FORWARD (5s)");
   //forward
   while (millis() - botStartTime < 25000) {
     baseGoForward();
@@ -197,6 +207,7 @@ void doBIOSManoeuvre() {
     yield();
   }
 
+  Serial.println("[BIOS] Phase 5: BACKWARD (5s)");
   //backward
   while (millis() - botStartTime < 30000) {
     baseGoBackward();
@@ -206,6 +217,7 @@ void doBIOSManoeuvre() {
     yield();
   }
 
+  Serial.println("[BIOS] Phase 6: FINAL STOP (5s)");
   while (millis() - botStartTime < 35000) {
     baseStop();
     loopBase();
@@ -213,6 +225,7 @@ void doBIOSManoeuvre() {
     loop_timer += 4000;
     yield();
   }
+  Serial.println("[BIOS] Complete. Entering main loop.");
 }
 
 void populateUltrasonicReading() {
