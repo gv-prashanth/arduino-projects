@@ -17,8 +17,8 @@ int nDevices;
 
 void setup()
 {
-  Wire.begin();
-  TWBR = 12;
+  Wire.begin(21, 22);
+  Wire.setClock(400000);
   Serial.begin(9600);
 }
 

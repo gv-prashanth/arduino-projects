@@ -1,10 +1,28 @@
-#include <Wire.h>                                            //Include the Wire.h library so we can communicate with the gyro
+#include <Wire.h>
 
-//Pin Configuration
-const int TRIGGER_PIN = 7; // Arduino pin tied to trigger pin on ping sensor.
-const int ECHO_PIN_CENTER = 6; // Arduino pin tied to echo pin on ping sensor.
-const int ECHO_PIN_LEFT = 8; // Arduino pin tied to echo pin on ping sensor.
-const int ECHO_PIN_RIGHT = 9; // Arduino pin tied to echo pin on ping sensor.
+// ESP32-S Pin Configuration
+
+// Ultrasonic Sensor Pins
+const int TRIGGER_PIN = 16;
+const int ECHO_PIN_CENTER = 17;
+const int ECHO_PIN_LEFT = 27;
+const int ECHO_PIN_RIGHT = 14;
+
+// Stepper Motor Pins (A4988 STEP+DIR interface)
+const int LEFT_STEP_PIN = 26;
+const int LEFT_DIR_PIN = 25;
+const int RIGHT_STEP_PIN = 33;
+const int RIGHT_DIR_PIN = 32;
+
+// I2C Pins (MPU-6050)
+const int I2C_SDA_PIN = 21;
+const int I2C_SCL_PIN = 22;
+
+// LED Pin (built-in on most ESP32 dev boards)
+const int LED_PIN = 2;
+
+// Battery ADC Pin (ADC1_CH0, input-only, safe when WiFi active)
+const int BATTERY_ADC_PIN = 36;
 
 //functional Configuration
 const int emergencyObstacleRange = 60; //cm
@@ -74,13 +92,13 @@ void loop() {
   if (isForwardOverridden()) {
     baseGoBackward();
   } else if (isRightOverridden()) {
-    //digitalWrite(13, !digitalRead(13));
+    //digitalWrite(LED_PIN, !digitalRead(LED_PIN));
     baseRotateRight();
   } else if (isLeftOverridden()) {
-    //digitalWrite(13, !digitalRead(13));
+    //digitalWrite(LED_PIN, !digitalRead(LED_PIN));
     baseRotateLeft();
   } else {
-    //digitalWrite(13, LOW);
+    //digitalWrite(LED_PIN, LOW);
     baseGoForward();
   }
 
@@ -148,6 +166,7 @@ void doBIOSManoeuvre() {
     loopBase();
     while (loop_timer > micros());
     loop_timer += 4000;
+    yield();
   }
 
   //left
@@ -156,6 +175,7 @@ void doBIOSManoeuvre() {
     loopBase();
     while (loop_timer > micros());
     loop_timer += 4000;
+    yield();
   }
 
   //right
@@ -164,6 +184,7 @@ void doBIOSManoeuvre() {
     loopBase();
     while (loop_timer > micros());
     loop_timer += 4000;
+    yield();
   }
 
   //forward
@@ -172,6 +193,7 @@ void doBIOSManoeuvre() {
     loopBase();
     while (loop_timer > micros());
     loop_timer += 4000;
+    yield();
   }
 
   //backward
@@ -180,6 +202,7 @@ void doBIOSManoeuvre() {
     loopBase();
     while (loop_timer > micros());
     loop_timer += 4000;
+    yield();
   }
 
   while (millis() - botStartTime < 35000) {
@@ -187,6 +210,7 @@ void doBIOSManoeuvre() {
     loopBase();
     while (loop_timer > micros());
     loop_timer += 4000;
+    yield();
   }
 }
 
@@ -205,8 +229,8 @@ void populateUltrasonicReading() {
   }
 }
 
-//Within interrupt. Should run fast.
-void triggerSonarInterrupt() {
+//Within interrupt. Should run fast. IRAM_ATTR required for ESP32 timer ISR context.
+void IRAM_ATTR triggerSonarInterrupt() {
   if (nextCheckEcho == -1) {
     if (digitalRead(ECHO_PIN_LEFT) == HIGH)
       lastEchoReceivedTimeLeft = micros();

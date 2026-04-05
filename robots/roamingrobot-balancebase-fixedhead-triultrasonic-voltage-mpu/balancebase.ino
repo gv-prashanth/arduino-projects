@@ -10,21 +10,22 @@
 //THE SOFTWARE.
 ///////////////////////////////////////////////////////////////////////////////////////
 
+hw_timer_t *stepTimer = NULL;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //Setup basic functions
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void setupBase(){
-  Wire.begin();                                                             //Start the I2C bus as master
-  TWBR = 12;                                                                //Set the I2C clock speed to 400kHz
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  Wire.setClock(400000);
 
-  //To create a variable pulse for controlling the stepper motors a timer is created that will execute a piece of code (subroutine) every 20us
-  //This subroutine is called TIMER2_COMPA_vect
-  TCCR2A = 0;                                                               //Make sure that the TCCR2A register is set to zero
-  TCCR2B = 0;                                                               //Make sure that the TCCR2A register is set to zero
-  TIMSK2 |= (1 << OCIE2A);                                                  //Set the interupt enable bit OCIE2A in the TIMSK2 register
-  TCCR2B |= (1 << CS21);                                                    //Set the CS21 bit in the TCCRB register to set the prescaler to 8
-  OCR2A = 39;                                                               //The compare register is set to 39 => 20us / (1s / (16.000.000MHz / 8)) - 1
-  TCCR2A |= (1 << WGM21);                                                   //Set counter 2 to CTC (clear timer on compare) mode
+  // ESP32 hardware timer: prescaler 80 gives 1MHz tick from 80MHz APB clock.
+  // Alarm at 20 ticks = 20us interrupt, matching the original ATmega Timer2 ISR interval.
+  // NOTE: This uses the ESP32 Arduino Core v2.x API. For v3.x the signature differs.
+  stepTimer = timerBegin(0, 80, true);
+  timerAttachInterrupt(stepTimer, &onStepTimer, true);
+  timerAlarmWrite(stepTimer, 20, true);
+  timerAlarmEnable(stepTimer);
   
   //By default the MPU-6050 sleeps. So we have to wake it up.
   Wire.beginTransmission(gyro_address);                                     //Start communication with the address found during search.
@@ -47,14 +48,14 @@ void setupBase(){
   Wire.write(0x03);                                                         //Set the register bits as 00000011 (Set Digital Low Pass Filter to ~43Hz)
   Wire.endTransmission();                                                   //End the transmission with the gyro 
 
-  pinMode(2, OUTPUT);                                                       //Configure digital poort 2 as output
-  pinMode(3, OUTPUT);                                                       //Configure digital poort 3 as output
-  pinMode(4, OUTPUT);                                                       //Configure digital poort 4 as output
-  pinMode(5, OUTPUT);                                                       //Configure digital poort 5 as output
-  pinMode(13, OUTPUT);                                                      //Configure digital poort 6 as output
+  pinMode(LEFT_STEP_PIN, OUTPUT);
+  pinMode(LEFT_DIR_PIN, OUTPUT);
+  pinMode(RIGHT_STEP_PIN, OUTPUT);
+  pinMode(RIGHT_DIR_PIN, OUTPUT);
+  pinMode(LED_PIN, OUTPUT);
 
   for(receive_counter = 0; receive_counter < 500; receive_counter++){       //Create 500 loops
-    if(receive_counter % 15 == 0)digitalWrite(13, !digitalRead(13));        //Change the state of the LED every 15 loops to make the LED blink fast
+    if(receive_counter % 15 == 0)digitalWrite(LED_PIN, !digitalRead(LED_PIN));
     Wire.beginTransmission(gyro_address);                                   //Start communication with the gyro
     Wire.write(0x43);                                                       //Start reading the Who_am_I register 75h
     Wire.endTransmission();                                                 //End the transmission
@@ -82,17 +83,15 @@ void loopBase(){
   if(receive_counter <= 25)receive_counter ++;                              //The received byte will be valid for 25 program loops (100 milliseconds)
   else received_byte = 0x00;                                                //After 100 milliseconds the received byte is deleted
   */
-  //Load the battery voltage to the battery_voltage variable.
-  //85 is the voltage compensation for the diode.
-  //Resistor voltage divider => (3.3k + 3.3k)/2.2k = 2.5
-  //12.5V equals ~5V @ Analog 0.
-  //12.5V equals 1023 analogRead(0).
-  //1250 / 1023 = 1.222.
-  //The variable battery_voltage holds 1050 if the battery voltage is 10.5V.
-  battery_voltage = (analogRead(0) * 1.222) + 85;
+  // Battery voltage monitoring. 85 is the voltage compensation for the diode.
+  // ESP32: 12-bit ADC (0-4095), 3.3V reference. Voltage divider must be redesigned
+  // for 3.3V max input. With 10k/3.3k divider: 12.5V→~3.1V, multiplier ≈ 0.325.
+  // The variable battery_voltage holds ~1050 if the battery voltage is 10.5V.
+  // ADJUST this multiplier to match your actual resistor values.
+  battery_voltage = (analogRead(BATTERY_ADC_PIN) * 0.325) + 85;
   
   if(battery_voltage < 850 && battery_voltage > 700){                      //If batteryvoltage is below 10.5V and higher than 8.0V
-    digitalWrite(13, HIGH);                                                 //Turn on the led if battery voltage is to low
+    digitalWrite(LED_PIN, HIGH);
     low_bat = 1;                                                            //Set the low_bat variable to 1
   }
 
@@ -228,36 +227,40 @@ void loopBase(){
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//Interrupt routine  TIMER2_COMPA_vect
+//Interrupt routine  onStepTimer (ESP32 hardware timer, 20us interval)
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-ISR(TIMER2_COMPA_vect){
-  //Left motor pulse calculations
-  throttle_counter_left_motor ++;                                           //Increase the throttle_counter_left_motor variable by 1 every time this routine is executed
-  if(throttle_counter_left_motor > throttle_left_motor_memory){             //If the number of loops is larger then the throttle_left_motor_memory variable
-    throttle_counter_left_motor = 0;                                        //Reset the throttle_counter_left_motor variable
-    throttle_left_motor_memory = throttle_left_motor;                       //Load the next throttle_left_motor variable
-    if(throttle_left_motor_memory < 0){                                     //If the throttle_left_motor_memory is negative
-      PORTD &= 0b11110111;                                                  //Set output 3 low to reverse the direction of the stepper controller
-      throttle_left_motor_memory *= -1;                                     //Invert the throttle_left_motor_memory variable
+// ESP32 timer ISR — IRAM_ATTR required so it runs from IRAM, not flash.
+// Uses GPIO.out_w1ts/w1tc for GPIO 0-31 (left motor) and GPIO.out1_w1ts/w1tc
+// for GPIO 32-39 (right motor) for fast direct register access within the 20us deadline.
+void IRAM_ATTR onStepTimer(){
+  // Left motor pulse calculations
+  throttle_counter_left_motor++;
+  if(throttle_counter_left_motor > throttle_left_motor_memory){
+    throttle_counter_left_motor = 0;
+    throttle_left_motor_memory = throttle_left_motor;
+    if(throttle_left_motor_memory < 0){
+      GPIO.out_w1tc = (1 << LEFT_DIR_PIN);                                   // DIR LOW = reverse
+      throttle_left_motor_memory *= -1;
     }
-    else PORTD |= 0b00001000;                                               //Set output 3 high for a forward direction of the stepper motor
+    else GPIO.out_w1ts = (1 << LEFT_DIR_PIN);                                // DIR HIGH = forward
   }
-  else if(throttle_counter_left_motor == 1)PORTD |= 0b00000100;             //Set output 2 high to create a pulse for the stepper controller
-  else if(throttle_counter_left_motor == 2)PORTD &= 0b11111011;             //Set output 2 low because the pulse only has to last for 20us 
-  
-  //right motor pulse calculations
-  throttle_counter_right_motor ++;                                          //Increase the throttle_counter_right_motor variable by 1 every time the routine is executed
-  if(throttle_counter_right_motor > throttle_right_motor_memory){           //If the number of loops is larger then the throttle_right_motor_memory variable
-    throttle_counter_right_motor = 0;                                       //Reset the throttle_counter_right_motor variable
-    throttle_right_motor_memory = throttle_right_motor;                     //Load the next throttle_right_motor variable
-    if(throttle_right_motor_memory < 0){                                    //If the throttle_right_motor_memory is negative
-      PORTD |= 0b00100000;                                                  //Set output 5 low to reverse the direction of the stepper controller
-      throttle_right_motor_memory *= -1;                                    //Invert the throttle_right_motor_memory variable
+  else if(throttle_counter_left_motor == 1) GPIO.out_w1ts = (1 << LEFT_STEP_PIN);  // Step pulse HIGH
+  else if(throttle_counter_left_motor == 2) GPIO.out_w1tc = (1 << LEFT_STEP_PIN);  // Step pulse LOW
+
+  // Right motor pulse calculations (DIR is inverted: motors face opposite directions)
+  // GPIO 32-39 use GPIO.out1_w1ts/w1tc registers with bit offset (pin - 32)
+  throttle_counter_right_motor++;
+  if(throttle_counter_right_motor > throttle_right_motor_memory){
+    throttle_counter_right_motor = 0;
+    throttle_right_motor_memory = throttle_right_motor;
+    if(throttle_right_motor_memory < 0){
+      GPIO.out1_w1ts.val = (1 << (RIGHT_DIR_PIN - 32));                      // DIR HIGH = reverse (inverted)
+      throttle_right_motor_memory *= -1;
     }
-    else PORTD &= 0b11011111;                                               //Set output 5 high for a forward direction of the stepper motor
+    else GPIO.out1_w1tc.val = (1 << (RIGHT_DIR_PIN - 32));                   // DIR LOW = forward (inverted)
   }
-  else if(throttle_counter_right_motor == 1)PORTD |= 0b00010000;            //Set output 4 high to create a pulse for the stepper controller
-  else if(throttle_counter_right_motor == 2)PORTD &= 0b11101111;            //Set output 4 low because the pulse only has to last for 20us
+  else if(throttle_counter_right_motor == 1) GPIO.out1_w1ts.val = (1 << (RIGHT_STEP_PIN - 32));  // Step pulse HIGH
+  else if(throttle_counter_right_motor == 2) GPIO.out1_w1tc.val = (1 << (RIGHT_STEP_PIN - 32));  // Step pulse LOW
   triggerSonarInterrupt();
 }
 
