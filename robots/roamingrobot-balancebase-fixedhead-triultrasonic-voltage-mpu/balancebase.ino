@@ -19,13 +19,11 @@ void setupBase(){
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   Wire.setClock(400000);
 
-  // ESP32 hardware timer: prescaler 80 gives 1MHz tick from 80MHz APB clock.
-  // Alarm at 20 ticks = 20us interrupt, matching the original ATmega Timer2 ISR interval.
-  // NOTE: This uses the ESP32 Arduino Core v2.x API. For v3.x the signature differs.
-  stepTimer = timerBegin(0, 80, true);
-  timerAttachInterrupt(stepTimer, &onStepTimer, true);
-  timerAlarmWrite(stepTimer, 20, true);
-  timerAlarmEnable(stepTimer);
+  // ESP32 hardware timer at 1MHz (20 ticks = 20us interrupt interval),
+  // matching the original ATmega Timer2 ISR. Uses ESP32 Arduino Core v3.x API.
+  stepTimer = timerBegin(1000000);
+  timerAttachInterrupt(stepTimer, &onStepTimer);
+  timerAlarm(stepTimer, 20, true, 0);
   
   //By default the MPU-6050 sleeps. So we have to wake it up.
   Wire.beginTransmission(gyro_address);                                     //Start communication with the address found during search.
