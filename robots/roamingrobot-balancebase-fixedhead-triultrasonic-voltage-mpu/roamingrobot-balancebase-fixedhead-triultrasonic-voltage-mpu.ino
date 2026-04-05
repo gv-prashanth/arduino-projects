@@ -1,5 +1,5 @@
 #include <Wire.h>
-#include "soc/gpio_struct.h"
+// #include "soc/gpio_struct.h"  // Not needed while using digitalWrite() in ISR
 
 // ESP32-S Pin Configuration
 
@@ -73,11 +73,14 @@ void setup() {
   overrideForwardUntill = millis();
   overrideRightUntill = millis();
   overrideLeftUntill = millis();
-  doBIOSManoeuvre();
+  // doBIOSManoeuvre();  // Disabled for balance debugging
 }
 
 void loop() {
-  populateUltrasonicReading();
+  // Ultrasonic disabled for balance debugging — hardcode safe distances
+  centerReading = 999.0;
+  leftReading = 999.0;
+  rightReading = 999.0;
 
   Serial.print("start="); Serial.print(start);
   Serial.print(" angle="); Serial.print(angle_gyro, 2);
@@ -86,28 +89,7 @@ void loop() {
   Serial.print(" L="); Serial.print(throttle_left_motor);
   Serial.print(" R="); Serial.println(throttle_right_motor);
 
-  //incase of emergency
-  if (isObstacleWithinEmergencyDistance()) {
-    // markForForwardOverride(backMovementTime);
-    if (isRightDecided()) {
-      markForRightOverride(rightLeftMovementTime);
-    } else {
-      markForLeftOverride(rightLeftMovementTime);
-    }
-  }
-
-  if (isForwardOverridden()) {
-    baseGoBackward();
-  } else if (isRightOverridden()) {
-    //digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-    baseRotateRight();
-  } else if (isLeftOverridden()) {
-    //digitalWrite(LED_PIN, !digitalRead(LED_PIN));
-    baseRotateLeft();
-  } else {
-    //digitalWrite(LED_PIN, LOW);
-    baseGoForward();
-  }
+  baseStop();
 
 
   loopBase();
