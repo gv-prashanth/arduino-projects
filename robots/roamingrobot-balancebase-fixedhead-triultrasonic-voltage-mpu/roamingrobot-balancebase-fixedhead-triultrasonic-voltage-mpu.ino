@@ -35,7 +35,7 @@ float pid_i_gain = 1.5;                                      //Gain setting for 
 float pid_d_gain = 30;                                       //Gain setting for the D-controller (30)
 float turning_speed = 5;                                    //Turning speed (20)
 float max_target_speed = 2;                                //Max target speed (100)
-int acc_calibration_value = 300;                            //Enter the accelerometer calibration value
+int acc_calibration_value = 425;                            //Enter the accelerometer calibration value
 int gyro_address = 0x68;                                     //MPU-6050 I2C address (0x68 or 0x69)
 
 //Dont touch below stuff
