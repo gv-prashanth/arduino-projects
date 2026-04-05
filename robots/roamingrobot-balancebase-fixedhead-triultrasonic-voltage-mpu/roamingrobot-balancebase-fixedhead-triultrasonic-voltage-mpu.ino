@@ -1,4 +1,5 @@
 #include <Wire.h>
+#include "soc/gpio_struct.h"
 
 // ESP32-S Pin Configuration
 
