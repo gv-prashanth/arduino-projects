@@ -110,7 +110,7 @@ void loop()
     for (int k = 0; k < 50; k++) {
       Serial.print("Balance value: ");
       Wire.beginTransmission(0x68);
-      Wire.write(0x3F);
+      Wire.write(0x3D);
       Wire.endTransmission();
       Wire.requestFrom(0x68, 2);
       float balValue = (Wire.read() << 8 | Wire.read()) * -1;

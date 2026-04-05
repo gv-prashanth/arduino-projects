@@ -56,11 +56,12 @@ void setupBase(){
   for(receive_counter = 0; receive_counter < 500; receive_counter++){       //Create 500 loops
     if(receive_counter % 15 == 0)digitalWrite(LED_PIN, !digitalRead(LED_PIN));
     Wire.beginTransmission(gyro_address);                                   //Start communication with the gyro
-    Wire.write(0x43);                                                       //Start reading the Who_am_I register 75h
+    Wire.write(0x43);                                                       //Start reading at register 43
     Wire.endTransmission();                                                 //End the transmission
-    Wire.requestFrom(gyro_address, 4);                                      //Request 2 bytes from the gyro
-    gyro_yaw_calibration_value += Wire.read()<<8|Wire.read();               //Combine the two bytes to make one integer
-    gyro_pitch_calibration_value += Wire.read()<<8|Wire.read();             //Combine the two bytes to make one integer
+    Wire.requestFrom(gyro_address, 6);                                      //Request 6 bytes (Gyro X, Y, Z)
+    gyro_pitch_calibration_value += Wire.read()<<8|Wire.read();             //Gyro X = pitch
+    Wire.read(); Wire.read();                                               //Skip Gyro Y
+    gyro_yaw_calibration_value += Wire.read()<<8|Wire.read();               //Gyro Z = yaw
     delayMicroseconds(3700);                                                //Wait for 3700 microseconds to simulate the main program loop time
   }
   gyro_pitch_calibration_value /= 500;                                      //Divide the total value by 500 to get the avarage gyro offset
@@ -98,7 +99,7 @@ void loopBase(){
   //Angle calculations
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   Wire.beginTransmission(gyro_address);                                     //Start communication with the gyro
-  Wire.write(0x3F);                                                         //Start reading at register 3F
+  Wire.write(0x3D);                                                         //Start reading at register 3D (Accel Y)
   Wire.endTransmission();                                                   //End the transmission
   Wire.requestFrom(gyro_address, 2);                                        //Request 2 bytes from the gyro
   accelerometer_data_raw = Wire.read()<<8|Wire.read();                      //Combine the two bytes to make one integer
@@ -116,9 +117,10 @@ void loopBase(){
   Wire.beginTransmission(gyro_address);                                     //Start communication with the gyro
   Wire.write(0x43);                                                         //Start reading at register 43
   Wire.endTransmission();                                                   //End the transmission
-  Wire.requestFrom(gyro_address, 4);                                        //Request 4 bytes from the gyro
-  gyro_yaw_data_raw = Wire.read()<<8|Wire.read();                           //Combine the two bytes to make one integer
-  gyro_pitch_data_raw = Wire.read()<<8|Wire.read();                         //Combine the two bytes to make one integer
+  Wire.requestFrom(gyro_address, 6);                                        //Request 6 bytes from the gyro (X, Y, Z)
+  gyro_pitch_data_raw = Wire.read()<<8|Wire.read();                         //Gyro X = pitch (rotation around wheel axle)
+  Wire.read(); Wire.read();                                                 //Skip Gyro Y (unused in this orientation)
+  gyro_yaw_data_raw = Wire.read()<<8|Wire.read();                           //Gyro Z = yaw (rotation around vertical axis)
   
   gyro_pitch_data_raw -= gyro_pitch_calibration_value;                      //Add the gyro calibration value
   angle_gyro += gyro_pitch_data_raw * 0.000031;                             //Calculate the traveled during this loop angle and add this to the angle_gyro variable
