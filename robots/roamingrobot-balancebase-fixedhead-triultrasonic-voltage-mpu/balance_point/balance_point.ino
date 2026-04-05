@@ -113,7 +113,7 @@ void loop()
       Wire.write(0x3D);
       Wire.endTransmission();
       Wire.requestFrom(0x68, 2);
-      float balValue = (Wire.read() << 8 | Wire.read()) * -1;
+      float balValue = (int16_t)(Wire.read() << 8 | Wire.read()) * -1;
       avgBalanceValue += balValue;
       Serial.println(balValue);
       delay(20);
@@ -126,11 +126,11 @@ void loop()
         while (Wire.available() < 6);
         Serial.print(k);
         Serial.print(" Gyro X = ");
-        Serial.print(Wire.read() << 8 | Wire.read());
+        Serial.print((int16_t)(Wire.read() << 8 | Wire.read()));
         Serial.print(" Gyro Y = ");
-        Serial.print(Wire.read() << 8 | Wire.read());
+        Serial.print((int16_t)(Wire.read() << 8 | Wire.read()));
         Serial.print(" Gyro Z = ");
-        Serial.println(Wire.read() << 8 | Wire.read());
+        Serial.println((int16_t)(Wire.read() << 8 | Wire.read()));
       }
       Serial.println("");
     }
