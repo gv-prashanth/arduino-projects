@@ -34,11 +34,11 @@ const int emergencyObstacleRange = 60; //cm
 const int timeToStickRightLeftDecission = 2000;//milli seconds
 const int backMovementTime = 1000;//milli seconds
 const int rightLeftMovementTime = 2000;//milli seconds
-float pid_p_gain = 15;                                       //Gain setting for the P-controller (15)
-float pid_i_gain = 1.5;                                      //Gain setting for the I-controller (1.5)
-float pid_d_gain = 15;                                       //Gain setting for the D-controller (lowered from 30 -> 15: 30 caused rapid buzzing from gyro noise)
+float pid_p_gain = 15;                                       //Gain setting for the P-controller -- TUNE THIS FIRST (I and D = 0)
+float pid_i_gain = 0;                                        //Gain setting for the I-controller -- TUNE LAST (start 0)
+float pid_d_gain = 0;                                        //Gain setting for the D-controller -- TUNE SECOND (start 0)
 float turning_speed = 5;                                    //Turning speed (20)
-float max_target_speed = 2;                                //Max target speed (100)
+float max_target_speed = 0;                                //Max target speed -- 0 = balance on the spot (no travel) during gain tuning
 int acc_calibration_value = -276;                           //Accelerometer calibration: teeter point read ~0.25deg with -240, shifted ~36 counts so balance point reads ~0deg
 int gyro_address = 0x68;                                     //MPU-6050 I2C address (0x68 or 0x69)
 
