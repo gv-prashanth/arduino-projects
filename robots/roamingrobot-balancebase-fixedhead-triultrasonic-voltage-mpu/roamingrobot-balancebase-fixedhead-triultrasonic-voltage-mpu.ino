@@ -25,6 +25,10 @@ const int LED_PIN = 2;
 // Battery ADC Pin (ADC1_CH0, input-only, safe when WiFi active)
 const int BATTERY_ADC_PIN = 36;
 
+// DIAGNOSTIC: set to false to disable motors so the angle estimate can be
+// verified by tilting the robot by hand without motor vibration/runaway.
+#define MOTORS_ENABLED false
+
 //functional Configuration
 const int emergencyObstacleRange = 60; //cm
 const int timeToStickRightLeftDecission = 2000;//milli seconds
@@ -85,6 +89,7 @@ void loop() {
   Serial.print("start="); Serial.print(start);
   Serial.print(" angle="); Serial.print(angle_gyro, 2);
   Serial.print(" acc_angle="); Serial.print(angle_acc, 2);
+  Serial.print(" gyro_rate="); Serial.print(gyro_pitch_data_raw);
   Serial.print(" pid="); Serial.print(pid_output, 2);
   Serial.print(" L="); Serial.print(throttle_left_motor);
   Serial.print(" R="); Serial.println(throttle_right_motor);
@@ -93,6 +98,11 @@ void loop() {
 
 
   loopBase();
+
+  if (!MOTORS_ENABLED) {
+    throttle_left_motor = 0;
+    throttle_right_motor = 0;
+  }
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //Loop time timer
