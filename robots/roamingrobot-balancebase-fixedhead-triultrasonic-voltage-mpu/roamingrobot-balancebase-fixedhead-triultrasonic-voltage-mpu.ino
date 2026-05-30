@@ -86,13 +86,20 @@ void loop() {
   leftReading = 999.0;
   rightReading = 999.0;
 
-  Serial.print("start="); Serial.print(start);
-  Serial.print(" angle="); Serial.print(angle_gyro, 2);
-  Serial.print(" acc_angle="); Serial.print(angle_acc, 2);
-  Serial.print(" gyro_rate="); Serial.print(gyro_pitch_data_raw);
-  Serial.print(" pid="); Serial.print(pid_output, 2);
-  Serial.print(" L="); Serial.print(throttle_left_motor);
-  Serial.print(" R="); Serial.println(throttle_right_motor);
+  // Throttle debug prints so Serial output doesn't stretch the 4ms loop.
+  // Printing every loop at 115200 baud takes ~5-6ms and corrupts gyro
+  // integration timing + PID. Print roughly every 25 loops (~100ms).
+  static int printCounter = 0;
+  if (++printCounter >= 25) {
+    printCounter = 0;
+    Serial.print("start="); Serial.print(start);
+    Serial.print(" angle="); Serial.print(angle_gyro, 2);
+    Serial.print(" acc_angle="); Serial.print(angle_acc, 2);
+    Serial.print(" gyro_rate="); Serial.print(gyro_pitch_data_raw);
+    Serial.print(" pid="); Serial.print(pid_output, 2);
+    Serial.print(" L="); Serial.print(throttle_left_motor);
+    Serial.print(" R="); Serial.println(throttle_right_motor);
+  }
 
   baseStop();
 
