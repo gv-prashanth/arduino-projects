@@ -243,8 +243,10 @@ void loopBase(){
 //Interrupt routine  onStepTimer (ESP32 hardware timer, 20us interval)
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // ESP32 timer ISR — IRAM_ATTR required so it runs from IRAM, not flash.
-// Using digitalWrite() for reliability during bring-up. Can optimize to
-// direct register access later once balancing is confirmed working.
+// MUST use direct GPIO register access (IRAM-safe). digitalWrite() lives in
+// flash and crashes when called from an IRAM ISR while the cache is disabled.
+// GPIO.out_w1ts/w1tc for GPIO 0-31 (left motor); GPIO.out1_w1ts/w1tc for
+// GPIO 32-39 (right motor) with bit offset (pin - 32).
 void IRAM_ATTR onStepTimer(){
   // Left motor pulse calculations
   throttle_counter_left_motor++;
@@ -252,27 +254,28 @@ void IRAM_ATTR onStepTimer(){
     throttle_counter_left_motor = 0;
     throttle_left_motor_memory = throttle_left_motor;
     if(throttle_left_motor_memory < 0){
-      digitalWrite(LEFT_DIR_PIN, LOW);
+      GPIO.out_w1tc = (1 << LEFT_DIR_PIN);                                   // DIR LOW = reverse
       throttle_left_motor_memory *= -1;
     }
-    else digitalWrite(LEFT_DIR_PIN, HIGH);
+    else GPIO.out_w1ts = (1 << LEFT_DIR_PIN);                                // DIR HIGH = forward
   }
-  else if(throttle_counter_left_motor == 1) digitalWrite(LEFT_STEP_PIN, HIGH);
-  else if(throttle_counter_left_motor == 2) digitalWrite(LEFT_STEP_PIN, LOW);
+  else if(throttle_counter_left_motor == 1) GPIO.out_w1ts = (1 << LEFT_STEP_PIN);  // Step pulse HIGH
+  else if(throttle_counter_left_motor == 2) GPIO.out_w1tc = (1 << LEFT_STEP_PIN);  // Step pulse LOW
 
   // Right motor pulse calculations (DIR is inverted: motors face opposite directions)
+  // GPIO 32-39 use GPIO.out1_w1ts/w1tc registers with bit offset (pin - 32)
   throttle_counter_right_motor++;
   if(throttle_counter_right_motor > throttle_right_motor_memory){
     throttle_counter_right_motor = 0;
     throttle_right_motor_memory = throttle_right_motor;
     if(throttle_right_motor_memory < 0){
-      digitalWrite(RIGHT_DIR_PIN, HIGH);
+      GPIO.out1_w1ts.val = (1 << (RIGHT_DIR_PIN - 32));                      // DIR HIGH = reverse (inverted)
       throttle_right_motor_memory *= -1;
     }
-    else digitalWrite(RIGHT_DIR_PIN, LOW);
+    else GPIO.out1_w1tc.val = (1 << (RIGHT_DIR_PIN - 32));                   // DIR LOW = forward (inverted)
   }
-  else if(throttle_counter_right_motor == 1) digitalWrite(RIGHT_STEP_PIN, HIGH);
-  else if(throttle_counter_right_motor == 2) digitalWrite(RIGHT_STEP_PIN, LOW);
+  else if(throttle_counter_right_motor == 1) GPIO.out1_w1ts.val = (1 << (RIGHT_STEP_PIN - 32));  // Step pulse HIGH
+  else if(throttle_counter_right_motor == 2) GPIO.out1_w1tc.val = (1 << (RIGHT_STEP_PIN - 32));  // Step pulse LOW
 }
 
 void baseRotateLeft() {

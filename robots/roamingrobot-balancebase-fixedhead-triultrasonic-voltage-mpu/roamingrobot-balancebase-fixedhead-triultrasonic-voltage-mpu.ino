@@ -1,5 +1,5 @@
 #include <Wire.h>
-// #include "soc/gpio_struct.h"  // Not needed while using digitalWrite() in ISR
+#include "soc/gpio_struct.h"
 
 // ESP32-S Pin Configuration
 
