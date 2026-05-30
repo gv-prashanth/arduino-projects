@@ -114,7 +114,11 @@ void loopBase(){
 
   angle_acc = asin((float)accelerometer_data_raw/8200.0)* 57.296;           //Calculate the current angle according to the accelerometer
 
-  if(start == 0 && angle_acc > -0.5&& angle_acc < 0.5){                     //If the accelerometer angle is almost 0
+  //Only start when the robot is BOTH near vertical AND nearly still (low gyro rate).
+  //gyro_pitch_data_raw here holds the previous loop's calibrated rate (131 LSB per deg/s),
+  //so +/-150 ~= +/-1.1 deg/s. This stops the controller latching on mid-swing and inheriting
+  //the startup momentum, which made the robot roll off in the direction it was tilted.
+  if(start == 0 && angle_acc > -0.5 && angle_acc < 0.5 && gyro_pitch_data_raw > -150 && gyro_pitch_data_raw < 150){
     angle_gyro = angle_acc;                                                 //Load the accelerometer angle in the angle_gyro variable
     start = 1;                                                              //Set the start variable to start the PID controller
   }
@@ -205,8 +209,8 @@ void loopBase(){
   
   //The self balancing point is adjusted when there is not forward or backwards movement from the transmitter. This way the robot will always find it's balancing point
   if(pid_setpoint == 0){                                                    //If the setpoint is zero degrees
-    if(pid_output < 0)self_balance_pid_setpoint += 0.0015;                  //Increase the self_balance_pid_setpoint if the robot is still moving forewards
-    if(pid_output > 0)self_balance_pid_setpoint -= 0.0015;                  //Decrease the self_balance_pid_setpoint if the robot is still moving backwards
+    if(pid_output < 0)self_balance_pid_setpoint += 0.003;                   //Increase the self_balance_pid_setpoint if the robot is still moving forewards (rate doubled 0.0015->0.003 to null travel faster)
+    if(pid_output > 0)self_balance_pid_setpoint -= 0.003;                   //Decrease the self_balance_pid_setpoint if the robot is still moving backwards
   }
 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
