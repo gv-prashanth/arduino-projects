@@ -153,11 +153,12 @@ void loopBase(){
   pid_error_temp = angle_gyro - self_balance_pid_setpoint - pid_setpoint;
   if(pid_output > 10 || pid_output < -10)pid_error_temp += pid_output * 0.015 ;
 
-  pid_i_mem += pid_i_gain * pid_error_temp;                                 //Calculate the I-controller value and add it to the pid_i_mem variable
-  if(pid_i_mem > 400)pid_i_mem = 400;                                       //Limit the I-controller to the maximum controller output
-  else if(pid_i_mem < -400)pid_i_mem = -400;
+  //DIAGNOSTIC: P-only controller. I and D disabled to verify wheel rotation + direction.
+  //pid_i_mem += pid_i_gain * pid_error_temp;                               //Calculate the I-controller value and add it to the pid_i_mem variable
+  //if(pid_i_mem > 400)pid_i_mem = 400;                                     //Limit the I-controller to the maximum controller output
+  //else if(pid_i_mem < -400)pid_i_mem = -400;
   //Calculate the PID output value
-  pid_output = pid_p_gain * pid_error_temp + pid_i_mem + pid_d_gain * (pid_error_temp - pid_last_d_error);
+  pid_output = pid_p_gain * pid_error_temp;                                 //P-only output (I + D commented out for diagnostics)
   if(pid_output > 400)pid_output = 400;                                     //Limit the PI-controller to the maximum controller output
   else if(pid_output < -400)pid_output = -400;
 
@@ -211,28 +212,21 @@ void loopBase(){
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //Motor pulse calculations
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  //To compensate for the non-linear behaviour of the stepper motors the folowing calculations are needed to get a linear speed behaviour.
-  if(pid_output_left > 0)pid_output_left = 405 - (1/(pid_output_left + 9)) * 5500;
-  else if(pid_output_left < 0)pid_output_left = -405 - (1/(pid_output_left - 9)) * 5500;
+  //DIAGNOSTIC MODE: ignore the non-linear speed mapping. Drive both motors at one
+  //fixed, slow step rate in whatever direction the P-controller commands. This lets us
+  //confirm (1) the wheels actually rotate and (2) they rotate the correct way when tilted.
+  //Throttle value = ISR ticks between steps (20us each). Larger = slower.
+  //  DIAG_SLOW_SPEED = 250 -> ~250*20us = 5ms period -> ~200 steps/sec (very slow).
+  //Adjust DIAG_SLOW_SPEED if it is too slow/fast to observe (smaller = faster).
+  const int DIAG_SLOW_SPEED = 250;
 
-  if(pid_output_right > 0)pid_output_right = 405 - (1/(pid_output_right + 9)) * 5500;
-  else if(pid_output_right < 0)pid_output_right = -405 - (1/(pid_output_right - 9)) * 5500;
-
-  //Calculate the needed pulse time for the left and right stepper motor controllers
-  if(pid_output_left > 0)left_motor = 400 - pid_output_left;
-  else if(pid_output_left < 0)left_motor = -400 - pid_output_left;
+  if(pid_output_left > 0)left_motor = DIAG_SLOW_SPEED;
+  else if(pid_output_left < 0)left_motor = -DIAG_SLOW_SPEED;
   else left_motor = 0;
 
-  if(pid_output_right > 0)right_motor = 400 - pid_output_right;
-  else if(pid_output_right < 0)right_motor = -400 - pid_output_right;
+  if(pid_output_right > 0)right_motor = DIAG_SLOW_SPEED;
+  else if(pid_output_right < 0)right_motor = -DIAG_SLOW_SPEED;
   else right_motor = 0;
-
-  // Clamp motor speed: minimum throttle of 20 (~2778 steps/sec max).
-  // Steppers can't start from standstill at very high pulse rates.
-  if(left_motor > 0 && left_motor < 20) left_motor = 20;
-  else if(left_motor < 0 && left_motor > -20) left_motor = -20;
-  if(right_motor > 0 && right_motor < 20) right_motor = 20;
-  else if(right_motor < 0 && right_motor > -20) right_motor = -20;
 
   //Copy the pulse time to the throttle variables so the interrupt subroutine can use them
   throttle_left_motor = left_motor;
