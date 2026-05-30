@@ -27,7 +27,7 @@ const int BATTERY_ADC_PIN = 36;
 
 // DIAGNOSTIC: set to false to disable motors so the angle estimate can be
 // verified by tilting the robot by hand without motor vibration/runaway.
-#define MOTORS_ENABLED true
+#define MOTORS_ENABLED false   // TEMP: motors off to read balance point cleanly. Set back to true after calibration.
 
 //functional Configuration
 const int emergencyObstacleRange = 60; //cm
@@ -36,7 +36,7 @@ const int backMovementTime = 1000;//milli seconds
 const int rightLeftMovementTime = 2000;//milli seconds
 float pid_p_gain = 15;                                       //Gain setting for the P-controller (15)
 float pid_i_gain = 1.5;                                      //Gain setting for the I-controller (1.5)
-float pid_d_gain = 30;                                       //Gain setting for the D-controller (30)
+float pid_d_gain = 15;                                       //Gain setting for the D-controller (lowered from 30 -> 15: 30 caused rapid buzzing from gyro noise)
 float turning_speed = 5;                                    //Turning speed (20)
 float max_target_speed = 2;                                //Max target speed (100)
 int acc_calibration_value = -240;                           //Accelerometer calibration: balance point measured at ~4.65deg with old value 425, shifted so upright reads ~0deg
