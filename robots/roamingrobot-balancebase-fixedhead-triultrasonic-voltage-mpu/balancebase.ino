@@ -128,7 +128,7 @@ void loopBase(){
   gyro_yaw_data_raw = (int16_t)(Wire.read()<<8|Wire.read());               //Gyro Z = yaw (rotation around vertical axis)
   
   gyro_pitch_data_raw -= gyro_pitch_calibration_value;                      //Add the gyro calibration value
-  angle_gyro += gyro_pitch_data_raw * 0.000031;                             //Calculate the traveled during this loop angle and add this to the angle_gyro variable
+  angle_gyro -= gyro_pitch_data_raw * 0.000031;                             //Integrate gyro pitch (sign flipped to match accelerometer for this MPU orientation)
   
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
   //MPU-6050 offset compensation
