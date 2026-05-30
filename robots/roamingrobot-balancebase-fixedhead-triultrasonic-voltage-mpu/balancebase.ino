@@ -153,12 +153,12 @@ void loopBase(){
   pid_error_temp = angle_gyro - self_balance_pid_setpoint - pid_setpoint;
   if(pid_output > 10 || pid_output < -10)pid_error_temp += pid_output * 0.015 ;
 
-  //PD controller. I term still disabled (integral tuning comes later).
-  //pid_i_mem += pid_i_gain * pid_error_temp;                               //Calculate the I-controller value and add it to the pid_i_mem variable
-  //if(pid_i_mem > 400)pid_i_mem = 400;                                     //Limit the I-controller to the maximum controller output
-  //else if(pid_i_mem < -400)pid_i_mem = -400;
-  //Calculate the PID output value (P + D, I omitted)
-  pid_output = pid_p_gain * pid_error_temp + pid_d_gain * (pid_error_temp - pid_last_d_error);
+  //Full PID controller (P + I + D).
+  pid_i_mem += pid_i_gain * pid_error_temp;                                 //Calculate the I-controller value and add it to the pid_i_mem variable
+  if(pid_i_mem > 400)pid_i_mem = 400;                                       //Limit the I-controller to the maximum controller output
+  else if(pid_i_mem < -400)pid_i_mem = -400;
+  //Calculate the PID output value
+  pid_output = pid_p_gain * pid_error_temp + pid_i_mem + pid_d_gain * (pid_error_temp - pid_last_d_error);
   if(pid_output > 400)pid_output = 400;                                     //Limit the PI-controller to the maximum controller output
   else if(pid_output < -400)pid_output = -400;
 
