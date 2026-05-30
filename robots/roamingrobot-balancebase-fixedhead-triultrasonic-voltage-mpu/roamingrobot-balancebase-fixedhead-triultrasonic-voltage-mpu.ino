@@ -27,7 +27,7 @@ const int BATTERY_ADC_PIN = 36;
 
 // DIAGNOSTIC: set to false to disable motors so the angle estimate can be
 // verified by tilting the robot by hand without motor vibration/runaway.
-#define MOTORS_ENABLED false
+#define MOTORS_ENABLED true
 
 //functional Configuration
 const int emergencyObstacleRange = 60; //cm
