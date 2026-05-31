@@ -34,12 +34,12 @@ const int emergencyObstacleRange = 60; //cm
 const int timeToStickRightLeftDecission = 2000;//milli seconds
 const int backMovementTime = 1000;//milli seconds
 const int rightLeftMovementTime = 2000;//milli seconds
-float pid_p_gain = 15;                                       //Gain setting for the P-controller -- TUNE THIS FIRST (I and D = 0)
-float pid_i_gain = 0;                                        //Gain setting for the I-controller -- TUNE LAST (start 0)
-float pid_d_gain = 0;                                        //Gain setting for the D-controller -- TUNE SECOND (start 0)
+float pid_p_gain = 10;                                       //Gain setting for the P-controller (tuned: stable steady balance)
+float pid_i_gain = 0.5;                                      //Gain setting for the I-controller (tuned)
+float pid_d_gain = 30;                                       //Gain setting for the D-controller (tuned)
 float turning_speed = 5;                                    //Turning speed (20)
 float max_target_speed = 0;                                //Max target speed -- 0 = balance on the spot (no travel) during gain tuning
-int acc_calibration_value = -276;                           //Accelerometer calibration: teeter point read ~0.25deg with -240, shifted ~36 counts so balance point reads ~0deg
+int acc_calibration_value = -240;                           //Accelerometer calibration (tuned: good steady balance)
 int gyro_address = 0x68;                                     //MPU-6050 I2C address (0x68 or 0x69)
 
 //Dont touch below stuff
@@ -90,7 +90,7 @@ void loop() {
   // Printing every loop at 115200 baud takes ~5-6ms and corrupts gyro
   // integration timing + PID. Print roughly every 25 loops (~100ms).
   static int printCounter = 0;
-  if (++printCounter >= 25) {
+  if (++printCounter >= 50) {
     printCounter = 0;
     Serial.print("start="); Serial.print(start);
     Serial.print(" angle="); Serial.print(angle_gyro, 2);

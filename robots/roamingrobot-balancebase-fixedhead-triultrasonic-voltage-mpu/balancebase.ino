@@ -232,12 +232,14 @@ void loopBase(){
   else if(pid_output_right < 0)right_motor = -400 - pid_output_right;
   else right_motor = 0;
 
-  // Clamp motor speed: minimum throttle of 20 (~2778 steps/sec max).
-  // Steppers can't start from standstill at very high pulse rates.
-  if(left_motor > 0 && left_motor < 20) left_motor = 20;
-  else if(left_motor < 0 && left_motor > -20) left_motor = -20;
-  if(right_motor > 0 && right_motor < 20) right_motor = 20;
-  else if(right_motor < 0 && right_motor > -20) right_motor = -20;
+  // Clamp minimum throttle (= max stepping speed). Smaller value = higher top speed.
+  // Lowered 20 -> 10 (~4545 steps/sec) to give the robot more authority to catch
+  // disturbances/nudges. The original 20 cap was a workaround for stalling that was
+  // actually a wiring fault (since fixed), and it was limiting recovery speed.
+  if(left_motor > 0 && left_motor < 10) left_motor = 10;
+  else if(left_motor < 0 && left_motor > -10) left_motor = -10;
+  if(right_motor > 0 && right_motor < 10) right_motor = 10;
+  else if(right_motor < 0 && right_motor > -10) right_motor = -10;
 
   //Copy the pulse time to the throttle variables so the interrupt subroutine can use them
   throttle_left_motor = left_motor;
