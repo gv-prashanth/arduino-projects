@@ -2,65 +2,25 @@
 ================================================================================
  ESP32 / ESP8266 – Atomberg Fan Listener → Alexa Updater (UDP → HTTPS Bridge)
 --------------------------------------------------------------------------------
-This firmware listens for UDP broadcasts from Atomberg (and similar) fans,
-decodes their state, maintains an in-memory device registry, and publishes the
-current status to an Alexa-compatible backend via HTTPS.
+ Listens for UDP broadcasts from Atomberg fans, decodes state, tracks devices,
+ and pushes updates to Alexa via HTTPS.
 
-SUPPORTED BOARDS
-  • ESP32
-  • ESP8266 (libraries auto-selected)
+ CONFIGURATION
+   SERIAL_LOG    – set false for production (USB power adapter, no computer).
+   WIFI_TX_DBM   – WiFi transmit power in dBm.
+                   Use 10 for USB-to-computer, 15-20 for USB power adapter.
 
-MAIN WORKFLOW
-  1. Connects to WiFi.
-  2. Listens on UDP_PORT for incoming packets.
-     - Hex payloads  → decoded as JSON → fan state extracted.
-     - Plain payload → treated as heartbeat (device presence).
-  3. Tracks devices in memory (power, LED, speed, last heartbeat).
-  4. Builds human-friendly text messages (ex: "On. Speed 3.", "Off").
-  5. URL-encodes values and pushes updates over HTTPS to:
-        https://home-automation.vadrin.com/droid/<DROID_ID>/...
-
-  Devices that stop sending heartbeats are automatically marked "Off".
-
-BUILT-IN SAFETY FEATURES
-  • WiFi watchdog → reboots device if WiFi remains offline too long.
-  • Default device pre-load ensures Alexa has initial values on boot.
-  • Heartbeat-based switch detection to avoid stale states.
-  • Hex decoding and JSON failure handling.
-
-TUNABLE PARAMETERS (IMPORTANT)
-  WIFI CREDENTIALS
-    const char* ssid        – WiFi SSID
-    const char* password    – WiFi password
-
-  CLOUD IDENTIFIER
-    const char* DROID_ID    – Unique backend device identifier
-
-  NETWORK
-    UDP_PORT                – Port where fan broadcasts are received
-
-  WIFI WATCHDOG
-    WIFI_TIMEOUT_REBOOT     – Max allowed WiFi downtime before reboot (ms)
-
-  DEVICE LIMITS
-    MAX_DEVICES             – Maximum number of tracked devices
-    MAX_ID_LEN              – Length of device ID strings
-    MAX_NAME_LEN            – Length of device display names
-
-  HEARTBEAT OFF TIMEOUT
-    (inside upsertDevice_Off)
-    10,000 ms → time with no heartbeat before marking device Off
-
-INTERNAL TABLES
-  masterNames[] maps known hardware IDs → friendly names
-  devices[]     maintains runtime device state cache
-
-NOTE
-  TLS uses "setInsecure()" — acceptable for labs/testing but not ideal for
-  production. Replace with certificate pinning if security is critical.
-
+ LED STATUS (onboard LED, active LOW on ESP8266 GPIO2)
+   Solid ON        – WiFi connected, HTTPS working
+   Slow blink (1s) – WiFi connected but HTTPS is failing
+   Fast blink (¼s) – WiFi disconnected
 ================================================================================
 */
+
+#define SERIAL_LOG    false
+#define WIFI_TX_DBM   10
+#define LED_PIN       2
+#define HTTPS_FAIL_THRESHOLD 5
 
 #if defined(ESP32)
   #include <WiFi.h>
@@ -74,300 +34,422 @@ NOTE
 #include <WiFiUdp.h>
 #include <ArduinoJson.h>
 
-#define MAX_DEVICES 20
-#define MAX_ID_LEN 20
-#define MAX_NAME_LEN 32
-#define UDP_PORT 5625
+#if SERIAL_LOG
+  #define LOG(...) Serial.printf(__VA_ARGS__)
+  #define LOGLN(s) Serial.println(s)
+#else
+  #define LOG(...) do {} while(0)
+  #define LOGLN(s) do {} while(0)
+#endif
 
-const char* ssid = "XXXX";
+#define UDP_PORT     5625
+#define MAX_DEVICES  20
+#define MAX_ID_LEN   20
+#define MAX_NAME_LEN 32
+#define QUEUE_SIZE   10
+
+const char* ssid     = "XXXX";
 const char* password = "YYYY";
 const char* DROID_ID = "ABCD";
 
 WiFiUDP udp;
-#if defined(ESP8266)
-  static BearSSL::WiFiClientSecure client;
-#else
-  static WiFiClientSecure client;
-#endif
-static HTTPClient https;
 
-struct MasterDeviceName {
-  const char id[MAX_ID_LEN];
-  const char name[MAX_NAME_LEN];
+#if defined(ESP8266)
+  BearSSL::WiFiClientSecure secureClient;
+#else
+  WiFiClientSecure secureClient;
+#endif
+HTTPClient httpClient;
+
+// ---- Master name table ----
+struct MasterName {
+  char id[MAX_ID_LEN];
+  char name[MAX_NAME_LEN];
 };
 
-MasterDeviceName masterNames[] = {
+const MasterName MASTER[] = {
   { "24587c849608", "Master Fan" },
   { "3c8427853c00", "Kids Fan" },
   { "3c84278a9f84", "Parents Fan" },
   { "80659934c6b8", "Living Fan" },
   { "3c842783d658", "Dining Fan" }
 };
+const int MASTER_COUNT = sizeof(MASTER) / sizeof(MASTER[0]);
 
-struct DeviceInfo {
-  char deviceId[MAX_ID_LEN];
+// ---- Device registry ----
+struct Device {
+  char id[MAX_ID_LEN];
   bool power;
   bool switchOn;
   bool led;
-  int speed;
+  int  speed;
+  int  lastKnownSpeed;
   uint32_t lastHeartbeat;
 };
 
-DeviceInfo devices[MAX_DEVICES];
+Device devices[MAX_DEVICES];
 uint8_t deviceCount = 0;
 
-// WIFI WATCHDOG SETTINGS
-uint32_t wifiLastConnected = millis();
-const uint32_t WIFI_TIMEOUT_REBOOT = 5000;      // 5 sec offline → reboot
-const uint32_t HEAP_PRINT_TIME = 120000;      // 2 minutes
+// ---- Alexa message queue (ring buffer) ----
+struct AlexaMsg {
+  char name[MAX_NAME_LEN];
+  char reading[48];
+};
+
+AlexaMsg alexaQ[QUEUE_SIZE];
+uint8_t qHead = 0, qCount = 0;
+
+void enqueueAlexa(const char* name, const char* reading) {
+  if (qCount >= QUEUE_SIZE) {
+    qHead = (qHead + 1) % QUEUE_SIZE;
+    qCount--;
+  }
+  int idx = (qHead + qCount) % QUEUE_SIZE;
+  snprintf(alexaQ[idx].name, sizeof(alexaQ[idx].name), "%s", name);
+  snprintf(alexaQ[idx].reading, sizeof(alexaQ[idx].reading), "%s", reading);
+  qCount++;
+}
+
+// ---- HTTPS health tracking ----
+uint8_t httpsFailCount = 0;
+
+void resetSecureClient() {
+  LOG("[HTTPS] Resetting BearSSL client\n");
+  secureClient.stop();
+#if defined(ESP8266)
+  secureClient.setBufferSizes(512, 512);
+#endif
+  secureClient.setInsecure();
+}
+
+void forceWifiRecovery() {
+  LOG("[HTTPS] %d consecutive failures — forcing WiFi recovery\n", httpsFailCount);
+  httpsFailCount = 0;
+  WiFi.disconnect();
+  delay(100);
+  WiFi.begin(ssid, password);
+  resetSecureClient();
+  udp.stop();
+  udp.begin(UDP_PORT);
+}
+
+// ---- LED status ----
+enum LedState { LED_SOLID, LED_SLOW_BLINK, LED_FAST_BLINK };
+void setLedState(LedState s);
+void updateLed();
+
+LedState ledState = LED_FAST_BLINK;
+uint32_t lastLedToggle = 0;
+bool ledOn = false;
+
+void updateLed() {
+  uint32_t now = millis();
+  switch (ledState) {
+    case LED_SOLID:
+      if (!ledOn) { digitalWrite(LED_PIN, LOW); ledOn = true; }
+      break;
+    case LED_SLOW_BLINK:
+      if (now - lastLedToggle > 1000) {
+        lastLedToggle = now;
+        ledOn = !ledOn;
+        digitalWrite(LED_PIN, ledOn ? LOW : HIGH);
+      }
+      break;
+    case LED_FAST_BLINK:
+      if (now - lastLedToggle > 250) {
+        lastLedToggle = now;
+        ledOn = !ledOn;
+        digitalWrite(LED_PIN, ledOn ? LOW : HIGH);
+      }
+      break;
+  }
+}
+
+void setLedState(LedState s) {
+  if (ledState != s) {
+    ledState = s;
+    lastLedToggle = millis();
+  }
+}
+
+// ---- WiFi watchdog (no reboot — escalating recovery) ----
+uint32_t wifiOkAt = 0;
+uint32_t lastReconnect = 0;
+bool wifiWasOffline = false;
 
 void wifiWatchdog() {
   if (WiFi.status() == WL_CONNECTED) {
-    wifiLastConnected = millis();
+    if (wifiWasOffline) {
+      wifiWasOffline = false;
+      LOG("[WIFI] Back online — restarting UDP\n");
+      udp.stop();
+      udp.begin(UDP_PORT);
+      resetSecureClient();
+    }
+    wifiOkAt = millis();
+
+    if (httpsFailCount >= HTTPS_FAIL_THRESHOLD)
+      setLedState(LED_SLOW_BLINK);
+    else
+      setLedState(LED_SOLID);
     return;
   }
 
-  if (millis() - wifiLastConnected > WIFI_TIMEOUT_REBOOT) {
-    Serial.println("\n[FAIL] WiFi offline too long → Restarting ESP32...");
-    delay(500);
-    ESP.restart();
+  wifiWasOffline = true;
+  setLedState(LED_FAST_BLINK);
+  uint32_t offline = millis() - wifiOkAt;
+
+  if (offline > 90000 && millis() - lastReconnect > 60000) {
+    lastReconnect = millis();
+    LOG("[WIFI] Offline %lus — full teardown + reconnect\n", offline / 1000);
+    WiFi.disconnect();
+    delay(100);
+    WiFi.begin(ssid, password);
+  } else if (offline > 30000 && millis() - lastReconnect > 30000) {
+    lastReconnect = millis();
+    LOG("[WIFI] Offline %lus — reconnecting\n", offline / 1000);
+    WiFi.reconnect();
   }
 }
 
-/******************************** UTIL *********************************/
-void getDeviceName(const char* id, char* out) {
-  for (int i = 0; i < sizeof(masterNames) / sizeof(masterNames[0]); i++) {
-    if (strcmp(masterNames[i].id, id) == 0) {
-      strcpy(out, masterNames[i].name);
-      return;
+// ---- URL-encode spaces ----
+void urlEncodeSpaces(const char* in, char* out, int outSize) {
+  int j = 0;
+  for (int i = 0; in[i] && j < outSize - 4; i++) {
+    if (in[i] == ' ') {
+      out[j++] = '%'; out[j++] = '2'; out[j++] = '0';
+    } else {
+      out[j++] = in[i];
     }
   }
-  char temp[MAX_ID_LEN];
-  for (int i = 0; i < sizeof(masterNames) / sizeof(masterNames[0]); i++) {
-    snprintf(temp, sizeof(temp), "%s_R1", masterNames[i].id);
-    if (strcmp(temp, id) == 0) {
-      strcpy(out, masterNames[i].name);
-      return;
+  out[j] = '\0';
+}
+
+// ---- Send ONE message to Alexa ----
+void sendToAlexa(const char* name, const char* reading) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  static char encName[64], encReading[64], url[200];
+  urlEncodeSpaces(name, encName, sizeof(encName));
+  urlEncodeSpaces(reading, encReading, sizeof(encReading));
+  snprintf(url, sizeof(url),
+    "https://home-automation.vadrin.com/droid/%s/upsert/intent/%s/reading/%s",
+    DROID_ID, encName, encReading);
+
+  LOG("[HTTP] %s\n", url);
+
+  httpClient.setTimeout(5000);
+  if (httpClient.begin(secureClient, url)) {
+    int code = httpClient.GET();
+    if (code >= 200 && code < 300) {
+      LOG("[HTTP] %d\n", code);
+      httpsFailCount = 0;
+    } else {
+      LOG("[HTTP] FAIL %d\n", code);
+      httpsFailCount++;
+      if (httpsFailCount == HTTPS_FAIL_THRESHOLD) {
+        forceWifiRecovery();
+      }
+    }
+    httpClient.end();
+  } else {
+    httpsFailCount++;
+    LOG("[HTTP] begin failed (%d consecutive)\n", httpsFailCount);
+    if (httpsFailCount == HTTPS_FAIL_THRESHOLD) {
+      forceWifiRecovery();
     }
   }
-  strcpy(out, "Unknown Fan");
+}
+
+bool trySendOneFromQueue() {
+  if (qCount == 0) return false;
+  sendToAlexa(alexaQ[qHead].name, alexaQ[qHead].reading);
+  qHead = (qHead + 1) % QUEUE_SIZE;
+  qCount--;
+  return true;
+}
+
+// ---- Device helpers ----
+const char* lookupName(const char* id) {
+  for (int i = 0; i < MASTER_COUNT; i++)
+    if (strcmp(MASTER[i].id, id) == 0) return MASTER[i].name;
+  static char temp[MAX_ID_LEN];
+  for (int i = 0; i < MASTER_COUNT; i++) {
+    snprintf(temp, sizeof(temp), "%s_R1", MASTER[i].id);
+    if (strcmp(temp, id) == 0) return MASTER[i].name;
+  }
+  return "Unknown Fan";
 }
 
 int findDevice(const char* id) {
-  // 1st pass – check exact match
+  if (!id) return -1;
   for (int i = 0; i < deviceCount; i++)
-    if (strcmp(id, devices[i].deviceId) == 0)
-      return i;
-
-  // 2nd pass – check id + _R1 match
-  char temp[MAX_ID_LEN];
+    if (strcmp(id, devices[i].id) == 0) return i;
+  static char temp[MAX_ID_LEN];
   for (int i = 0; i < deviceCount; i++) {
-    snprintf(temp, sizeof(temp), "%s_R1", devices[i].deviceId);
-    if (strcmp(id, temp) == 0)
-      return i;
+    snprintf(temp, sizeof(temp), "%s_R1", devices[i].id);
+    if (strcmp(id, temp) == 0) return i;
   }
-
   return -1;
 }
 
-/***************************** ALEXA SEND ******************************/
-void sendSensorValueToAlexa(const char* name, const char* reading) {
-
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WARN] Cannot push to Alexa — WiFi Down");
-    return;
-  }
-
-  // ---- FIX: encode spaces (" " → "%20") in name ----
-  char encodedName[128];
-  int j = 0;
-  for (int i = 0; name[i] && j < sizeof(encodedName) - 4; i++) {
-    if (name[i] == ' ') {
-      encodedName[j++] = '%';
-      encodedName[j++] = '2';
-      encodedName[j++] = '0';
-    } else {
-      encodedName[j++] = name[i];
-    }
-  }
-  encodedName[j] = '\0';
-
-  // ---- FIX: encode spaces (" " → "%20") in reading ----
-  char encodedReading[128];
-  int k = 0;
-  for (int i = 0; reading[i] && k < sizeof(encodedReading) - 4; i++) {
-    if (reading[i] == ' ') {
-      encodedReading[k++] = '%';
-      encodedReading[k++] = '2';
-      encodedReading[k++] = '0';
-    } else {
-      encodedReading[k++] = reading[i];
-    }
-  }
-  encodedReading[k] = '\0';
-
-  char url[256];
-  snprintf(url, sizeof(url),
-           "https://home-automation.vadrin.com/droid/%s/upsert/intent/%s/reading/%s",
-           DROID_ID, encodedName, encodedReading);  // ← only change!
-
-  Serial.printf("[HTTP] → Sending to Alexa: %s\n", url);
-
-  client.setInsecure();
-  https.begin(client, url);
-  int code = https.GET();
-
-  Serial.printf("[HTTP] Response Code: %d\n", code);
-
-  https.end();
-}
-
-/****************************** UPSERT DEVICE ***************************/
-void upsertDevice(const char* id, bool power, bool led, int speed) {
-
+int upsertDevice(const char* id, bool power, bool led, int speed, bool notify) {
+  if (!id) return -1;
   int i = findDevice(id);
   bool isNew = (i < 0);
-
-  if (isNew && deviceCount < MAX_DEVICES) {
+  if (isNew) {
+    if (deviceCount >= MAX_DEVICES) return -1;
     i = deviceCount++;
-    strcpy(devices[i].deviceId, id);
+    snprintf(devices[i].id, sizeof(devices[i].id), "%s", id);
   }
-
-  devices[i].power = power;
+  devices[i].power    = power;
   devices[i].switchOn = true;
-  devices[i].led = led;
-  devices[i].speed = speed;
+  devices[i].led      = led;
+  devices[i].speed    = speed;
   devices[i].lastHeartbeat = millis();
 
-  Serial.printf("[DEVICE] %s %s → Power:%d LED:%d Speed:%d\n",
-                isNew ? "NEW" : "UPDATE", id, power, led, speed);
+  const char* name = lookupName(id);
+  static char msg[48];
+  if (power && speed > 0) snprintf(msg, sizeof(msg), "On, Speed %d.", speed);
+  else if (!power && speed > 0) snprintf(msg, sizeof(msg), "On, Speed 0.");
+  else if (devices[i].lastKnownSpeed > 0) snprintf(msg, sizeof(msg), "On, Speed %d.", devices[i].lastKnownSpeed);
+  else snprintf(msg, sizeof(msg), "On");
 
-  char msg[48];
-  if (!devices[i].switchOn) strcpy(msg, "Off");
-  else if (power && speed > 0) snprintf(msg, sizeof(msg), "On. Speed %d.", speed);
-  else if (!power && speed > 0) strcpy(msg, "On. Standby.");
-  else strcpy(msg, "On");
-
-  char fanName[32];
-  getDeviceName(id, fanName);
-
-  sendSensorValueToAlexa(fanName, msg);
+  LOG("[DEV] %s %s: %s\n", isNew ? "NEW" : "UPD", name, msg);
+  if (notify) enqueueAlexa(name, msg);
+  return i;
 }
 
-/**************************** PROCESS FAN EVENT *************************/
-void processFanEvent(const char* hex) {
-  //Serial.printf("[UDP] HEX Received (%d bytes) -> Decoding JSON...\n", strlen(hex));
-
-  char json[512] = { 0 };
-  for (int i = 0, j = 0; i < (int)strlen(hex) && j < 511; i += 2, j++) {
+void processFanEvent(const char* hex, int hexLen) {
+  if (hexLen < 2 || hexLen > 1024) return;
+  static char json[512];
+  memset(json, 0, sizeof(json));
+  for (int i = 0, j = 0; i < hexLen && j < 511; i += 2, j++) {
     char h[3] = { hex[i], hex[i + 1], 0 };
     json[j] = (char)strtol(h, NULL, 16);
   }
-
   StaticJsonDocument<512> doc;
-  if (deserializeJson(doc, json)) {
-    Serial.println("[ERR] JSON Parse Failed");
-    return;
-  }
-
-  const char* id = doc["device_id"];
+  if (deserializeJson(doc, json)) return;
+  const char* id    = doc["device_id"];
   const char* state = doc["state_string"];
-  int comma = strchr(state, ',') ? strchr(state, ',') - state : strlen(state);
-  uint32_t encoded = strtoul(String(state).substring(0, comma).c_str(), NULL, 10);
+  if (!id || !state) return;
 
-  bool power = (encoded & 0x10) > 0;
-  bool led = (encoded & 0x20) > 0;
-  int speed = (encoded & 0x07);
-
-  upsertDevice(id, power, led, speed);
+  const char* comma = strchr(state, ',');
+  int pos = comma ? (int)(comma - state) : (int)strlen(state);
+  static char numBuf[16];
+  memset(numBuf, 0, sizeof(numBuf));
+  if (pos > 0 && pos < (int)sizeof(numBuf))
+    snprintf(numBuf, sizeof(numBuf), "%.*s", pos, state);
+  uint32_t enc = strtoul(numBuf, NULL, 10);
+  upsertDevice(id, (enc & 0x10) != 0, (enc & 0x20) != 0, enc & 0x07, true);
 }
 
-void loadDefaultDevices() {
-  int masterCount = sizeof(masterNames) / sizeof(masterNames[0]);
-  for (int i = 0; i < masterCount; i++) {
-    upsertDevice(masterNames[i].id, false, false, 0);
-  }
-  Serial.println("Default devices loaded from masterNames.");
-}
-
-// ---------------------------------------------------------------------------
-// Upsert helpers
-// ---------------------------------------------------------------------------
-void upsertDevice_Off() {
+void checkHeartbeatOff() {
   for (int i = 0; i < deviceCount; i++) {
     if (devices[i].switchOn && (millis() - devices[i].lastHeartbeat > 10000)) {
-      // Looks like switch is recently turned off
+      if (devices[i].speed > 0 && devices[i].power)
+        devices[i].lastKnownSpeed = devices[i].speed;
       devices[i].switchOn = false;
-      char msg[48];
-      strcpy(msg, "Off");
-      char fanName[32];
-      getDeviceName(devices[i].deviceId, fanName);
-      Serial.println("[DEVICE] switch Off");
-      sendSensorValueToAlexa(fanName, msg);
+      const char* name = lookupName(devices[i].id);
+      LOG("[DEV] OFF %s\n", name);
+      enqueueAlexa(name, "Off");
     }
   }
 }
 
-/****************************** SETUP **********************************/
-void setup() {
-  Serial.begin(115200);
-  Serial.println("Booting...");
+void loadDefaults() {
+  for (int i = 0; i < MASTER_COUNT; i++) {
+    upsertDevice(MASTER[i].id, false, false, 0, true);
+    yield();
+  }
+}
 
+// ==== Setup ====
+void setup() {
+#if SERIAL_LOG
+  Serial.begin(115200);
+  delay(2000);
+  LOGLN("\n\n========== BOOT ==========");
+  #if defined(ESP8266)
+    LOG("Reset reason: %s\n", ESP.getResetReason().c_str());
+  #endif
+  LOG("Free heap   : %u\n", ESP.getFreeHeap());
+#endif
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);
+
+  WiFi.setOutputPower(WIFI_TX_DBM);
   WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi");
+#if SERIAL_LOG
+  Serial.print("WiFi");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(250);
   }
-  Serial.printf("\n[WiFi] Connected — IP: %s\n", WiFi.localIP().toString().c_str());
+  LOG("\nIP: %s  RSSI: %d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+#else
+  while (WiFi.status() != WL_CONNECTED) delay(250);
+#endif
+
+  WiFi.setAutoReconnect(true);
+
+#if defined(ESP8266)
+  secureClient.setBufferSizes(512, 512);
+#endif
+  secureClient.setInsecure();
 
   udp.begin(UDP_PORT);
-  Serial.printf("[UDP] Listening on %d\n", UDP_PORT);
+  loadDefaults();
 
-  Serial.println("Loading default devices...");
-  loadDefaultDevices();
+  wifiOkAt = millis();
+  setLedState(LED_SOLID);
+  LOG("Heap: %u\nSetup complete.\n\n", ESP.getFreeHeap());
 }
 
-/******************************* LOOP **********************************/
-uint32_t logTimer = 0;
+// ==== Loop ====
+uint32_t lastOffCheck = 0;
+uint32_t lastHeapLog  = 0;
 
 void loop() {
-
   wifiWatchdog();
+  updateLed();
 
-  /* Print heap every 10s */
-  if (millis() - logTimer > HEAP_PRINT_TIME) {
-    logTimer = millis();
-    Serial.printf("[HEAP] Free RAM: %u bytes\n", ESP.getFreeHeap());
+  if (millis() - lastHeapLog > 120000) {
+    lastHeapLog = millis();
+    LOG("[HEAP] %u (queue: %d fails: %d)\n", ESP.getFreeHeap(), qCount, httpsFailCount);
   }
 
-  int size = udp.parsePacket();
-  if (size > 0) {
-
-    static char buf[2048];
+  int sz = udp.parsePacket();
+  if (sz > 0) {
+    static char buf[1024];
     int len = udp.read(buf, sizeof(buf) - 1);
-    buf[len] = 0;
+    buf[len] = '\0';
 
-    //Serial.printf("[UDP] Packet Received (%d bytes) → %s\n", len, buf);
-
-    bool isHex = true;
-    for (int i = 0; i < len; i++)
-      if (!isxdigit(buf[i])) isHex = false;
+    bool isHex = (len > 2);
+    for (int i = 0; i < len && isHex; i++)
+      if (!isxdigit((unsigned char)buf[i])) isHex = false;
 
     if (isHex) {
-      //Serial.println("[TYPE] → FAN EVENT");
-      processFanEvent(buf);
+      processFanEvent(buf, len);
     } else {
-      //Serial.println("[TYPE] → HEARTBEAT");
       int idx = findDevice(buf);
-      if(idx >= 0)
+      if (idx >= 0) {
         devices[idx].lastHeartbeat = millis();
-      if (idx < 0 || devices[idx].switchOn == false) {
-        upsertDevice(buf, false, false, 0);
+        if (!devices[idx].switchOn)
+          upsertDevice(buf, false, false, 0, true);
+      } else if (len > 0 && len < MAX_ID_LEN) {
+        upsertDevice(buf, false, false, 0, true);
       }
     }
   }
 
-  // ---- Turn off DEVICES with no heartbeat----
-  upsertDevice_Off();
+  if (millis() - lastOffCheck > 2000) {
+    lastOffCheck = millis();
+    checkHeartbeatOff();
+  }
+
+  trySendOneFromQueue();
+
+  yield();
 }
