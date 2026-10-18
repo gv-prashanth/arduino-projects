@@ -440,6 +440,18 @@ inline void serviceAudio() {
     }
   } else candidateSince = 0;
 }
+inline void printDiagnostics() {
+  Serial.printf("GTS Radio: uptime=%lu s heap=%u PSRAM=%u Wi-Fi=%s audio=%s\n",
+                static_cast<unsigned long>(millis() / 1000), ESP.getFreeHeap(), ESP.getPsramSize(),
+                online ? "connected" : "offline", RadioAudio::stateName(playback.state));
+  Serial.printf("audio: %s; %s metadata callbacks\n", RadioAudio::pcmApiName(),
+                RadioAudio::MetadataCallbacks<Audio>::modern ? "event" : "legacy");
+#if ARDUINO_USB_CDC_ON_BOOT
+  Serial.printf("Serial: native USB CDC; monitor 115200; send ? for status\n");
+#else
+  Serial.printf("Serial: UART0 USB-to-UART connector; 115200; send ? for status\n");
+#endif
+}
 inline void setup() {
   Serial.begin(115200);
   SPI.begin(RadioConfig::TftClock, -1, RadioConfig::TftMosi, RadioConfig::TftCs);
@@ -473,10 +485,22 @@ inline void setup() {
     if (RadioModel::validStation(lastGood)) startStation(lastGood);
   }
   markSettingsDirty(); // Persist validated defaults or migrated data once, outside startup.
-  Serial.printf("GTS Radio: heap=%u PSRAM=%u\n", ESP.getFreeHeap(), ESP.getPsramSize());
+  printDiagnostics();
   draw();
 }
 inline void loop() {
+  // A monitor opened after startup can request diagnostics without rebooting or
+  // interrupting playback. Coalesce pasted requests and limit output to one
+  // report per second so serial transmission cannot dominate UI handling.
+  static bool diagnosticsPending = false;
+  static uint32_t diagnosticsAt = 0;
+  for (int i = 0; i < 16 && Serial.available(); ++i)
+    if (Serial.read() == '?') diagnosticsPending = true;
+  if (diagnosticsPending && millis() - diagnosticsAt >= 1000) {
+    diagnosticsPending = false;
+    diagnosticsAt = millis();
+    printDiagnostics();
+  }
   if (!canvas.getBuffer()) { delay(20); return; }
   wifi.loop();
   if (strcmp(lastWifiStatus, wifi.status())) {

@@ -2,10 +2,30 @@
 
 #include <Arduino.h>
 #include <Audio.h>
+#include <type_traits>
+#include "AudioCallbacks.h"
 #include "RadioConfig.h"
 
 namespace RadioAudio {
 using RadioModel::Station;
+// Capture the library's declaration before introducing any overloads. A future
+// incompatible API must fail at compile time instead of silently losing PCM
+// confirmation while otherwise playing audio normally.
+using PcmCallback = decltype(&::audio_process_i2s);
+using LegacyPcmCallback = void (*)(int16_t*, uint16_t, uint8_t, uint8_t, bool*);
+using ThreeArgPcmCallback = void (*)(int16_t*, uint16_t, bool*);
+using WideCountPcmCallback = void (*)(int16_t*, int32_t, bool*);
+using Pcm32Callback = void (*)(int32_t*, int16_t, bool*);
+static_assert(std::is_same<PcmCallback, LegacyPcmCallback>::value ||
+              std::is_same<PcmCallback, ThreeArgPcmCallback>::value ||
+              std::is_same<PcmCallback, WideCountPcmCallback>::value ||
+              std::is_same<PcmCallback, Pcm32Callback>::value,
+              "Unsupported ESP32-audioI2S PCM callback API; update AudioCallbacks.cpp");
+inline const char* pcmApiName() {
+  return std::is_same<PcmCallback, Pcm32Callback>::value ? "32-bit PCM (3-argument)" :
+         std::is_same<PcmCallback, LegacyPcmCallback>::value ? "16-bit PCM (legacy 5-argument)" :
+         "16-bit PCM (3-argument)";
+}
 enum class State : uint8_t { Idle, Connecting, Playing, Buffering, Retrying, Failed, Offline };
 struct StartRequest { Station station, fallback; uint32_t generation = 0; };
 struct Snapshot {
@@ -16,13 +36,12 @@ struct Snapshot {
   uint16_t bitrateKbps = 0;
   char codec[12] = {}, title[192] = {}, detail[80] = {};
 };
-enum class MetadataType : uint8_t { Title, Bitrate, Info };
 struct Metadata { MetadataType type; uint32_t generation, epoch; char text[192]; };
 static QueueHandle_t metadataQueue = nullptr;
 static portMUX_TYPE signalMux = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t activeGeneration = 0, decodedGeneration = 0, lastFrameMs = 0, activeMetadataEpoch = 0;
 
-inline void metadata(MetadataType type, const char* text) {
+void metadata(MetadataType type, const char* text) {
   if (!metadataQueue || !text) return;
   Metadata event{};
   event.type = type;
@@ -33,12 +52,32 @@ inline void metadata(MetadataType type, const char* text) {
   strlcpy(event.text, text, sizeof(event.text));
   xQueueSend(metadataQueue, &event, 0); // Telemetry may be dropped; playback confirmation uses its own signal.
 }
-inline void decodedFrame(uint16_t samples) {
-  if (!samples) return;
+void decodedFrame(int32_t samples) {
+  if (samples <= 0) return;
   portENTER_CRITICAL(&signalMux);
   if (activeGeneration) { decodedGeneration = activeGeneration; lastFrameMs = millis(); }
   portEXIT_CRITICAL(&signalMux);
 }
+
+// Older versions call the global hooks in AudioCallbacks.cpp; 3.4.2 and later
+// require explicit event callback registration. Detect that member rather than
+// a version string (several releases report stale package versions).
+template <typename AudioType, typename = void>
+struct MetadataCallbacks {
+  static constexpr bool modern = false;
+  static void install() {}
+};
+template <typename AudioType>
+struct MetadataCallbacks<AudioType, decltype((void)AudioType::audio_info_callback)> {
+  static constexpr bool modern = true;
+  static void dispatch(typename AudioType::msg_t event) {
+    if (event.e == AudioType::evt_streamtitle) metadata(MetadataType::Title, event.msg);
+    else if (event.e == AudioType::evt_bitrate) metadata(MetadataType::Bitrate, event.msg);
+    else if (event.e == AudioType::evt_info || event.e == AudioType::evt_log || event.e == AudioType::evt_eof)
+      metadata(MetadataType::Info, event.msg);
+  }
+  static void install() { AudioType::audio_info_callback = dispatch; }
+};
 inline const char* stateName(State state) {
   switch (state) {
     case State::Idle: return "Choose a station";
@@ -96,7 +135,18 @@ class AudioService {
     // In pinned audioI2S 928c420, raw stopSong() does not lock the decoder
     // mutex. The public null-host path acquires that mutex before stopSong(),
     // keeping buffer clearing serialized with the library's decoder task.
-    (void)audio_.connecttohost(nullptr);
+    // The 32-bit-PCM releases take their own decoder mutex in stopSong(). Avoid
+    // their invalid-host error path; retain the workaround for legacy code.
+    if (std::is_same<PcmCallback, Pcm32Callback>::value) audio_.stopSong();
+    else (void)audio_.connecttohost(nullptr);
+    if (MetadataCallbacks<Audio>::modern) {
+      // 4.0.0 retains metadata in an internal queue across stopSong(). Its
+      // loop() delivers those events even when stopped. Flush while our active
+      // generation is zero, before a new connection can claim the old title.
+      audio_.loop();
+      Metadata discarded;
+      while (xQueueReceive(metadataQueue, &discarded, 0) == pdTRUE) {}
+    }
   }
   void reset(const StartRequest& request) {
     deactivate();
@@ -156,6 +206,7 @@ class AudioService {
     for (size_t i = 0; i < 5 && streamUrl[i] != ':'; ++i)
       streamUrl[i] = tolower(static_cast<unsigned char>(streamUrl[i]));
     ++attempts_;
+    Serial.printf("audio: connecting %u/3 to %s\n", attempts_, desired_.name);
     snapshot_.state = State::Connecting;
     snprintf(snapshot_.detail, sizeof(snapshot_.detail), "Connection attempt %u/3", attempts_);
     publish();
@@ -196,6 +247,9 @@ class AudioService {
     }
   }
   void run() {
+    MetadataCallbacks<Audio>::install();
+    Serial.printf("audio: %s; %s metadata callbacks\n", pcmApiName(),
+                  MetadataCallbacks<Audio>::modern ? "event" : "legacy");
     if (!audio_.setPinout(RadioConfig::I2sBclk, RadioConfig::I2sLrck, RadioConfig::I2sData)) {
       snapshot_.state = State::Failed;
       snapshot_.fatal = true;
@@ -244,6 +298,8 @@ class AudioService {
             // Restore the outage retry budget only after stable playback, so a
             // flapping stream cannot reset it by decoding a single frame.
             if (now - playingSince_ >= 20000) attempts_ = 0;
+            if (snapshot_.state != State::Playing)
+              Serial.printf("audio: Playing %s; decoded PCM confirmed\n", desired_.name);
             snapshot_.state = State::Playing;
             snapshot_.confirmed = desired_;
             strlcpy(snapshot_.detail, fallbackUsed_ ? "Previous station restored" : "Decoded audio ready", sizeof(snapshot_.detail));
@@ -267,14 +323,4 @@ class AudioService {
     }
   }
 };
-}
-
-// These callbacks may run in the library's decoder task. Never touch UI Strings,
-// Preferences, or the public Audio API here.
-void audio_showstreamtitle(const char* info) { RadioAudio::metadata(RadioAudio::MetadataType::Title, info); }
-void audio_bitrate(const char* info) { RadioAudio::metadata(RadioAudio::MetadataType::Bitrate, info); }
-void audio_info(const char* info) { RadioAudio::metadata(RadioAudio::MetadataType::Info, info); }
-void audio_process_i2s(int16_t*, uint16_t samples, uint8_t, uint8_t, bool* continueI2S) {
-  *continueI2S = true;
-  RadioAudio::decodedFrame(samples);
 }

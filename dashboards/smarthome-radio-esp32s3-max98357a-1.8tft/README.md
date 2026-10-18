@@ -42,7 +42,7 @@ The encoder defaults to four quadrature transitions per detent, 25 ms button deb
 | Adafruit seesaw (display-library dependency) | 1.7.9 |
 | SD | Arduino-ESP32's bundled 3.0.7 |
 
-The audio library is pinned by Git commit because its release's package manifest reports an older version. Do not replace it with the current library master: newer releases use a different callback API. The platform release's manifest identifies itself as `51.3.6`, but downloads Arduino-ESP32 **3.0.7**; the release URL is intentional.
+The audio library is pinned by Git commit because its release's package manifest reports an older version. This remains the default reproducible build; the callback adapter also supports the ESP32-audioI2S **4.0.0** API used by Arduino IDE installations. The platform release's manifest identifies itself as `51.3.6`, but downloads Arduino-ESP32 **3.0.7**; the release URL is intentional.
 
 The explicit SD dependency points to the pinned framework's library. This prevents the display library's generic Arduino SD dependency from shadowing ESP32's incompatible filesystem API.
 
@@ -66,9 +66,31 @@ pio run --target upload --upload-port YOUR_SERIAL_PORT
 pio device monitor --port YOUR_SERIAL_PORT --baud 115200
 ```
 
-Native USB CDC is enabled for `Serial`; use the board's native USB connector for logs. The separate USB-to-UART connector can also upload, but it will not receive `Serial` output with these build flags. Select the appropriate port explicitly when both connectors are attached. If the native USB application port is unavailable, use the board's BOOT/RESET procedure to enter the ROM downloader.
+The supplied PlatformIO build enables native USB CDC for `Serial`; use the board's native USB connector for its logs. The separate USB-to-UART connector can also upload, but it will not receive `Serial` output with these build flags. Select the appropriate port explicitly when both connectors are attached. If the native USB application port is unavailable, use the board's BOOT/RESET procedure to enter the ROM downloader.
 
 Build outputs are in `.pio/build/esp32s3-n16r8/`: `firmware.bin` is the application image, `firmware.elf` contains debug symbols, and `bootloader.bin`/`partitions.bin` describe the boot and partition setup. `firmware.bin` is not a merged whole-flash image. The PlatformIO upload command supplies the other images and their correct offsets automatically.
+
+## Arduino IDE build and serial monitor
+
+Keep the `.ino`, headers, and `AudioCallbacks.cpp` together in the sketch folder. For a standard N16R8 board, use these Arduino IDE Tools settings:
+
+| Setting | Value |
+| --- | --- |
+| Board | ESP32S3 Dev Module |
+| CPU frequency | 240 MHz |
+| Flash size | 16 MB (128 Mb) |
+| Flash mode | QIO 80 MHz |
+| PSRAM | OPI PSRAM |
+| Partition scheme | 16M Flash (3MB APP/9.9MB FATFS), or another scheme with an application slot large enough for the compiled image |
+| USB Mode | Hardware CDC and JTAG |
+| USB CDC On Boot | Enabled |
+| Upload Mode | UART0 / Hardware CDC |
+| Port | Native Espressif USB Serial/JTAG port |
+| Serial Monitor speed | 115200 |
+
+These settings select native USB logs; the route in an existing Arduino IDE build depends on its settings when last compiled. Connect a data-capable cable to the native **USB/OTG** connector. Open Serial Monitor on its Espressif port, then press **RESET** with **BOOT** released. Send **`?`** to print uptime, heap/PSRAM, Wi-Fi/playback state, the compiled serial route, and the detected audio callback API without restarting playback. The radio starts without waiting for a monitor, so the startup banner can be missed when the monitor opens later.
+
+To use the separate **UART** connector for application logs, set **USB CDC On Boot → Disabled** and compile/upload again; `Serial` then uses UART0. Changing IDE settings does not change an already flashed PlatformIO binary. Connector labels and positions vary between DualUSB boards; identify the native ESP32 port separately from the CH340/CP210x-style UART bridge. See [Espressif's USB CDC setup](https://docs.espressif.com/projects/arduino-esp32/en/latest/tutorials/cdc_dfu_flash.html).
 
 ## Wi-Fi credentials
 
@@ -107,6 +129,7 @@ Station names and stream titles scroll within the display. UTF-8 is decoded befo
 | `smarthome-radio-esp32s3-max98357a-1.8tft.ino` | Arduino entry points |
 | `RadioApp.h` | UI, navigation, worker coordination, deferred settings saves |
 | `AudioService.h` | One task owns public Audio calls; callbacks pass copied metadata/frame signals |
+| `AudioCallbacks.h` / `AudioCallbacks.cpp` | Callback bridge declarations and separately compiled strong PCM/legacy metadata hooks |
 | `CatalogService.h` | Worker fetches/validates paginated station lists using verified HTTPS and mirror failover |
 | `CatalogState.h` | Hardware-independent catalog request generations, transaction state, timeout, and retry scheduling |
 | `NetworkJsonReader.h` | Buffered JSON transport with idle/total deadlines, byte limits, and tolerance for gaps between TLS packets |
@@ -122,11 +145,15 @@ Directory JSON uses a custom buffered reader instead of `deserializeJson(http.ge
 
 ## Library contracts
 
-The pinned [ESP32-audioI2S header](https://github.com/schreibfaul1/ESP32-audioI2S/blob/928c420d49fce2a09fa91f490b9fcabed6447c67/src/Audio.h) supplies the legacy global metadata callbacks. `audio_bitrate` reports bits per second, which the application converts to kbps.
+The pinned [ESP32-audioI2S header](https://github.com/schreibfaul1/ESP32-audioI2S/blob/928c420d49fce2a09fa91f490b9fcabed6447c67/src/Audio.h) supplies legacy global metadata callbacks. Newer APIs, including 4.0.0, require registration through `Audio::audio_info_callback`; the adapter detects that member and routes its title, bitrate, and information events. Legacy `audio_bitrate` reports bits per second, which the application converts to kbps.
+
+ESP32-audioI2S 3.0.12 uses a five-argument PCM hook with `int16_t*` samples. The [4.0.0 header](https://github.com/schreibfaul1/ESP32-audioI2S/blob/4.0.0/src/Audio.h) uses `audio_process_i2s(int32_t*, int16_t, bool*)`; the adapter supplies both forms plus the intermediate three-argument variants. Unsupported signatures fail at compile time. Without the matching hook, audible playback can remain unconfirmed and trigger buffering/retries.
+
+Keep the hook definitions in the separate `AudioCallbacks.cpp` translation unit, which deliberately excludes `Audio.h`. That library header declares weak callbacks, and 4.0.0 also supplies a weak default implementation. Inheriting a weak declaration in the application's definition can leave the library's no-op hook selected at link time. The separate strong definitions override it reliably.
 
 `connecttohost()` and `isRunning()` can report a successful TCP connection before valid audio has been decoded. The application uses the PCM callback to establish that decoded samples are ready. The callback runs before the driver's I²S write, so this does not prove that the amplifier, speaker, or wiring produced sound.
 
-The library starts its own decoder/output task. Callbacks may run from that task, so they must copy metadata or signal flags without drawing, writing preferences, or calling public Audio methods. An `audio_process_i2s` callback must set `*continueI2S = true` to allow audio output.
+The library starts its own decoder/output task. Callbacks may run from that task, so they must copy metadata or signal flags without drawing, writing preferences, or calling public Audio methods. Every supported `audio_process_i2s` hook sets `*continueI2S = true` to allow audio output; only positive sample counts confirm decoded audio.
 
 The pinned audio library disables certificate verification internally for HTTPS audio streams and has no public CA setter. Directory HTTPS verification is configured independently by the application. Provider streams can also use plain HTTP. Updating stream TLS verification requires a compatible library change; this firmware does not claim authenticated audio delivery.
 
@@ -146,7 +173,7 @@ A successful build and host tests cannot verify wiring, amplifier output, exact 
 | Select a broken stream, then Retry audio | Connecting/failure states and bounded retries occur; previous confirmed station is available as fallback |
 | Read a long or non-ASCII station/title | Text stays inside the screen; scrolling works; unsupported glyphs use a safe replacement |
 
-The USB serial startup log reports detected heap and PSRAM. Confirm the expected 8 MB PSRAM on the actual N16R8 board.
+The USB serial startup log and `?` command report detected heap and PSRAM. Confirm the expected 8 MB PSRAM on the actual N16R8 board; with audioI2S 4.0.0, also confirm `32-bit PCM (3-argument)` and `event metadata callbacks`.
 
 ## Host tests
 
@@ -158,7 +185,7 @@ python3 tests/run_host_tests.py --sanitize
 
 This requires a C++17-capable compiler. Omit `--sanitize` if the compiler does not provide AddressSanitizer and UndefinedBehaviorSanitizer. Set `CXX` to select another compiler. The network JSON and dependency-patch tests run when the pinned libraries have been installed by `pio run`; otherwise the runner explicitly reports those skips.
 
-The C++ tests exercise platform-independent state/persistence helpers, encoder/button behavior, catalog request ordering/retry state, Wi-Fi form validation, network JSON parsing with delayed packets and the real pinned ArduinoJson, and the audio service using deterministic Arduino/Audio stubs. They do not require an ESP32. The audio stub tests verify application state transitions; they do not simulate true concurrent execution or validate the upstream library's internal mutexes.
+The C++ tests exercise platform-independent state/persistence helpers, encoder/button behavior, catalog request ordering/retry state, Wi-Fi form validation, network JSON parsing with delayed packets and the real pinned ArduinoJson, and the audio service using deterministic Arduino/Audio stubs. The callback contract matrix separately links the production `AudioCallbacks.cpp` against four PCM APIs, including 4.0.0's weak default hook, and checks legacy/event metadata registration. These tests require no ESP32; they do not simulate true concurrent execution or validate upstream mutexes, I²S output, or speaker sound.
 
 ```sh
 c++ -std=c++11 -Wall -Wextra -Werror tests/model_test.cpp -o /tmp/radio-model-test
@@ -169,7 +196,7 @@ c++ -std=c++11 -Wall -Wextra -Werror tests/catalog_state_test.cpp -o /tmp/radio-
 /tmp/radio-catalog-state-test
 c++ -std=c++11 -Wall -Wextra -Werror tests/wifi_portal_test.cpp -o /tmp/radio-wifi-test
 /tmp/radio-wifi-test
-c++ -std=c++17 -Wall -Wextra -Werror -I tests/audio_stubs tests/audio_service_test.cpp -o /tmp/radio-audio-service-test.bin
+c++ -std=c++17 -Wall -Wextra -Werror -I tests/audio_stubs tests/audio_service_test.cpp AudioCallbacks.cpp tests/audio_stubs/Audio.cpp -o /tmp/radio-audio-service-test.bin
 /tmp/radio-audio-service-test.bin
 c++ -std=c++11 -Wall -Wextra -Werror -I .pio/libdeps/esp32s3-n16r8/ArduinoJson/src tests/network_json_test.cpp -o /tmp/radio-network-json-test
 /tmp/radio-network-json-test

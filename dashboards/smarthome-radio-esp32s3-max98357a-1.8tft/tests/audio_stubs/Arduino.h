@@ -21,6 +21,9 @@ namespace RadioAudioHost {
 struct StopSimulation {};
 extern uint32_t nowMs, stopAt;
 extern bool continuousFrames, pinoutReady;
+extern bool framesEnabled, silentPcm, emitStartupMetadata;
+extern int32_t frameSamples;
+extern unsigned weakDefaultCalls;
 
 inline std::size_t copyText(char* destination, const char* source, std::size_t capacity) {
   const std::size_t length = std::strlen(source);
@@ -86,7 +89,7 @@ inline void vTaskDelay(uint32_t milliseconds) {
 struct SerialStub {
   template <class... Args> void printf(const char*, Args...) {}
 };
-static SerialStub Serial;
+inline SerialStub Serial;
 
 class String {
  public:
