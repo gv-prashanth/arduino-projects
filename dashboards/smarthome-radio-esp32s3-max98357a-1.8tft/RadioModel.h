@@ -7,7 +7,7 @@
 namespace RadioModel {
 
 constexpr int kMaxVolume = 21;
-constexpr int kInitialVolume = 6;
+constexpr int kInitialVolume = 10;
 constexpr int kCountryCount = 19;
 constexpr int kGenreCount = 7;
 constexpr int kCodecCount = 3;

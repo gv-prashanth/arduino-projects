@@ -38,7 +38,7 @@ static void expectRejected(const SettingsRecord& record) {
 
 static void testVolumeAndRestart() {
   Settings settings;
-  assert(settings.volume == 6 && !settings.muted && settings.bitrateCap == 0);
+  assert(settings.volume == 10 && !settings.muted && settings.bitrateCap == 0);
   settings.volume = 7;
   toggleMute(settings);
   assert(outputVolume(settings) == 0 && settings.volume == 7);
