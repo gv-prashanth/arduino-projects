@@ -111,28 +111,6 @@ class CatalogService {
     }
     http.end();
   }
-  void appendCurated(Result& result) {
-    const Filter& f = result.request.filter;
-    // Unknown codec/bitrate entries must not bypass explicit restrictions.
-    if (result.request.offset || f.codec || f.bitrateCap || (f.country != 0 && f.country != 2) ||
-        (f.genre != 4 && f.genre != 5)) return;
-    const char* names[] = {"AIR Raagam", "AIR Ragam"};
-    const char* urls[] = {
-      "https://airhlspush.pc.cdn.bitgravity.com/httppush/hlspbaudio159/hlspbaudio15964kbps.m3u8",
-      "https://air.pc.cdn.bitgravity.com/air/live/pbaudio158/playlist.m3u8"
-    };
-    for (int i = 0; i < 2 && result.count < RadioModel::kMaxStations; ++i) {
-      bool duplicate = false;
-      for (int j = 0; j < result.count; ++j) if (!strcmp(result.stations[j].url, urls[i])) duplicate = true;
-      if (duplicate) continue;
-      Station& s = result.stations[result.count++];
-      snprintf(s.id, sizeof(s.id), "curated-air-%d", i);
-      copyField(s.name, sizeof(s.name), names[i]);
-      copyField(s.url, sizeof(s.url), urls[i]);
-      copyField(s.country, sizeof(s.country), "IN");
-      s.bitrateKbps = 0;
-    }
-  }
   bool fetch(const String& server, Result& result) {
     const Request& request = result.request;
     const Filter& f = request.filter;
@@ -223,7 +201,6 @@ class CatalogService {
         Serial.println(result->message);
       }
       if (success) {
-        appendCurated(*result);
         result->status = result->count ? ResultStatus::Success : ResultStatus::Empty;
         copyField(result->message, sizeof(result->message), result->count ? "Stations ready" : "No matching supported stations");
       }

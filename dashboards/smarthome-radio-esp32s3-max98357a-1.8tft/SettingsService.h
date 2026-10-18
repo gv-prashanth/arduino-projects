@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include <new>
 #include "CatalogService.h"
+#include "SettingsRestore.h"
 
 namespace RadioStorage {
 struct WifiCredentials { char ssid[33] = {}, password[65] = {}; };
@@ -13,14 +14,6 @@ inline bool validCredentials(const WifiCredentials& credentials) {
 }
 enum class Kind : uint8_t { Settings, Wifi, Cache };
 struct Status { Kind kind; char message[80]; };
-constexpr int CachedStations = 8;
-struct CacheRecord {
-  uint32_t magic = 0x47544332;
-  RadioCatalog::Filter filter;
-  uint8_t count = 0;
-  RadioModel::SettingsRecord stations[CachedStations];
-};
-
 class SettingsService {
  public:
   bool begin() {
@@ -37,7 +30,7 @@ class SettingsService {
     RadioModel::SettingsRecord record;
     bool restored = prefs.getBytesLength("state_v2") == sizeof(record) &&
                     prefs.getBytes("state_v2", &record, sizeof(record)) == sizeof(record) &&
-                    RadioModel::decodeSettingsRecord(record, settings, lastGood);
+                    restoreStateRecord(record, settings, lastGood);
     if (!restored) {
       // One-time migration from the original sketch; it never stored pre-mute loudness.
       settings.volume = min<uint8_t>(prefs.getUChar("volume", RadioModel::kInitialVolume), RadioModel::kMaxVolume);
@@ -66,19 +59,13 @@ class SettingsService {
     if (!record) { prefs.end(); return nullptr; }
     bool valid = prefs.getBytesLength("cache_v2") == sizeof(*record) &&
                  prefs.getBytes("cache_v2", record, sizeof(*record)) == sizeof(*record) &&
-                 record->magic == 0x47544332 && record->count <= CachedStations && record->filter == wanted;
+                 validCacheHeader(*record, wanted);
     prefs.end();
     RadioCatalog::Result* result = valid ? new (std::nothrow) RadioCatalog::Result : nullptr;
     if (result) {
       result->request.filter = wanted;
       result->cached = true;
-      for (int i = 0; i < record->count; ++i) {
-        RadioModel::Settings settings;
-        RadioModel::Station station;
-        if (!RadioModel::decodeSettingsRecord(record->stations[i], settings, station) ||
-            !(RadioCatalog::filterFor(settings) == wanted) || !RadioModel::validStation(station)) { valid = false; break; }
-        result->stations[result->count++] = station;
-      }
+      valid = restoreCacheRecord(*record, wanted, result->stations, result->count);
       result->status = result->count ? RadioCatalog::ResultStatus::Success : RadioCatalog::ResultStatus::Empty;
       strlcpy(result->message, "Cached stations; refresh when online", sizeof(result->message));
     }

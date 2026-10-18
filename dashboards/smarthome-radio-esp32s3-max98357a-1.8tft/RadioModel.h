@@ -12,7 +12,7 @@ constexpr int kCountryCount = 19;
 constexpr int kGenreCount = 7;
 constexpr int kCodecCount = 3;
 constexpr int kPageSize = 20;
-constexpr int kMaxStations = 22;
+constexpr int kMaxStations = kPageSize;
 
 struct Station {
   char id[40] = {};

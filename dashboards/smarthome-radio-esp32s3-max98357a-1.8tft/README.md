@@ -112,11 +112,13 @@ A connection attempt has a 20-second deadline. Failed attempts leave setup avail
 
 The menu contains **Stations, Country, Genre, Codec, Max bitrate, Wi-Fi setup, and Retry audio**. A long press fires while held; releasing it does not also produce a short press. Menu/station browsing expires after 15 seconds of inactivity and filter editing after 30 seconds. Wi-Fi setup remains visible without an inactivity timeout.
 
-The station list offers **More stations**, **Previous page**, and **Refresh stations** as applicable. Each directory page contains up to 20 remote rows; unsupported or invalid rows can reduce the visible count. Two curated AIR entries can be added on the first page for Classical/Indian classical with All countries or India, when no explicit codec or bitrate restriction is selected.
+The station list offers **More stations**, **Previous page**, and **Refresh stations** as applicable. All station entries come from Radio Browser. Each directory page contains up to 20 remote rows; unsupported or invalid rows can reduce the visible count.
 
 Changing a filter searches without retuning the current station. The new filter/list becomes active only after a valid response; network or parse failures keep the previous list. A successful empty response shows no matches. The default search allows all supported codecs without a bitrate cap; menus offer AAC/MP3 and 64–320 kbps caps.
 
 Playback shows connecting, playing, buffering, retrying, failed, or offline states. A working station is restored directly after Wi-Fi connects while directory refresh runs separately. Failed streams receive bounded retries and can fall back to the previous confirmed station; **Retry audio** starts another attempt. Up to eight stations from the last successful first page are cached for startup browsing.
+
+On upgrade, the former injected entries with IDs `curated-air-0` and `curated-air-1` are removed from the restored station list and saved startup selection. Other settings and directory stations are preserved; AIR stations returned normally by Radio Browser remain available.
 
 Volume defaults to 6 on a fresh device, with a 0–21 range. Mute preserves the desired listening volume across restarts. A station becomes the saved working station after four seconds continuously in the Playing state; this exceeds the three-second audio freshness window so a single decoded frame cannot replace the previous working station. Settings save after a further 1.5 seconds of inactivity, so allow about six seconds after a station starts before removing power. Old-format settings are migrated when possible; the original firmware never saved pre-mute volume, so that lost value cannot be recovered.
 
@@ -134,6 +136,7 @@ Station names and stream titles scroll within the display. UTF-8 is decoded befo
 | `CatalogState.h` | Hardware-independent catalog request generations, transaction state, timeout, and retry scheduling |
 | `NetworkJsonReader.h` | Buffered JSON transport with idle/total deadlines, byte limits, and tolerance for gaps between TLS packets |
 | `SettingsService.h` | NVS worker, checked records, legacy migration, first-page cache |
+| `SettingsRestore.h` | Hardware-independent saved-state/cache decoding and cleanup of retired injected station IDs |
 | `WifiPortal.h` | Wi-Fi attempts/retries and the local setup form |
 | `RotaryInput.h` | Polled quadrature/button state machine and bounded input queue |
 | `RadioModel.h` | Hardware-independent state, validation, identity, and persistence encoding |
@@ -185,11 +188,13 @@ python3 tests/run_host_tests.py --sanitize
 
 This requires a C++17-capable compiler. Omit `--sanitize` if the compiler does not provide AddressSanitizer and UndefinedBehaviorSanitizer. Set `CXX` to select another compiler. The network JSON and dependency-patch tests run when the pinned libraries have been installed by `pio run`; otherwise the runner explicitly reports those skips.
 
-The C++ tests exercise platform-independent state/persistence helpers, encoder/button behavior, catalog request ordering/retry state, Wi-Fi form validation, network JSON parsing with delayed packets and the real pinned ArduinoJson, and the audio service using deterministic Arduino/Audio stubs. The callback contract matrix separately links the production `AudioCallbacks.cpp` against four PCM APIs, including 4.0.0's weak default hook, and checks legacy/event metadata registration. These tests require no ESP32; they do not simulate true concurrent execution or validate upstream mutexes, I²S output, or speaker sound.
+The C++ tests exercise platform-independent state/persistence helpers, saved-station/cache cleanup, encoder/button behavior, catalog request ordering/retry state, Wi-Fi form validation, network JSON parsing with delayed packets and the real pinned ArduinoJson, and the audio service using deterministic Arduino/Audio stubs. The callback contract matrix separately links the production `AudioCallbacks.cpp` against four PCM APIs, including 4.0.0's weak default hook, and checks legacy/event metadata registration. These tests require no ESP32; they do not simulate true concurrent execution or validate upstream mutexes, I²S output, or speaker sound.
 
 ```sh
 c++ -std=c++11 -Wall -Wextra -Werror tests/model_test.cpp -o /tmp/radio-model-test
 /tmp/radio-model-test
+c++ -std=c++11 -Wall -Wextra -Werror tests/settings_restore_test.cpp -o /tmp/radio-settings-restore-test
+/tmp/radio-settings-restore-test
 c++ -std=c++11 -Wall -Wextra -Werror tests/input_test.cpp -o /tmp/radio-input-test
 /tmp/radio-input-test
 c++ -std=c++11 -Wall -Wextra -Werror tests/catalog_state_test.cpp -o /tmp/radio-catalog-state-test
