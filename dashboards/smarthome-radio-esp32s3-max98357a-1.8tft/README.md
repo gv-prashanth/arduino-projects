@@ -109,6 +109,7 @@ Station names and stream titles scroll within the display. UTF-8 is decoded befo
 | `AudioService.h` | One task owns public Audio calls; callbacks pass copied metadata/frame signals |
 | `CatalogService.h` | Worker fetches/validates paginated station lists using verified HTTPS and mirror failover |
 | `CatalogState.h` | Hardware-independent catalog request generations, transaction state, timeout, and retry scheduling |
+| `NetworkJsonReader.h` | Buffered JSON transport with idle/total deadlines, byte limits, and tolerance for gaps between TLS packets |
 | `SettingsService.h` | NVS worker, checked records, legacy migration, first-page cache |
 | `WifiPortal.h` | Wi-Fi attempts/retries and the local setup form |
 | `RotaryInput.h` | Polled quadrature/button state machine and bounded input queue |
@@ -116,6 +117,8 @@ Station names and stream titles scroll within the display. UTF-8 is decoded befo
 | `RadioConfig.h` | Pin map, timing, available filters |
 
 Directory requests, stream connections, and NVS writes execute outside the UI loop. Public Audio operations stay in the audio-owner task; the library's own decoder/output task is separate. Directory HTTPS waits for a usable SNTP clock and uses the pinned ESP32 core's certificate bundle.
+
+Directory JSON uses a custom buffered reader instead of `deserializeJson(http.getStream())`. In the pinned ESP32 core, the secure client's inherited `readBytes()` can return early when the next TLS packet is temporarily unavailable, producing `IncompleteInput` on a valid response. The custom reader waits and yields across those gaps, with a five-second inactivity timeout, a 15-second body deadline, and a 128 KiB body limit. It verifies the complete HTTP body and allows only whitespace after the JSON array before committing results. Failures include the received byte count on the display; USB serial logs also show the server, expected Content-Length, JSON error, and transport failure reason. HTTP/1.0 requests avoid raw chunked framing.
 
 ## Library contracts
 
@@ -153,9 +156,9 @@ Run every host regression suite with one command:
 python3 tests/run_host_tests.py --sanitize
 ```
 
-This requires a C++17-capable compiler. Omit `--sanitize` if the compiler does not provide AddressSanitizer and UndefinedBehaviorSanitizer. Set `CXX` to select another compiler. The dependency-patch tests run when the pinned source has been installed by `pio run`; otherwise the runner explicitly reports that those two tests were skipped.
+This requires a C++17-capable compiler. Omit `--sanitize` if the compiler does not provide AddressSanitizer and UndefinedBehaviorSanitizer. Set `CXX` to select another compiler. The network JSON and dependency-patch tests run when the pinned libraries have been installed by `pio run`; otherwise the runner explicitly reports those skips.
 
-The C++ tests exercise platform-independent state/persistence helpers, encoder/button behavior, catalog request ordering/retry state, Wi-Fi form validation, and the audio service using deterministic Arduino/Audio stubs. They do not require an ESP32 or download Arduino libraries. The audio stub tests verify application state transitions; they do not simulate true concurrent execution or validate the upstream library's internal mutexes.
+The C++ tests exercise platform-independent state/persistence helpers, encoder/button behavior, catalog request ordering/retry state, Wi-Fi form validation, network JSON parsing with delayed packets and the real pinned ArduinoJson, and the audio service using deterministic Arduino/Audio stubs. They do not require an ESP32. The audio stub tests verify application state transitions; they do not simulate true concurrent execution or validate the upstream library's internal mutexes.
 
 ```sh
 c++ -std=c++11 -Wall -Wextra -Werror tests/model_test.cpp -o /tmp/radio-model-test
@@ -168,6 +171,8 @@ c++ -std=c++11 -Wall -Wextra -Werror tests/wifi_portal_test.cpp -o /tmp/radio-wi
 /tmp/radio-wifi-test
 c++ -std=c++17 -Wall -Wextra -Werror -I tests/audio_stubs tests/audio_service_test.cpp -o /tmp/radio-audio-service-test.bin
 /tmp/radio-audio-service-test.bin
+c++ -std=c++11 -Wall -Wextra -Werror -I .pio/libdeps/esp32s3-n16r8/ArduinoJson/src tests/network_json_test.cpp -o /tmp/radio-network-json-test
+/tmp/radio-network-json-test
 python3 tests/audio_patch_test.py
 ```
 

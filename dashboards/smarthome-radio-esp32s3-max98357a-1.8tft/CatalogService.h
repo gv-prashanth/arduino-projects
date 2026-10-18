@@ -9,6 +9,7 @@
 #include <time.h>
 #include "RadioConfig.h"
 #include "CatalogState.h"
+#include "NetworkJsonReader.h"
 
 // The pinned ESP32 core ships the full Mozilla certificate bundle.
 extern const uint8_t radioBundleStart[] asm("_binary_x509_crt_bundle_start");
@@ -16,6 +17,10 @@ extern const uint8_t radioBundleEnd[] asm("_binary_x509_crt_bundle_end");
 
 namespace RadioCatalog {
 using RadioModel::Station;
+struct NetworkClock {
+  uint32_t now() const { return millis(); }
+  void pause() const { vTaskDelay(1); }
+};
 enum class ResultStatus : uint8_t { Success, Empty, Error };
 struct Result {
   Request request;
@@ -96,8 +101,13 @@ class CatalogService {
       DynamicJsonDocument doc(4096);
       StaticJsonDocument<96> filter;
       filter[0]["name"] = true;
-      if (!deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter)))
+      NetworkClock clock;
+      RadioNetwork::JsonReader<WiFiClientSecure, NetworkClock> reader(client, clock, http.getSize());
+      const DeserializationError error = deserializeJson(doc, reader, DeserializationOption::Filter(filter));
+      if (!error && reader.finish())
         for (JsonObject server : doc.as<JsonArray>()) addServer(server["name"] | "");
+      else Serial.printf("catalog discovery: JSON=%s transport=%s bytes=%u/%d\n", error.c_str(),
+                         RadioNetwork::statusName(reader.status()), static_cast<unsigned>(reader.received()), http.getSize());
     }
     http.end();
   }
@@ -147,10 +157,22 @@ class CatalogService {
     const char* fields[] = {"stationuuid", "name", "url_resolved", "bitrate", "countrycode", "codec"};
     for (const char* field : fields) filter[0][field] = true;
     DynamicJsonDocument doc(32768);
-    DeserializationError error = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
+    NetworkClock clock;
+    const int contentLength = http.getSize();
+    RadioNetwork::JsonReader<WiFiClientSecure, NetworkClock> reader(client, clock, contentLength);
+    const DeserializationError error = deserializeJson(doc, reader, DeserializationOption::Filter(filter));
+    const bool complete = !error && reader.finish();
     http.end();
-    if (error || !doc.is<JsonArray>()) {
-      snprintf(result.message, sizeof(result.message), "Directory JSON: %s", error ? error.c_str() : "expected array");
+    if (error || !complete || !doc.is<JsonArray>()) {
+      const bool transportError = reader.status() != RadioNetwork::ReadStatus::Reading &&
+                                  reader.status() != RadioNetwork::ReadStatus::Complete;
+      const char* jsonReason = error ? error.c_str() : !doc.is<JsonArray>() ? "expected array" : "OK";
+      snprintf(result.message, sizeof(result.message), "Directory %s: %s (%u bytes)", transportError ? "read" : "JSON",
+               transportError ? RadioNetwork::statusName(reader.status()) : jsonReason,
+               static_cast<unsigned>(reader.received()));
+      Serial.printf("catalog: server=%s JSON=%s transport=%s bytes=%u/%d consumed=%u\n", server.c_str(),
+                    jsonReason, RadioNetwork::statusName(reader.status()),
+                    static_cast<unsigned>(reader.received()), contentLength, static_cast<unsigned>(reader.consumed()));
       return false;
     }
     JsonArray rows = doc.as<JsonArray>();

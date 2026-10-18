@@ -23,6 +23,11 @@ def main():
         ("catalog_state", "c++11", []),
         ("audio_service", "c++17", ["-I", str(root / "tests" / "audio_stubs")]),
     ]
+    json_headers = root / ".pio" / "libdeps" / "esp32s3-n16r8" / "ArduinoJson" / "src"
+    if (json_headers / "ArduinoJson.h").exists():
+        tests.append(("network_json", "c++11", ["-I", str(json_headers)]))
+    else:
+        print("Network JSON tests skipped: run 'pio run' once to install pinned ArduinoJson.")
     with tempfile.TemporaryDirectory(prefix="gts-radio-tests-") as temporary:
         for name, standard, extra in tests:
             print("Checking " + name, flush=True)
