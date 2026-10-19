@@ -13,7 +13,46 @@ bool continuousFrames = false, pinoutReady = true;
 bool framesEnabled = true, silentPcm = false, emitStartupMetadata = false;
 int32_t frameSamples = 100;
 unsigned weakDefaultCalls = 0;
+struct PlaybackResolver {
+  unsigned calls = 0;
+  bool fail = false, unterminatedOutput = false;
+  uint32_t delayMs = 0;
+  std::string failedUrl, redirectedUrl;
+  std::vector<std::string> retryUrls;
+  std::vector<RadioModel::Station> requested;
+};
+PlaybackResolver playbackResolver;
 }  // namespace RadioAudioHost
+
+// Host builds link this deterministic resolver instead of the production HTTP
+// implementation. All callback API variants exercise the same AudioService.
+namespace RadioStreaming {
+bool resolvePlaybackUrl(const RadioModel::Station& station, char (&out)[512], char (&error)[80]) {
+  auto& resolver = RadioAudioHost::playbackResolver;
+  ++resolver.calls;
+  resolver.requested.push_back(station);
+  RadioAudioHost::nowMs += resolver.delayMs;
+  if (resolver.fail && (resolver.failedUrl.empty() || resolver.failedUrl == station.url)) {
+    RadioModel::copyText(error, "HLS redirect resolution failed");
+    return false;
+  }
+  if (resolver.unterminatedOutput) {
+    std::memset(out, 'x', sizeof(out));
+    return true;
+  }
+  std::string target = resolver.redirectedUrl.empty() ? station.url : resolver.redirectedUrl;
+  if (!resolver.retryUrls.empty()) {
+    const std::size_t index = resolver.calls - 1 < resolver.retryUrls.size() ?
+        resolver.calls - 1 : resolver.retryUrls.size() - 1;
+    target = resolver.retryUrls[index];
+  }
+  if (!RadioModel::copyText(out, target.c_str())) {
+    RadioModel::copyText(error, "Resolved playback URL is too long");
+    return false;
+  }
+  return true;
+}
+}  // namespace RadioStreaming
 
 static_assert(std::is_trivially_copyable<RadioAudio::Snapshot>::value,
               "FreeRTOS queues require value-only snapshots");
@@ -47,6 +86,7 @@ struct AudioServiceTestAccess {
     RadioAudioHost::silentPcm = false;
     RadioAudioHost::emitStartupMetadata = false;
     RadioAudioHost::frameSamples = 100;
+    RadioAudioHost::playbackResolver = RadioAudioHost::PlaybackResolver{};
   }
 
   static void assertStopPolicy(const AudioService& service) {
@@ -183,6 +223,131 @@ struct AudioServiceTestAccess {
     cleanup(service);
   }
 
+  static void testResolvedUrlPreservesStationIdentity() {
+    AudioService service;
+    assert(service.begin());
+    const char* official = "https://radio.wavespb.com/live/1119aa26b4e9f653/1119aa26b4e9f653.m3u8";
+    const char* finalUrl = "https://d1tmej9eu7kw5c.cloudfront.net/1119aa26b4e9f653/1119aa26b4e9f653.m3u8";
+    RadioModel::Station selected = station(official, "48");
+    selected.source = RadioModel::Source::Akashvani;
+    RadioAudioHost::playbackResolver.redirectedUrl = finalUrl;
+    service.network(true);
+    assert(service.start(selected, RadioModel::Station{}, 21));
+    runUntil(service, 1000, true);
+    assert(RadioAudioHost::playbackResolver.calls == 1);
+    assert(service.audio_.connections == 1 && service.audio_.lastUrl == finalUrl);
+    assert(service.snapshot_.state == State::Playing);
+    for (const RadioModel::Station* canonical : {&service.desired_, &service.snapshot_.requested,
+                                                &service.snapshot_.confirmed}) {
+      assert(canonical->source == RadioModel::Source::Akashvani);
+      assert(std::strcmp(canonical->id, "48") == 0);
+      assert(std::strcmp(canonical->url, official) == 0);
+    }
+    const auto& supplied = RadioAudioHost::playbackResolver.requested.front();
+    assert(supplied.source == selected.source && std::strcmp(supplied.id, selected.id) == 0);
+    assert(std::strcmp(supplied.url, official) == 0);
+    assertStopPolicy(service);
+    cleanup(service);
+  }
+
+  static void testResolutionFailuresRespectRetryAndFallback() {
+    for (const bool useFallback : {false, true}) {
+      AudioService service;
+      assert(service.begin());
+      RadioModel::Station selected = station("https://radio.wavespb.com/live/test/test.m3u8", "45");
+      selected.source = RadioModel::Source::Akashvani;
+      const RadioModel::Station fallback = useFallback ? station("https://example.org/previous", "previous") :
+                                                        RadioModel::Station{};
+      RadioAudioHost::playbackResolver.fail = true;
+      RadioAudioHost::playbackResolver.failedUrl = selected.url;
+      service.network(true);
+      assert(service.start(selected, fallback, 22));
+      runUntil(service, 10000, true);
+      assert(RadioAudioHost::playbackResolver.calls == (useFallback ? 4u : 3u));
+      assert(service.audio_.connections == (useFallback ? 1 : 0));
+      if (useFallback) {
+        assert(service.snapshot_.state == State::Playing && service.fallbackUsed_);
+        assert(service.audio_.lastUrl == fallback.url);
+        assert(service.snapshot_.confirmed.source == fallback.source);
+        assert(std::strcmp(service.snapshot_.confirmed.id, fallback.id) == 0);
+        assert(std::strcmp(service.snapshot_.confirmed.url, fallback.url) == 0);
+      } else {
+        assert(service.snapshot_.state == State::Failed && service.attempts_ == 3);
+        assert(!RadioModel::validStation(service.snapshot_.confirmed));
+        assert(std::strcmp(service.snapshot_.requested.url, selected.url) == 0);
+      }
+      assertStopPolicy(service);
+      cleanup(service);
+    }
+  }
+
+  static void testResolutionRepeatsForRetries() {
+    AudioService service;
+    assert(service.begin());
+    RadioModel::Station selected = station("https://radio.wavespb.com/live/test/test.m3u8", "44");
+    selected.source = RadioModel::Source::Akashvani;
+    RadioAudioHost::playbackResolver.retryUrls = {
+        "https://cdn-one.example/live.m3u8", "https://cdn-two.example/live.m3u8",
+        "https://cdn-three.example/live.m3u8"};
+    service.network(true);
+    assert(service.start(selected, RadioModel::Station{}, 23));
+    runUntil(service, 60000, false); // One PCM callback per attempt, then a real stall.
+    assert(service.snapshot_.state == State::Failed && service.attempts_ == 3);
+    assert(RadioAudioHost::playbackResolver.calls == 3 && service.audio_.connections == 3);
+    assert(service.audio_.lastUrl == "https://cdn-three.example/live.m3u8");
+    for (const auto& supplied : RadioAudioHost::playbackResolver.requested) {
+      assert(supplied.source == selected.source && std::strcmp(supplied.id, selected.id) == 0);
+      assert(std::strcmp(supplied.url, selected.url) == 0);
+    }
+    assert(std::strcmp(service.snapshot_.requested.url, selected.url) == 0);
+    cleanup(service);
+  }
+
+  static void testResolutionDoesNotConsumeFirstPcmDeadline() {
+    AudioService service;
+    assert(service.begin());
+    RadioAudioHost::playbackResolver.delayMs = 12000;
+    RadioAudioHost::framesEnabled = false;
+    service.network(true);
+    assert(service.start(station("https://example.org/delayed.m3u8"), RadioModel::Station{}, 24));
+    runUntil(service, 16000, true);
+    // Sixteen seconds elapsed since Start, but the decoder has only had four
+    // seconds since the redirect resolver and socket setup completed.
+    assert(service.connectAt_ == 12100);
+    assert(service.snapshot_.state == State::Connecting);
+    assert(service.attempts_ == 1 && service.audio_.connections == 1);
+    assert(RadioAudioHost::playbackResolver.calls == 1);
+    assert(!RadioModel::validStation(service.snapshot_.confirmed));
+    cleanup(service);
+  }
+
+  static void testResolvedUrlBoundaries() {
+    AudioService service;
+    assert(service.begin());
+    service.online_ = true;
+    StartRequest request{station("https://example.org/short.m3u8"), RadioModel::Station{}, 25};
+    std::string target = "https://cdn.example/";
+    target.resize(501, 'x');
+    RadioAudioHost::playbackResolver.redirectedUrl = target;
+    service.reset(request);
+    service.connect();
+    assert(service.audio_.lastUrl == target);
+    const int connections = service.audio_.connections;
+    target.push_back('x');
+    RadioAudioHost::playbackResolver.redirectedUrl = target;
+    service.reset(request);
+    service.connect();
+    assert(service.audio_.connections == connections);
+    assert(service.snapshot_.state == State::Failed);
+    RadioAudioHost::playbackResolver.unterminatedOutput = true;
+    service.reset(request);
+    service.connect();
+    assert(service.audio_.connections == connections);
+    assert(service.snapshot_.state != State::Playing);
+    assert(!RadioModel::validStation(service.snapshot_.confirmed));
+    cleanup(service);
+  }
+
   static void testDeferredModernTitleAcrossReset() {
 #if RADIO_TEST_AUDIO_API == 3
     AudioService service;
@@ -311,6 +476,11 @@ int main() {
   RadioAudio::AudioServiceTestAccess::testMetadataOwnership();
   RadioAudio::AudioServiceTestAccess::testDeferredModernTitleAcrossReset();
   RadioAudio::AudioServiceTestAccess::testUrlBoundaries();
+  RadioAudio::AudioServiceTestAccess::testResolvedUrlPreservesStationIdentity();
+  RadioAudio::AudioServiceTestAccess::testResolutionFailuresRespectRetryAndFallback();
+  RadioAudio::AudioServiceTestAccess::testResolutionRepeatsForRetries();
+  RadioAudio::AudioServiceTestAccess::testResolutionDoesNotConsumeFirstPcmDeadline();
+  RadioAudio::AudioServiceTestAccess::testResolvedUrlBoundaries();
   RadioAudio::AudioServiceTestAccess::testFatalI2sFailure();
   RadioAudio::AudioServiceTestAccess::testConnectionIsNotPcmConfirmation();
   RadioAudio::AudioServiceTestAccess::testSilentAndMutedPcmCounts();

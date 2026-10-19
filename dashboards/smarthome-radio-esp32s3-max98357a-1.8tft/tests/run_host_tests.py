@@ -24,6 +24,7 @@ def main():
         ("settings_restore", "c++11", []),
         ("akashvani_catalog", "c++11", []),
         ("akashvani_page", "c++11", []),
+        ("hls_redirect", "c++11", []),
     ]
     for api in range(4):
         tests.append(("audio_service_api" + str(api), "c++17", [

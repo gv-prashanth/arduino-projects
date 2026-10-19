@@ -5,6 +5,7 @@
 #include <type_traits>
 #include "AudioCallbacks.h"
 #include "RadioConfig.h"
+#include "HlsStreamResolver.h"
 
 namespace RadioAudio {
 using RadioModel::Station;
@@ -100,7 +101,8 @@ class AudioService {
     snapshots_ = xQueueCreate(1, sizeof(Snapshot));
     metadataQueue = xQueueCreate(16, sizeof(Metadata));
     if (!starts_ || !volumes_ || !networks_ || !snapshots_ || !metadataQueue) return false;
-    return xTaskCreatePinnedToCore(taskEntry, "audio-owner", 8192, this, 2, &task_, 1) == pdPASS;
+    // HLS setup performs a bounded HTTP redirect probe in this owner task.
+    return xTaskCreatePinnedToCore(taskEntry, "audio-owner", 12288, this, 2, &task_, 1) == pdPASS;
   }
   bool start(const Station& station, const Station& fallback, uint32_t generation) {
     if (!starts_ || !RadioModel::validStation(station)) return false;
@@ -193,18 +195,6 @@ class AudioService {
     publish();
   }
   void connect() {
-    const size_t urlLength = strlen(desired_.url);
-    // The pinned library rejects len >= 502 and parses schemes case-sensitively.
-    // Keep the model's canonical URL intact for catalog matching/persistence.
-    if (urlLength > 501) {
-      attempts_ = 3;
-      failed("Stream URL exceeds 501 bytes");
-      return;
-    }
-    char streamUrl[sizeof(desired_.url)] = {};
-    memcpy(streamUrl, desired_.url, urlLength + 1);
-    for (size_t i = 0; i < 5 && streamUrl[i] != ':'; ++i)
-      streamUrl[i] = tolower(static_cast<unsigned char>(streamUrl[i]));
     ++attempts_;
     Serial.printf("audio: connecting %u/3 to %s\n", attempts_, desired_.name);
     snapshot_.state = State::Connecting;
@@ -212,6 +202,22 @@ class AudioService {
     publish();
     deactivate();
     stablePlaying_ = false;
+    char streamUrl[sizeof(desired_.url)] = {}, error[80] = {};
+    if (!RadioStreaming::resolvePlaybackUrl(desired_, streamUrl, error)) {
+      failed(error[0] ? error : "Cannot resolve stream URL");
+      return;
+    }
+    const char* end = static_cast<const char*>(memchr(streamUrl, 0, sizeof(streamUrl)));
+    const size_t urlLength = end ? static_cast<size_t>(end - streamUrl) : sizeof(streamUrl);
+    // The pinned library rejects len >= 502 and parses schemes case-sensitively.
+    // Keep the model's canonical URL intact for catalog matching/persistence.
+    if (urlLength > 501) {
+      attempts_ = 3;
+      failed("Stream URL exceeds 501 bytes");
+      return;
+    }
+    for (size_t i = 0; i < 5 && streamUrl[i] != ':'; ++i)
+      streamUrl[i] = tolower(static_cast<unsigned char>(streamUrl[i]));
     // Socket setup can block, but never blocks the input/UI or directory tasks.
     // connecttohost() already stops/reset buffers while holding its decoder mutex.
     bool accepted = audio_.connecttohost(streamUrl);

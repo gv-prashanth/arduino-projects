@@ -72,7 +72,7 @@ Build outputs are in `.pio/build/esp32s3-n16r8/`: `firmware.bin` is the applicat
 
 ## Arduino IDE build and serial monitor
 
-Keep the `.ino`, headers, and `AudioCallbacks.cpp` together in the sketch folder. For a standard N16R8 board, use these Arduino IDE Tools settings:
+Keep the `.ino`, headers, `AudioCallbacks.cpp`, and `HlsStreamResolver.cpp` together in the sketch folder. For a standard N16R8 board, use these Arduino IDE Tools settings:
 
 | Setting | Value |
 | --- | --- |
@@ -136,6 +136,7 @@ Station names and stream titles scroll within the display. UTF-8 is decoded befo
 | `RadioApp.h` | UI, navigation, worker coordination, deferred settings saves |
 | `AudioService.h` | One task owns public Audio calls; callbacks pass copied metadata/frame signals |
 | `AudioCallbacks.h` / `AudioCallbacks.cpp` | Callback bridge declarations and separately compiled strong PCM/legacy metadata hooks |
+| `HlsStreamResolver.h` / `HlsStreamResolver.cpp` / `HlsRedirect.h` | Resolve HLS HTTP redirects before connection while retaining official station identity |
 | `CatalogService.h` / `CatalogTypes.h` | Catalog worker dispatch, provider-neutral requests/results and ownership |
 | `RadioBrowserProvider.h` | Radio Browser HTTPS searches, codec validation and mirror failover |
 | `AkashvaniProvider.h` / `AkashvaniPage.h` | PSRAM snapshot refresh, official locations and local pagination |
@@ -164,7 +165,9 @@ ESP32-audioI2S 3.0.12 uses a five-argument PCM hook with `int16_t*` samples. The
 
 Keep the hook definitions in the separate `AudioCallbacks.cpp` translation unit, which deliberately excludes `Audio.h`. That library header declares weak callbacks, and 4.0.0 also supplies a weak default implementation. Inheriting a weak declaration in the application's definition can leave the library's no-op hook selected at link time. The separate strong definitions override it reliably.
 
-`connecttohost()` and `isRunning()` can report a successful TCP connection before valid audio has been decoded. The application uses the PCM callback to establish that decoded samples are ready. The callback runs before the driver's I²S write, so this does not prove that the amplifier, speaker, or wiring produced sound.
+HLS URLs are probed in the audio-owner task before each connection attempt. The probe follows at most three HTTP redirects using bounded requests and the system CA bundle for HTTPS, then passes the final URL to audioI2S. This works around audioI2S 4.0.0 retaining the initial playlist URL as the base for relative segment paths after an HTTP redirect. Official Akashvani Waves URLs redirect to CloudFront; using the original Waves directory for a `.ts` segment can return another playlist instead of audio. Resolving the current CDN address first preserves the correct base. The catalog, saved station, and playback identity retain the original official URL; retries resolve it again rather than storing a temporary CDN address. Redirect failures use the existing bounded retry/fallback behavior, and the first-PCM timeout begins after resolution and connection acceptance. The probe runs outside the display/input loop and does not download playlist or segment bodies.
+
+The codec label such as `AAC` identifies the library's selected decoder; it does not establish that audio has decoded. `connecttohost()` and `isRunning()` can report a successful TCP connection before valid audio has been decoded. The application uses the PCM callback to establish that decoded samples are ready. The callback runs before the driver's I²S write, so this does not prove that the amplifier, speaker, or wiring produced sound.
 
 The library starts its own decoder/output task. Callbacks may run from that task, so they must copy metadata or signal flags without drawing, writing preferences, or calling public Audio methods. Every supported `audio_process_i2s` hook sets `*continueI2S = true` to allow audio output; only positive sample counts confirm decoded audio.
 
@@ -201,7 +204,7 @@ python3 tests/run_host_tests.py --sanitize
 
 This requires a C++17-capable compiler. Omit `--sanitize` if the compiler does not provide AddressSanitizer and UndefinedBehaviorSanitizer. Set `CXX` to select another compiler. The network JSON and dependency-patch tests run when the pinned libraries have been installed by `pio run`; otherwise the runner explicitly reports those skips.
 
-The C++ tests exercise platform-independent state/persistence helpers, saved-station/cache cleanup, encoder/button behavior, catalog request ordering/retry state, source-qualified identity/cache and legacy migration, official catalog parsing and local pagination, Wi-Fi form validation, network JSON parsing with delayed packets and the real pinned ArduinoJson, and the audio service using deterministic Arduino/Audio stubs. The callback contract matrix separately links the production `AudioCallbacks.cpp` against four PCM APIs, including 4.0.0's weak default hook, and checks legacy/event metadata registration. These tests require no ESP32; they do not simulate true concurrent execution or validate upstream mutexes, I²S output, or speaker sound.
+The C++ tests exercise platform-independent state/persistence helpers, saved-station/cache cleanup, encoder/button behavior, catalog request ordering/retry state, source-qualified identity/cache and legacy migration, official catalog parsing and local pagination, HLS redirect URL handling and playback identity/retry integration, Wi-Fi form validation, network JSON parsing with delayed packets and the real pinned ArduinoJson, and the audio service using deterministic Arduino/Audio stubs. The callback contract matrix separately links the production `AudioCallbacks.cpp` against four PCM APIs, including 4.0.0's weak default hook, and checks legacy/event metadata registration. These tests require no ESP32; they do not simulate true concurrent execution or validate upstream mutexes, I²S output, or speaker sound.
 
 ```sh
 c++ -std=c++11 -Wall -Wextra -Werror tests/model_test.cpp -o /tmp/radio-model-test
