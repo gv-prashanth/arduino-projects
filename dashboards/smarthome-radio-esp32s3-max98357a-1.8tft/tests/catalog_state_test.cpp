@@ -20,6 +20,7 @@ static void sameRequest(const Request& actual, const Request& expected) {
   assert(actual.generation == expected.generation);
   assert(actual.filter == expected.filter);
   assert(actual.offset == expected.offset);
+  assert(actual.refresh == expected.refresh);
 }
 
 static void testFiltersAndInitialState() {
@@ -38,6 +39,18 @@ static void testFiltersAndInitialState() {
   ++changed.genre; assert(!(changed == filter)); changed = filter;
   ++changed.codec; assert(!(changed == filter)); changed = filter;
   ++changed.bitrateCap; assert(!(changed == filter));
+
+  settings.source = RadioModel::Source::Akashvani;
+  assert(RadioModel::copyText(settings.airLocation, "Karnataka"));
+  const Filter air = RadioCatalog::filterFor(settings);
+  assert(air.source == RadioModel::Source::Akashvani && !air.country && !air.genre &&
+         !air.codec && !air.bitrateCap && std::strcmp(air.location, "Karnataka") == 0);
+  assert(!(filter == air));
+  changed = air;
+  assert(RadioModel::copyText(changed.location, "Tamil Nadu"));
+  assert(!(changed == air));
+  settings.source = RadioModel::Source::RadioBrowser;
+  assert(RadioCatalog::filterFor(settings) == filter);
 
   Transaction state;
   assert(!state.pending && !state.failed && !state.failures && !state.generation);
@@ -146,6 +159,19 @@ static void testTimeoutAndClockRollover() {
   assert(!retry.retryDue(false, 5000));
 }
 
+static void testWorkerStartResetsExecutionDeadlineForLatestRequestOnly() {
+  Transaction state;
+  const Request first = state.begin(country(0), 0, 0);
+  const Request next = state.begin(country(2), 0, 1);
+  assert(!state.started(first.generation, 70000));
+  assert(state.startedAt == 1 && state.pending);
+  assert(state.started(next.generation, 70000));
+  assert(!state.expire(80000)); // Time spent waiting behind the old fetch is excluded.
+  assert(!state.expire(145000));
+  assert(state.expire(145001));
+  assert(!state.started(next.generation, 145002)); // A late notice cannot resurrect an expired search.
+}
+
 static void testGenerationRolloverSkipsZero() {
   Transaction state;
   const std::uint32_t maximum = std::numeric_limits<std::uint32_t>::max();
@@ -162,10 +188,16 @@ int main() {
   static_assert(std::is_trivially_copyable<Filter>::value, "Filters must remain queue-safe");
   static_assert(std::is_trivially_copyable<Request>::value, "Requests must remain queue-safe");
   testFiltersAndInitialState();
+  Transaction refresh;
+  auto explicitRefresh = refresh.begin(country(2), 0, 100, true);
+  assert(explicitRefresh.refresh);
+  auto page = refresh.begin(country(2), 20, 101);
+  assert(!page.refresh && !refresh.accepts(explicitRefresh.generation));
   testOutOfOrderResults();
   testReapplyCommittedFilterSupersedesPending();
   testRetryPreservesLatestRequestAndResetsOnSuccess();
   testTimeoutAndClockRollover();
   testGenerationRolloverSkipsZero();
+  testWorkerStartResetsExecutionDeadlineForLatestRequestOnly();
   std::puts("Catalog transaction tests passed");
 }

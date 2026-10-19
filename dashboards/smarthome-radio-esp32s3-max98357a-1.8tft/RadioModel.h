@@ -14,7 +14,13 @@ constexpr int kCodecCount = 3;
 constexpr int kPageSize = 20;
 constexpr int kMaxStations = kPageSize;
 
+enum class Source : std::uint8_t { RadioBrowser = 0, Akashvani = 1 };
+inline bool validSource(Source source) {
+  return source == Source::RadioBrowser || source == Source::Akashvani;
+}
+
 struct Station {
+  Source source = Source::RadioBrowser;
   char id[40] = {};
   char name[128] = {};
   char url[512] = {};
@@ -23,6 +29,8 @@ struct Station {
 };
 
 struct Settings {
+  Source source = Source::RadioBrowser;
+  char airLocation[64] = {};
   std::uint8_t volume = kInitialVolume;
   bool muted = false;
   std::uint8_t country = 0;
@@ -60,7 +68,8 @@ inline std::uint8_t outputVolume(const Settings& settings) {
 }
 
 inline bool validSettings(const Settings& settings) {
-  return settings.volume <= kMaxVolume && settings.country < kCountryCount &&
+  return validSource(settings.source) && std::memchr(settings.airLocation, 0, sizeof(settings.airLocation)) &&
+         settings.volume <= kMaxVolume && settings.country < kCountryCount &&
          settings.genre < kGenreCount && settings.codec < kCodecCount;
 }
 
@@ -80,7 +89,7 @@ inline bool allZero(const char (&text)[N]) {
 }
 
 inline bool emptyStation(const Station& station) {
-  return allZero(station.id) && allZero(station.name) && allZero(station.url) &&
+  return station.source == Source::RadioBrowser && allZero(station.id) && allZero(station.name) && allZero(station.url) &&
          allZero(station.country) && station.bitrateKbps == 0;
 }
 
@@ -98,7 +107,7 @@ inline bool startsWithIgnoreCase(const char* text, const char* prefix) {
 }  // namespace detail
 
 inline bool validStation(const Station& station) {
-  if (!detail::terminated(station.id) || !detail::terminated(station.name) ||
+  if (!validSource(station.source) || !detail::terminated(station.id) || !detail::terminated(station.name) ||
       !detail::terminated(station.url) || !detail::terminated(station.country) ||
       station.name[0] == '\0') return false;
 
@@ -118,19 +127,21 @@ inline bool validStation(const Station& station) {
          station.country[2] == '\0';
 }
 
-// IDs survive URL changes; a URL match is the fallback when IDs are absent or
-// different. A saved station outside the current catalog has no catalog index.
+// IDs survive URL changes. Radio Browser also permits URL fallback for legacy
+// selections; Akashvani IDs stay distinct even when several channels share a URL.
 inline int findStation(const Station* list, int count, const Station& playing) {
   if (!list || count <= 0 || count > kMaxStations) return -1;
   if (detail::terminated(playing.id) && playing.id[0]) {
     for (int i = 0; i < count; ++i) {
-      if (detail::terminated(list[i].id) && std::strcmp(list[i].id, playing.id) == 0)
+      if (list[i].source == playing.source && detail::terminated(list[i].id) &&
+          std::strcmp(list[i].id, playing.id) == 0)
         return i;
     }
   }
-  if (detail::terminated(playing.url) && playing.url[0]) {
+  if (playing.source == Source::RadioBrowser && detail::terminated(playing.url) && playing.url[0]) {
     for (int i = 0; i < count; ++i) {
-      if (detail::terminated(list[i].url) && std::strcmp(list[i].url, playing.url) == 0)
+      if (list[i].source == playing.source && detail::terminated(list[i].url) &&
+          std::strcmp(list[i].url, playing.url) == 0)
         return i;
     }
   }
@@ -143,10 +154,11 @@ inline int previewIndex(int proposed, int count) {
   return proposed >= count ? count - 1 : proposed;
 }
 
-// Stable byte format: "RADI", version 1, volume/muted/country/genre/codec,
-// little-endian bitrate cap, fixed station fields, little-endian station
-// bitrate, then IEEE CRC32 of every preceding byte. No C++ object padding is saved.
-constexpr std::size_t kSettingsRecordSize = 701;
+// Explicit version 2 byte format, including independent browsing/playing sources
+// and the remembered AIR location. Version 1 remains readable for migration.
+constexpr std::size_t kLegacySettingsRecordSize = 701;
+struct LegacySettingsRecord { std::uint8_t bytes[kLegacySettingsRecordSize] = {}; };
+constexpr std::size_t kSettingsRecordSize = 767;
 struct SettingsRecord {
   std::uint8_t bytes[kSettingsRecordSize] = {};
 };
@@ -213,14 +225,17 @@ inline SettingsRecord makeSettingsRecord(const Settings& settings, const Station
   record.bytes[1] = 'A';
   record.bytes[2] = 'D';
   record.bytes[3] = 'I';
-  record.bytes[4] = 1;
+  record.bytes[4] = 2;
   record.bytes[5] = settings.volume;
   record.bytes[6] = settings.muted ? 1 : 0;
   record.bytes[7] = settings.country;
   record.bytes[8] = settings.genre;
   record.bytes[9] = settings.codec;
   detail::writeU16(record.bytes + 10, settings.bitrateCap);
-  std::uint8_t* bytes = record.bytes + 12;
+  record.bytes[12] = static_cast<std::uint8_t>(settings.source);
+  std::uint8_t* bytes = record.bytes + 13;
+  detail::writeText(bytes, settings.airLocation);
+  *bytes++ = static_cast<std::uint8_t>(lastGood.source);
   detail::writeText(bytes, lastGood.id);
   detail::writeText(bytes, lastGood.name);
   detail::writeText(bytes, lastGood.url);
@@ -235,10 +250,42 @@ inline SettingsRecord makeSettingsRecord(const Settings& settings, const Station
 inline bool decodeSettingsRecord(const SettingsRecord& record, Settings& outSettings,
                                  Station& outStation) {
   if (record.bytes[0] != 'R' || record.bytes[1] != 'A' || record.bytes[2] != 'D' ||
-      record.bytes[3] != 'I' || record.bytes[4] != 1 || record.bytes[6] > 1 ||
+      record.bytes[3] != 'I' || record.bytes[4] != 2 || record.bytes[6] > 1 ||
       detail::readU32(record.bytes + detail::kRecordPayloadSize) !=
           detail::crc32(record.bytes, detail::kRecordPayloadSize)) return false;
 
+  Settings settings;
+  settings.volume = record.bytes[5];
+  settings.muted = record.bytes[6] == 1;
+  settings.country = record.bytes[7];
+  settings.genre = record.bytes[8];
+  settings.codec = record.bytes[9];
+  settings.bitrateCap = detail::readU16(record.bytes + 10);
+  Station station;
+  settings.source = static_cast<Source>(record.bytes[12]);
+  const std::uint8_t* bytes = record.bytes + 13;
+  detail::readText(bytes, settings.airLocation);
+  station.source = static_cast<Source>(*bytes++);
+  detail::readText(bytes, station.id);
+  detail::readText(bytes, station.name);
+  detail::readText(bytes, station.url);
+  detail::readText(bytes, station.country);
+  station.bitrateKbps = detail::readU16(bytes);
+  if (!validSettings(settings) ||
+      (!detail::emptyStation(station) && !validStation(station))) return false;
+
+  outSettings = settings;
+  outStation = station;
+  return true;
+}
+
+// Decode the original 701-byte state without depending on current struct layout.
+inline bool decodeSettingsRecord(const LegacySettingsRecord& record, Settings& outSettings,
+                                 Station& outStation) {
+  constexpr std::size_t payload = kLegacySettingsRecordSize - 4;
+  if (record.bytes[0] != 'R' || record.bytes[1] != 'A' || record.bytes[2] != 'D' ||
+      record.bytes[3] != 'I' || record.bytes[4] != 1 || record.bytes[6] > 1 ||
+      detail::readU32(record.bytes + payload) != detail::crc32(record.bytes, payload)) return false;
   Settings settings;
   settings.volume = record.bytes[5];
   settings.muted = record.bytes[6] == 1;
@@ -255,7 +302,6 @@ inline bool decodeSettingsRecord(const SettingsRecord& record, Settings& outSett
   station.bitrateKbps = detail::readU16(bytes);
   if (!validSettings(settings) ||
       (!detail::emptyStation(station) && !validStation(station))) return false;
-
   outSettings = settings;
   outStation = station;
   return true;

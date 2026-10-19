@@ -307,6 +307,56 @@ static void testClockRollover() {
   }
 }
 
+static bool cancellationAtFour(void* context) {
+  return static_cast<FakeClock*>(context)->elapsed >= 4;
+}
+
+static void testSupersededDownloadStopsAcrossPacketGap() {
+  FakeClock clock;
+  FakeClient client(clock);
+  client.packet("<html>", 0);
+  client.packet("<body></body></html>", 40);
+  ReadLimits configured = limits(10, 100);
+  configured.cancellation = RadioNetwork::ReadCancellation(cancellationAtFour, &clock);
+  JsonReader<FakeClient, FakeClock, 4> reader(client, clock, -1, configured);
+  char output[128];
+  size_t length = 99;
+  assert(!RadioNetwork::readCompleteBody(reader, output, sizeof(output) - 1, length));
+  assert(length == 6 && std::strcmp(output, "<html>") == 0 && clock.elapsed == 4);
+  assertTerminal(reader, client, clock, ReadStatus::Cancelled);
+}
+
+static void testCompleteHtmlBody() {
+  const std::string body = "<html><script>var channels = {};</script></html>";
+  for (const bool knownLength : {false, true}) {
+    FakeClock clock;
+    FakeClient client(clock);
+    client.packet(body.substr(0, 12), 0);
+    client.packet(body.substr(12), 7);
+    if (!knownLength) client.closeAt = 7;
+    JsonReader<FakeClient, FakeClock, 8> reader(client, clock,
+        knownLength ? static_cast<int>(body.size()) : -1, limits(10, 50, body.size()));
+    std::vector<char> output(body.size() + 1, '?');
+    size_t length = 999;
+    assert(RadioNetwork::readCompleteBody(reader, output.data(), body.size(), length));
+    assert(length == body.size() && std::string(output.data()) == body);
+    assert(output[length] == '\0' && clock.elapsed == 7);
+  }
+  for (const int advertised : {-1, static_cast<int>(body.size() + 5)}) {
+    FakeClock clock;
+    FakeClient client(clock);
+    client.packet(body, 0);
+    client.closeAt = 0;
+    const size_t capacity = advertised < 0 ? body.size() - 1 : body.size() + 5;
+    JsonReader<FakeClient, FakeClock, 8> reader(client, clock, advertised, limits(10, 50, capacity));
+    std::vector<char> output(capacity + 1, '?');
+    size_t length = 999;
+    assert(!RadioNetwork::readCompleteBody(reader, output.data(), capacity, length));
+    assert(output[length] == '\0');
+    assert(reader.status() == (advertised < 0 ? ReadStatus::TooLarge : ReadStatus::Truncated));
+  }
+}
+
 static void testJsonBodyCompletion() {
   {
     FakeClock clock;
@@ -383,6 +433,8 @@ int main() {
   testIdleAndTotalDeadlines();
   testSizeLimits();
   testClockRollover();
+  testCompleteHtmlBody();
+  testSupersededDownloadStopsAcrossPacketGap();
   testJsonBodyCompletion();
   std::puts("Network JSON reader tests passed (ArduinoJson 6.21.6)");
 }

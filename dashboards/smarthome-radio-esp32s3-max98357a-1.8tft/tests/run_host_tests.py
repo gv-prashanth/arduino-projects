@@ -22,6 +22,8 @@ def main():
         ("wifi_portal", "c++11", []),
         ("catalog_state", "c++11", []),
         ("settings_restore", "c++11", []),
+        ("akashvani_catalog", "c++11", []),
+        ("akashvani_page", "c++11", []),
     ]
     for api in range(4):
         tests.append(("audio_service_api" + str(api), "c++17", [

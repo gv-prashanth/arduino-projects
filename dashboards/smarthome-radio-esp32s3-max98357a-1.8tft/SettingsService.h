@@ -28,9 +28,15 @@ class SettingsService {
     Preferences prefs;
     if (!prefs.begin("radio", true)) return false; // Missing namespace is normal on first boot.
     RadioModel::SettingsRecord record;
-    bool restored = prefs.getBytesLength("state_v2") == sizeof(record) &&
-                    prefs.getBytes("state_v2", &record, sizeof(record)) == sizeof(record) &&
+    bool restored = prefs.getBytesLength("state_v3") == sizeof(record) &&
+                    prefs.getBytes("state_v3", &record, sizeof(record)) == sizeof(record) &&
                     restoreStateRecord(record, settings, lastGood);
+    if (!restored) {
+      RadioModel::LegacySettingsRecord legacy;
+      restored = prefs.getBytesLength("state_v2") == sizeof(legacy) &&
+                 prefs.getBytes("state_v2", &legacy, sizeof(legacy)) == sizeof(legacy) &&
+                 restoreStateRecord(legacy, settings, lastGood);
+    }
     if (!restored) {
       // One-time migration from the original sketch; it never stored pre-mute loudness.
       settings.volume = min<uint8_t>(prefs.getUChar("volume", RadioModel::kInitialVolume), RadioModel::kMaxVolume);
@@ -57,8 +63,8 @@ class SettingsService {
     if (!prefs.begin("radio", true)) return nullptr;
     CacheRecord* record = new (std::nothrow) CacheRecord;
     if (!record) { prefs.end(); return nullptr; }
-    bool valid = prefs.getBytesLength("cache_v2") == sizeof(*record) &&
-                 prefs.getBytes("cache_v2", record, sizeof(*record)) == sizeof(*record) &&
+    bool valid = prefs.getBytesLength("cache_v3") == sizeof(*record) &&
+                 prefs.getBytes("cache_v3", record, sizeof(*record)) == sizeof(*record) &&
                  validCacheHeader(*record, wanted);
     prefs.end();
     RadioCatalog::Result* result = valid ? new (std::nothrow) RadioCatalog::Result : nullptr;
@@ -67,7 +73,7 @@ class SettingsService {
       result->cached = true;
       valid = restoreCacheRecord(*record, wanted, result->stations, result->count);
       result->status = result->count ? RadioCatalog::ResultStatus::Success : RadioCatalog::ResultStatus::Empty;
-      strlcpy(result->message, "Cached stations; refresh when online", sizeof(result->message));
+      strlcpy(result->message, "Partial cache; refresh when online", sizeof(result->message));
     }
     delete record;
     if (!valid || (result && !result->count)) { delete result; return nullptr; }
@@ -84,9 +90,10 @@ class SettingsService {
     if (!cache_ || result.request.offset || result.cached || result.status != RadioCatalog::ResultStatus::Success) return true;
     CacheRecord* record = new (std::nothrow) CacheRecord;
     if (!record) return false;
-    record->filter = result.request.filter;
-    record->count = min<int>(result.count, CachedStations);
-    for (int i = 0; i < record->count; ++i) record->stations[i] = RadioModel::makeSettingsRecord(settings, result.stations[i]);
+    (void)settings;  // Cache contains normalized source/filter and station data only.
+    if (!buildCacheRecord(*record, result.request.filter, result.stations, min<int>(result.count, CachedStations))) {
+      delete record; return false;
+    }
     CacheRecord* stale = nullptr;
     if (xQueueReceive(cache_, &stale, 0) == pdTRUE) delete stale;
     if (xQueueSend(cache_, &record, 0) != pdTRUE) { delete record; return false; }
@@ -107,18 +114,35 @@ class SettingsService {
   template<typename T> void write(const char* key, const T& record, Kind kind) {
     Preferences prefs;
     if (!prefs.begin("radio", false)) { error(kind, "Settings storage unavailable"); return; }
-    const bool success = prefs.putBytes(key, &record, sizeof(record)) == sizeof(record);
+    // Retire the disposable old 5.6 KiB cache before any v3 allocation. Keeping
+    // both versions leaves insufficient copy-on-write room in the 20 KiB NVS.
+    if (prefs.isKey("cache_v2") && !prefs.remove("cache_v2")) {
+      error(Kind::Cache, "Cannot retire old station cache");
+      if (kind == Kind::Cache) { prefs.end(); return; }
+      // Cache cleanup must never prevent saving Wi-Fi or listening settings.
+    }
+    // Avoid rewriting identical blobs on repeated first-page searches.
+    bool same = false;
+    if (prefs.getBytesLength(key) == sizeof(record)) {
+      T* previous = new (std::nothrow) T;
+      if (previous) {
+        same = prefs.getBytes(key, previous, sizeof(*previous)) == sizeof(*previous) &&
+               memcmp(previous, &record, sizeof(record)) == 0;
+        delete previous;
+      }
+    }
+    const bool success = same || prefs.putBytes(key, &record, sizeof(record)) == sizeof(record);
     prefs.end();
     if (!success) error(kind, "Settings write failed; check NVS space");
   }
   void run() {
     for (;;) {
       RadioModel::SettingsRecord record;
-      if (xQueueReceive(settings_, &record, 0) == pdTRUE) write("state_v2", record, Kind::Settings);
+      if (xQueueReceive(settings_, &record, 0) == pdTRUE) write("state_v3", record, Kind::Settings);
       WifiCredentials wifi;
       if (xQueueReceive(wifi_, &wifi, 0) == pdTRUE) write("wifi_v1", wifi, Kind::Wifi);
       CacheRecord* cache = nullptr;
-      if (xQueueReceive(cache_, &cache, 0) == pdTRUE) { write("cache_v2", *cache, Kind::Cache); delete cache; }
+      if (xQueueReceive(cache_, &cache, 0) == pdTRUE) { write("cache_v3", *cache, Kind::Cache); delete cache; }
       vTaskDelay(pdMS_TO_TICKS(100));
     }
   }

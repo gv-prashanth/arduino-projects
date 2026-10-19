@@ -78,6 +78,8 @@ static void testRecordsAndValidation() {
   settings.codec = 2;
   settings.bitrateCap = 65535;
   assert(validSettings(settings));
+  settings.source = Source::Akashvani;
+  assert(copyText(settings.airLocation, "Karnataka"));
   const Station original = station("id-1", "Unicode radio: \xe0\xa4\xb0", "HTTP://example.org/live", "US");
   SettingsRecord good = makeSettingsRecord(settings, original);
   Settings restored;
@@ -85,13 +87,15 @@ static void testRecordsAndValidation() {
   assert(decodeSettingsRecord(good, restored, playing));
   assert(restored.volume == 21 && restored.country == 18 && restored.genre == 6 &&
          restored.codec == 2 && restored.bitrateCap == 65535);
+  assert(restored.source == Source::Akashvani && playing.source == Source::RadioBrowser);
+  assert(std::strcmp(restored.airLocation, "Karnataka") == 0);
   assert(playing.bitrateKbps == 128 && std::strcmp(playing.name, original.name) == 0);
 
   SettingsRecord bad = good;
   bad.bytes[200] ^= 1;
   expectRejected(bad);
   bad = good;
-  bad.bytes[4] = 2;
+  bad.bytes[4] = 3;
   refreshChecksum(bad);
   expectRejected(bad);
   bad = good;
@@ -99,8 +103,8 @@ static void testRecordsAndValidation() {
   refreshChecksum(bad);
   expectRejected(bad);
 
-  const int fields[] = {5, 6, 7, 8, 9};
-  const std::uint8_t invalidValues[] = {22, 2, 19, 7, 3};
+  const int fields[] = {5, 6, 7, 8, 9, 12, 77};
+  const std::uint8_t invalidValues[] = {22, 2, 19, 7, 3, 2, 2};
   for (std::size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i) {
     bad = good;
     bad.bytes[fields[i]] = invalidValues[i];
@@ -109,7 +113,7 @@ static void testRecordsAndValidation() {
   }
 
   // All four station strings must be terminated even when the record CRC is good.
-  const std::size_t starts[] = {12, 52, 180, 692};
+  const std::size_t starts[] = {78, 118, 246, 758};
   const std::size_t sizes[] = {40, 128, 512, 3};
   for (std::size_t i = 0; i < 4; ++i) {
     bad = good;
@@ -117,6 +121,11 @@ static void testRecordsAndValidation() {
     refreshChecksum(bad);
     expectRejected(bad);
   }
+
+  bad = good;
+  std::memset(bad.bytes + 13, 'X', 64);
+  refreshChecksum(bad);
+  expectRejected(bad);
 
   Station invalid = original;
   assert(copyText(invalid.url, "https://"));
@@ -165,6 +174,17 @@ static void testCatalogIdentityAndPreviews() {
   std::memset(playing.url, 'x', sizeof(playing.url));
   assert(findStation(list, 3, playing) == -1);
 
+  Station air = station("4", "Raagam", "https://example.org/shared");
+  air.source = Source::Akashvani;
+  Station duplicates[2] = {air, air};
+  assert(copyText(duplicates[0].id, "5"));
+  assert(findStation(duplicates, 2, air) == 1);
+  assert(findStation(duplicates, 1, air) == -1);
+  Station rb = air;
+  rb.source = Source::RadioBrowser;
+  assert(findStation(duplicates, 2, rb) == -1);
+  assert(findStation(&rb, 1, air) == -1);
+
   assert(previewIndex(15, 0) == -1);
   assert(previewIndex(15, -1) == -1);
   assert(previewIndex(15, 3) == 2);
@@ -188,6 +208,11 @@ static void testCopiesAndCanonicalEncoding() {
   b.url[500] = 'y';
   SettingsRecord first = makeSettingsRecord(Settings{}, a);
   SettingsRecord second = makeSettingsRecord(Settings{}, b);
+  assert(std::memcmp(first.bytes, second.bytes, sizeof(first.bytes)) == 0);
+  Settings clean, unused = clean;
+  unused.airLocation[50] = 'x';
+  first = makeSettingsRecord(clean, a);
+  second = makeSettingsRecord(unused, b);
   assert(std::memcmp(first.bytes, second.bytes, sizeof(first.bytes)) == 0);
 }
 

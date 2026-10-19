@@ -5,11 +5,18 @@
 
 namespace RadioNetwork {
 
-enum class ReadStatus : uint8_t { Reading, Complete, Truncated, IdleTimeout, Deadline, TooLarge, InvalidTail };
+enum class ReadStatus : uint8_t { Reading, Complete, Truncated, IdleTimeout, Deadline, TooLarge, InvalidTail, Cancelled };
+struct ReadCancellation {
+  bool (*test)(void*) = nullptr;
+  void* context = nullptr;
+  ReadCancellation(bool (*check)(void*) = nullptr, void* state = nullptr) : test(check), context(state) {}
+  bool requested() const { return test && test(context); }
+};
 struct ReadLimits {
   uint32_t idleTimeoutMs = 5000;
   uint32_t totalTimeoutMs = 15000;
   size_t maxBytes = 128 * 1024;
+  ReadCancellation cancellation;
 };
 
 // ArduinoJson's custom-reader interface deliberately bypasses NetworkClient's
@@ -75,6 +82,7 @@ class JsonReader {
     }
     const uint32_t waitingAt = clock_.now();
     for (;;) {
+      if (limits_.cancellation.requested()) { status_ = ReadStatus::Cancelled; return false; }
       const uint32_t now = clock_.now();
       if (now - startedAt_ >= limits_.totalTimeoutMs) { status_ = ReadStatus::Deadline; return false; }
       const int available = client_.available();
@@ -115,8 +123,27 @@ inline const char* statusName(ReadStatus status) {
     case ReadStatus::Deadline: return "body deadline";
     case ReadStatus::TooLarge: return "response too large";
     case ReadStatus::InvalidTail: return "invalid JSON tail";
+    case ReadStatus::Cancelled: return "superseded request";
   }
   return "unknown";
+}
+
+// Read a complete non-JSON body using the same TLS-gap and framing checks.
+// destination has capacity + 1 bytes, including its terminator. Check EOF even
+// at exact capacity to distinguish a valid full buffer from overflow.
+template<class Reader>
+inline bool readCompleteBody(Reader& reader, char* destination, size_t capacity, size_t& length) {
+  length = 0;
+  if (!destination) return false;
+  while (length < capacity) {
+    const size_t count = reader.readBytes(destination + length,
+                                         capacity - length < 1024 ? capacity - length : 1024);
+    length += count;
+    if (!count) break;
+  }
+  destination[length] = '\0';
+  if (length == capacity && reader.read() >= 0) return false;
+  return reader.status() == ReadStatus::Complete;
 }
 
 } // namespace RadioNetwork

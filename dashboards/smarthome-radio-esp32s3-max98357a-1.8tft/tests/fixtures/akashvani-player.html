@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html><head><title>Compact official-player structure fixture</title></head><body>
+<style>.channel-state { color: white; }</style>
+<!-- The HTML list order differs from the JavaScript object order. -->
+<ul class="channel">
+  <li class='selectchannel aligncont' data-channel="4">
+    <div class="channel-name">Raagam</div>
+    <div class="station-search">
+      <p class="channel-name">Raagam</p>
+      <p class="channel-state"> national </p>
+      <p class="channel-language">Hindi, Tamil, Telugu, Malayalam</p>
+    </div>
+  </li>
+  <li data-channel='1' class="aligncont
+      selectchannel">
+    <div class="channel-name">An obsolete hidden name</div>
+    <p class='channel-state'>NATIONAL</p>
+  </li>
+  <li data-channel=302 class="selectchannel">
+    <!-- This malformed but unrelated EPG attribute exists on the live page. -->
+    <a href="https://cuesheets.prasarbharati.org/highlights/175 target=" _blank"
+       class="highlight-button">EPG</a>
+    <p class="channel-state"> Jammu&nbsp; &amp; <span>Kashmir</span> </p>
+  </li>
+</ul>
+</body></html>
+<script type="text/javascript">
+// The real player also publishes its object after </html>.
+var ignored = "var channels = {}";
+var channels = {
+  '1': {
+    name: 'Vividh Bharati',
+    // live_url: 'https://obsolete.example/old.m3u8',
+    live_url: 'https://radio.wavespb.com/live/146ed6ec6dea5a24/146ed6ec6dea5a24.m3u8',
+    page: '/channel-vividh-bharati/',
+    extra: { optional: [true, null, { key: 'value' }] },
+  },
+  "4": {
+    name: 'Raagam',
+    /* live_url: 'https://obsolete.example/another.m3u8', */
+    live_url: 'https:\/\/d3r9rhourdc02u.cloudfront.net/assets/radio/airbang04/air036_Auto.m3u8',
+  },
+  302: {
+    name: 'FM Rainbow Goa',
+    live_url: 'https://radio.wavespb.com/live/146ed6ec6dea5a24/146ed6ec6dea5a24.m3u8',
+  },
+};
+var audio;
+var current = channels['4'];
+</script>
