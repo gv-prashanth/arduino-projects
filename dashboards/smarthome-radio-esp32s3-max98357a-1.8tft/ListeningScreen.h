@@ -3,16 +3,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include "RadioFonts.h"
-#include "ProportionalText.h"
+#include "RadioChrome.h"
 #include "ListeningUi.h"
 
 namespace RadioDisplay {
-constexpr uint16_t White = 0xffff, Green = 0x07e0, Yellow = 0xffe0;
-constexpr uint16_t Red = 0xf800, Cyan = 0x07ff, HeaderBackground = 0x2808;
-
-// Text has already passed through the UI's UTF-8-to-display conversion. The
-// renderer is shared by the device and the host pixel-layout checks/previews.
+// Names/messages have already passed through the app's ASCII conversion.
 struct ListeningFrame {
   const RadioModel::Settings& settings;
   const RadioModel::Station& station;
@@ -40,78 +35,128 @@ struct RowMotion {
       changedAt = now;
     }
     const uint32_t age = now - changedAt;
-    return age > 1500 ? age - 1500 : 0; // Read a new message's beginning before scrolling.
+    return age > 1500 ? age - 1500 : 0;
   }
 };
 struct ListeningMotion { RowMotion context, station, technical, message; };
 
-template<class Canvas>
-inline void drawMuteIcon(Canvas& canvas, int x, int y, uint16_t color) {
-  canvas.fillRect(x, y + 3, 3, 5, color);
-  canvas.fillTriangle(x + 2, y + 3, x + 6, y, x + 6, y + 10, color);
-  canvas.drawLine(x + 8, y + 3, x + 11, y + 7, color);
-  canvas.drawLine(x + 11, y + 3, x + 8, y + 7, color);
+namespace listening_detail {
+inline uint16_t toneColor(RadioUi::Tone tone) {
+  return tone == RadioUi::Tone::Error ? Red : tone == RadioUi::Tone::Warning ? Yellow :
+         tone == RadioUi::Tone::Info ? Cyan : White;
 }
+
+inline const char* detailAfterStatus(const char* message, const char* status) {
+  const std::size_t length = std::strlen(status);
+  if (std::strncmp(message, status, length)) return message;
+  if (!message[length]) return "";
+  if (message[length] != ';' && message[length] != ':') return message;
+  message += length + 1;
+  while (*message == ' ') ++message;
+  return message;
+}
+
+// Use natural word breaks first, then split long unbroken names. The second
+// line's static truncation marker makes names longer than both lines apparent.
+inline const GFXfont* titleFont(const char* name) {
+  if (!name) return RadioFonts::Title;
+  while (*name == ' ') ++name;
+  // Avoid an orphaned final character for one long station/city name when the
+  // next readable size can show it whole. Multiword titles keep two big rows.
+  if (!std::strchr(name, ' ') && textWidth(*RadioFonts::Title, name) > 152 &&
+      textWidth(*RadioFonts::Body, name) <= 152) return RadioFonts::Body;
+  return RadioFonts::Title;
+}
+
+inline void titleLines(const char* name, char (&first)[128], char (&second)[128],
+                       const GFXfont& font = *RadioFonts::Title) {
+  if (!name) name = "";
+  while (*name == ' ') ++name;
+  if (textWidth(font, name) <= 152) { RadioModel::copyText(first, name); second[0] = '\0'; return; }
+  std::size_t used = 0, space = 0;
+  while (name[used] && used + 1 < sizeof(first)) {
+    first[used] = name[used]; first[used + 1] = '\0';
+    if (textWidth(font, first) > 152) break;
+    if (name[used] == ' ') space = used;
+    ++used;
+  }
+  const std::size_t split = space ? space : used ? used : 1;
+  std::memcpy(first, name, split); first[split] = '\0';
+  name += split;
+  while (*name == ' ') ++name;
+  RadioModel::copyText(second, name);
+}
+} // namespace listening_detail
 
 template<class Canvas>
 inline bool drawListeningScreen(Canvas& canvas, const ListeningFrame& frame, ListeningMotion& motion) {
+  using RadioAudio::State;
   bool animated = false;
-  const GFXfont& body = *RadioFonts::Body;
-  const GFXfont& title = *RadioFonts::Title;
-  canvas.fillRect(0, 0, 160, 18, HeaderBackground);
-  char volume[12];
-  std::snprintf(volume, sizeof(volume), "Vol %u", frame.settings.volume);
-  const int volumeX = 156 - textWidth(body, volume);
-  drawText(canvas, body, 4, 2, volumeX - 20, "GTS RADIO", Green, false, frame.now);
-  if (frame.settings.muted) drawMuteIcon(canvas, volumeX - 16, 3, Yellow);
-  drawText(canvas, body, volumeX, 2, 156 - volumeX, volume,
-           frame.settings.muted ? Yellow : White, false, frame.now);
+  brandHeader(canvas, frame.settings);
 
-  // Use the displayed station's provider, independently of browsing filters.
+  // Provider and location belong to the displayed station, independently of
+  // source/location filters used to browse a different catalog.
   const bool selected = RadioModel::validStation(frame.station);
   const char* provider = !selected ? "No station selected" :
-      frame.station.source == RadioModel::Source::Akashvani ? "Akashvani" : "Radio Browser";
-  char context[64];
+      frame.station.source == RadioModel::Source::Akashvani ? "Akashvani" : "RB";
+  const char* rawLocation = frame.station.location[0] ? frame.station.location : frame.station.country;
+  const char* location = compactLocationLabel(rawLocation);
+  char context[96];
   std::snprintf(context, sizeof(context), "%s%s%s", provider,
-                selected && frame.station.country[0] ? " / " : "",
-                selected ? frame.station.country : "");
-  animated |= drawText(canvas, body, 4, 22, 152, context, Green, true, motion.context.elapsed(context, frame.now));
-  animated |= drawText(canvas, title, 4, 43, 152, frame.stationName, White, true,
-                       motion.station.elapsed(frame.stationName, frame.now));
+                selected && rawLocation[0] ? " / " : "", selected && rawLocation[0] ? location : "");
+  drawText(canvas, *ChromeFont, 4, FilterTop, 152, context, Green, false, 0);
 
-  const bool playing = frame.online && frame.playback.state == RadioAudio::State::Playing;
-  const bool buffering = frame.online && frame.playback.state == RadioAudio::State::Buffering;
-  if (playing && !frame.settings.muted)
-    canvas.fillTriangle(5, 71, 5, 82, 13, 76, Green);
-  else if (playing && frame.settings.muted) {
-    canvas.fillRect(5, 72, 3, 10, Yellow);
-    canvas.fillRect(11, 72, 3, 10, Yellow);
-  }
-  // Decoder selection alone is not playback confirmation. Do not display stale
-  // technical values from the previous connection during a retry or failure.
-  if (playing || buffering) {
-    char technical[48] = {};
+  char first[128] = {}, second[128] = {};
+  const GFXfont& title = *listening_detail::titleFont(frame.stationName);
+  listening_detail::titleLines(frame.stationName, first, second, title);
+  drawText(canvas, title, 4, 39, 152, first, White, false, 0);
+  drawText(canvas, title, 4, 39 + fontHeight(title), 152, second, White, false, 0);
+
+  const State state = frame.playback.state;
+  const bool offline = !frame.online || state == State::Offline;
+  const bool playing = !offline && state == State::Playing;
+  const bool waiting = !offline && (state == State::Connecting || state == State::Retrying || state == State::Buffering);
+  const bool silent = frame.settings.muted || frame.settings.volume == 0;
+  const Icon stateIcon = offline ? Icon::Offline : state == State::Failed ? Icon::Warning :
+                         waiting ? Icon::Spinner : playing ? silent ? Icon::Muted : Icon::Play : Icon::Stations;
+  const uint16_t stateColor = offline ? Yellow : state == State::Failed ? Red : waiting || silent ? Yellow : Green;
+  drawIcon(canvas, stateIcon, 5, 80, 13, stateColor, frame.now);
+  animated |= waiting;
+
+  char technical[48] = {};
+  const char* status = nullptr;
+  const char* message = frame.messageText ? frame.messageText : "";
+  uint16_t messageColor = listening_detail::toneColor(frame.messageTone);
+  if (playing) {
     const char* codec = frame.playback.codec;
-    const bool knownCodec = codec[0] && std::strcmp(codec, "unknown") != 0;
+    const bool knownCodec = codec[0] && std::strcmp(codec, "unknown");
     if (frame.playback.bitrateKbps)
       std::snprintf(technical, sizeof(technical), "%s%s%u kbps", knownCodec ? codec : "",
-                    knownCodec ? " " : "", frame.playback.bitrateKbps);
+                    knownCodec ? " / " : "", frame.playback.bitrateKbps);
     else if (knownCodec) std::snprintf(technical, sizeof(technical), "%s", codec);
-    animated |= drawText(canvas, body, 21, 70, 135, technical, Cyan, true,
-                         motion.technical.elapsed(technical, frame.now));
+    status = technical;
+    // Volume zero is also silent. Preserve a warning over this routine hint.
+    if (!frame.settings.muted && frame.settings.volume == 0 &&
+        (!message[0] || frame.messageTone == RadioUi::Tone::Normal)) {
+      message = "Volume 0"; messageColor = Yellow;
+    }
+  } else {
+    status = offline ? "Wi-Fi offline" : state == State::Failed ? "Playback failed" :
+             state == State::Connecting ? "Connecting" : state == State::Retrying ? "Retrying audio" :
+             state == State::Buffering ? "Buffering" : "Choose a station";
+    // Short actionable progress belongs in the status row. Longer reasons
+    // retain the status label and use the separate programme/message row.
+    if (waiting && message[0] && textWidth(*RowFont, message) <= 133) status = message;
+    message = listening_detail::detailAfterStatus(message, status);
   }
-  const uint16_t messageColor = frame.messageTone == RadioUi::Tone::Error ? Red :
-      frame.messageTone == RadioUi::Tone::Warning ? Yellow :
-      frame.messageTone == RadioUi::Tone::Info ? Cyan : White;
-  animated |= drawText(canvas, body, 4, 92, 152, frame.messageText, messageColor, true,
-                       motion.message.elapsed(frame.messageText, frame.now));
+  drawText(canvas, *RowFont, 23, 80, 133, status, playing ? Cyan : stateColor, false, 0);
+  animated |= drawText(canvas, *RowFont, 4, 97, 152, message, messageColor, true,
+                       motion.message.elapsed(message, frame.now));
 
-  canvas.drawFastHLine(0, 110, 160, 0x7bef);
-  // A fixed hint: neither time-based alternation nor footer marquee is used.
-  drawText(canvas, body, 4, 113, 152, "Click:mute Hold:menu", Cyan, false, frame.now);
+  footer(canvas, Icon::Stations, "Stations", Icon::Settings, "Settings");
   if (frame.buttonDown) {
     const uint32_t progress = frame.heldMs >= 700 ? 160 : frame.heldMs * 160 / 700;
-    canvas.fillRect(0, 108, progress, 2, Green);
+    canvas.fillRect(0, 126, progress, 2, Green);
     animated = true;
   }
   return animated;

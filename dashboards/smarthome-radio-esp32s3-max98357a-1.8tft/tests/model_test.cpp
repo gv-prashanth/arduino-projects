@@ -14,6 +14,7 @@ static Station station(const char* id, const char* name, const char* url,
   assert(copyText(result.name, name));
   assert(copyText(result.url, url));
   assert(copyText(result.country, country));
+  assert(copyText(result.location, "India"));
   result.bitrateKbps = 128;
   assert(validStation(result));
   return result;
@@ -53,18 +54,20 @@ static void testVolumeAndRestart() {
   assert(outputVolume(restored) == 7);
 
   toggleMute(restored);
+  adjustVolume(restored, 0);
+  assert(restored.muted && restored.volume == 7);
   adjustVolume(restored, 1);
   assert(!restored.muted && restored.volume == 8 && outputVolume(restored) == 8);
   adjustVolume(restored, INT_MAX);
   assert(restored.volume == kMaxVolume);
   restored.muted = true;
   adjustVolume(restored, 1);
-  assert(!restored.muted && restored.volume == kMaxVolume);
+  assert(restored.muted && restored.volume == kMaxVolume);
   adjustVolume(restored, INT_MIN);
   assert(restored.volume == 0 && outputVolume(restored) == 0);
   restored.muted = true;
   adjustVolume(restored, -1);
-  assert(!restored.muted && restored.volume == 0);
+  assert(restored.muted && restored.volume == 0);
 }
 
 static void testRecordsAndValidation() {
@@ -95,7 +98,7 @@ static void testRecordsAndValidation() {
   bad.bytes[200] ^= 1;
   expectRejected(bad);
   bad = good;
-  bad.bytes[4] = 3;
+  bad.bytes[4] = 4;
   refreshChecksum(bad);
   expectRejected(bad);
   bad = good;
@@ -113,9 +116,9 @@ static void testRecordsAndValidation() {
   }
 
   // All four station strings must be terminated even when the record CRC is good.
-  const std::size_t starts[] = {78, 118, 246, 758};
-  const std::size_t sizes[] = {40, 128, 512, 3};
-  for (std::size_t i = 0; i < 4; ++i) {
+  const std::size_t starts[] = {78, 118, 246, 758, 763};
+  const std::size_t sizes[] = {40, 128, 512, 3, 64};
+  for (std::size_t i = 0; i < sizeof(starts) / sizeof(starts[0]); ++i) {
     bad = good;
     std::memset(bad.bytes + starts[i], 'X', sizes[i]);
     refreshChecksum(bad);
@@ -206,6 +209,7 @@ static void testCopiesAndCanonicalEncoding() {
   Station b = a;
   b.name[100] = 'x';
   b.url[500] = 'y';
+  b.location[50] = 'z';
   SettingsRecord first = makeSettingsRecord(Settings{}, a);
   SettingsRecord second = makeSettingsRecord(Settings{}, b);
   assert(std::memcmp(first.bytes, second.bytes, sizeof(first.bytes)) == 0);
@@ -216,7 +220,34 @@ static void testCopiesAndCanonicalEncoding() {
   assert(std::memcmp(first.bytes, second.bytes, sizeof(first.bytes)) == 0);
 }
 
+static void testStationLocationMetadata() {
+  Station selected = station("same-id", "Radio", "https://example.org/live");
+  assignStationLocation(selected, "United Kingdom");
+  assert(std::strcmp(selected.location, "United Kingdom") == 0);
+  Settings browsing;
+  browsing.source = Source::Akashvani;
+  copyText(browsing.airLocation, "ANDHRA PRADESH");
+  Settings restored;
+  Station playing;
+  assert(decodeSettingsRecord(makeSettingsRecord(browsing, selected), restored, playing));
+  assert(std::strcmp(playing.location, "United Kingdom") == 0);
+  assert(playing.source == Source::RadioBrowser && restored.source == Source::Akashvani);
+  assignStationLocation(selected, nullptr);
+  assert(std::strcmp(selected.location, "IN") == 0);
+  assignStationLocation(selected, "");
+  assert(std::strcmp(selected.location, "IN") == 0);
+  char tooLong[65]; std::memset(tooLong, 'x', 64); tooLong[64] = 0;
+  assignStationLocation(selected, tooLong);
+  assert(std::strcmp(selected.location, "IN") == 0);
+  copyText(selected.country, "");
+  assignStationLocation(selected, nullptr);
+  assert(selected.location[0] == 0);
+  std::memset(selected.location, 'x', sizeof(selected.location));
+  assert(!validStation(selected));
+}
+
 int main() {
+  testStationLocationMetadata();
   testVolumeAndRestart();
   testRecordsAndValidation();
   testCatalogIdentityAndPreviews();

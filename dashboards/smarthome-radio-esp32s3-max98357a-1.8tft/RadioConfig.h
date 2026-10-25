@@ -6,7 +6,6 @@ namespace RadioConfig {
 constexpr int I2sLrck = 4, I2sBclk = 5, I2sData = 6;
 constexpr int TftCs = 10, TftDc = 13, TftReset = 14, TftMosi = 11, TftClock = 12;
 constexpr int EncoderClock = 1, EncoderData = 2, EncoderButton = 42;
-constexpr uint32_t MenuTimeoutMs = 15000, EditTimeoutMs = 30000;
 constexpr uint32_t SaveDelayMs = 1500;
 
 struct Country { const char* code; const char* name; };

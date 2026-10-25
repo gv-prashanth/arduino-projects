@@ -182,7 +182,7 @@ class AudioService {
       strlcpy(snapshot_.detail, "Returning to previous station", sizeof(snapshot_.detail));
     } else {
       snapshot_.state = State::Failed;
-      strlcpy(snapshot_.detail, "Open menu > Retry audio", sizeof(snapshot_.detail));
+      strlcpy(snapshot_.detail, "Open Settings > Retry audio", sizeof(snapshot_.detail));
     }
     publish();
   }

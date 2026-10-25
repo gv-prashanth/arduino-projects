@@ -20,7 +20,14 @@
       "Click mute | Hold menu": 143,
       "Playing - ready": 95,
       "AAC 67 kbps": 82,
-      "Akashvani p14/14": 113
+      "Akashvani p14/14": 113,
+      "Click Stations": 85,
+      "Hold Settings": 83,
+      "Settings": 51,
+      "Location": 54,
+      "Bitrate": 41,
+      "p14/14": 44,
+      "Vol 21": 40
     }
   },
   "Title": {
@@ -44,7 +51,14 @@
       "Click mute | Hold menu": 218,
       "Playing - ready": 141,
       "AAC 67 kbps": 120,
-      "Akashvani p14/14": 165
+      "Akashvani p14/14": 165,
+      "Click Stations": 130,
+      "Hold Settings": 127,
+      "Settings": 78,
+      "Location": 82,
+      "Bitrate": 63,
+      "p14/14": 62,
+      "Vol 21": 58
     }
   },
   "Small": {
@@ -68,7 +82,45 @@
       "Click mute | Hold menu": 128,
       "Playing - ready": 80,
       "AAC 67 kbps": 70,
-      "Akashvani p14/14": 97
+      "Akashvani p14/14": 97,
+      "Click Stations": 75,
+      "Hold Settings": 74,
+      "Settings": 45,
+      "Location": 47,
+      "Bitrate": 35,
+      "p14/14": 38,
+      "Vol 21": 34
+    }
+  },
+  "Chrome": {
+    "source": "LiberationSans-Regular.ttf",
+    "points": 5,
+    "dpi": 141,
+    "first": 32,
+    "last": 126,
+    "top": -7,
+    "bottom": 2,
+    "height": 10,
+    "yAdvance": 11,
+    "bitmapBytes": 407,
+    "sampleAdvances": {
+      "GTS RADIO": 57,
+      "Vol21": 28,
+      "Muted": 30,
+      "Akashvani / IN": 66,
+      "Radio Browser / IN": 86,
+      "Click:mute Hold:menu": 105,
+      "Click mute | Hold menu": 111,
+      "Playing - ready": 71,
+      "AAC 67 kbps": 59,
+      "Akashvani p14/14": 83,
+      "Click Stations": 64,
+      "Hold Settings": 63,
+      "Settings": 38,
+      "Location": 42,
+      "Bitrate": 31,
+      "p14/14": 33,
+      "Vol 21": 31
     }
   }
 }

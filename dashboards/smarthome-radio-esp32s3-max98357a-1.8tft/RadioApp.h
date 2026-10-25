@@ -1,5 +1,8 @@
 #pragma once
 
+#ifdef RADIO_APP_HOST_TEST
+#include "tests/app_stubs/RadioRuntime.h"
+#else
 #include <Arduino.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
@@ -7,7 +10,9 @@
 #include "SettingsService.h"
 #include "WifiPortal.h"
 #include "RotaryInput.h"
+#endif
 #include "ListeningScreen.h"
+#include "NavigationState.h"
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -23,9 +28,12 @@ namespace RadioApp {
 using RadioModel::Station;
 using RadioModel::Settings;
 using RadioCatalog::Filter;
-enum class View : uint8_t { Listening, Menu, Stations, Edit, Wifi };
-enum MenuItem : uint8_t { Stations, Source, Location, Genre, Codec, Bitrate, Wifi, Retry, MenuCount };
-constexpr const char* MenuLabels[] = {"Stations", "Source", "Location", "Genre", "Codec", "Max bitrate", "Wi-Fi setup", "Retry audio"};
+using RadioNavigation::View;
+using RadioNavigation::FilterMode;
+using RadioNavigation::Field;
+using RadioNavigation::Action;
+constexpr const char* FieldLabels[] = {"Source", "Location", "Genre", "Codec", "Bitrate"};
+enum class Purpose : uint8_t { Background, Page, Filter, Entry, EntryRefresh };
 
 Adafruit_ST7735 tft(RadioConfig::TftCs, RadioConfig::TftDc, RadioConfig::TftReset);
 GFXcanvas16 canvas(160, 128);
@@ -40,20 +48,28 @@ Station lastGood, confirmationCandidate;
 RadioAudio::Snapshot playback;
 RadioCatalog::Result* catalog = nullptr;
 RadioCatalog::Transaction search;
-View view = View::Listening;
-MenuItem editItem = Location;
-int menuIndex = 0, draft = 0, stationCursor = 0;
+RadioNavigation::State ui;
+View& view = ui.view;
+Field& editItem = ui.field;
+int& draft = ui.draft;
+int& stationCursor = ui.station;
+RadioNavigation::Origin requestOrigin;
+Purpose requestPurpose = Purpose::Background;
+char directoryError[80] = {};
 // The official location menu is a snapshot, so turning the encoder never starts
 // network requests or depends on a worker-owned catalog's lifetime.
 uint8_t airLocationCount = 0;
 char airLocations[64][64] = {};
-bool airLocationsReady = false;
 bool audioReady = false, directoryReady = false, storageReady = false, inputReady = false;
 bool dirty = true, animate = false, settingsDirty = false;
 bool online = false, autoStartFirst = true;
+bool backgroundRefreshDue = false;
 bool portalWasActive = false;
 bool eventButtonDown = false;
 View gestureView = View::Listening;
+RadioNavigation::State gestureState;
+uint32_t gestureSearch = 0;
+bool gesturePending = false, gestureFailed = false;
 uint32_t audioGeneration = 0;
 uint32_t dirtySince = 0, lastDrawAt = 0, viewEnteredAt = 0, lastActionAt = 0;
 uint32_t candidateSince = 0, lastOverflow = 0;
@@ -82,28 +98,12 @@ inline void enter(View next) {
 inline const char* sourceLabel(RadioModel::Source source) {
   return source == RadioModel::Source::Akashvani ? "Akashvani" : "Radio Browser";
 }
-inline bool menuItemVisible(MenuItem item) {
-  return settings.source != RadioModel::Source::Akashvani || (item != Genre && item != Codec && item != Bitrate);
-}
-inline int visibleMenuCount() {
-  int count = 0;
-  for (int item = 0; item < MenuCount; ++item) if (menuItemVisible(static_cast<MenuItem>(item))) ++count;
-  return count;
-}
-inline MenuItem visibleMenuItem(int index) {
-  for (int item = 0; item < MenuCount; ++item) {
-    if (!menuItemVisible(static_cast<MenuItem>(item))) continue;
-    if (index-- == 0) return static_cast<MenuItem>(item);
-  }
-  return Stations;
-}
 inline void rememberAirLocations(const RadioCatalog::Result& result) {
   if (result.request.filter.source != RadioModel::Source::Akashvani || result.cached) return;
   airLocationCount = min<unsigned>(result.locationCount, sizeof(airLocations) / sizeof(airLocations[0]));
   memset(airLocations, 0, sizeof(airLocations));
   for (int i = 0; i < airLocationCount; ++i)
     strlcpy(airLocations[i], result.locations[i], sizeof(airLocations[i]));
-  airLocationsReady = true;
 }
 
 // Decode UTF-8 as codepoints before fitting text. The classic TFT font is ASCII;
@@ -159,49 +159,54 @@ inline void text(int x, int y, int width, const char* raw, uint16_t color = ST77
   canvas.setCursor(x, y);
   canvas.print(value);
 }
-inline void header(const char* title) {
-  canvas.fillRect(0, 0, 160, 16, 0x2808);
-  text(4, 4, 100, title, ST77XX_GREEN);
-  char right[12];
-  snprintf(right, sizeof(right), "Vol %u", settings.volume);
-  const int volumeX = 156 - 6 * strlen(right);
-  if (settings.muted) RadioDisplay::drawMuteIcon(canvas, volumeX - 16, 2, ST77XX_YELLOW);
-  text(volumeX, 4, 156 - volumeX, right, settings.muted ? ST77XX_YELLOW : ST77XX_WHITE);
+inline void label(int x, int y, int width, const char* raw, uint16_t color = RadioDisplay::White,
+                  const GFXfont* font = RadioDisplay::RowFont) {
+  const String value = displayText(raw);
+  RadioDisplay::drawText(canvas, *font, x, y, width, value.c_str(), color, false, 0);
 }
+inline void header(const char* context) { RadioDisplay::brandHeader(canvas, settings, context); }
 inline void footer(const char* hint) {
-  canvas.drawFastHLine(0, 110, 160, 0x7BEF);
-  text(3, 115, 150, hint, ST77XX_CYAN);
-  if (inputReady && input.buttonDown()) {
-    const uint32_t pressedAt = input.pressedAt();
-    const uint32_t held = millis() - pressedAt;
-    canvas.fillRect(0, 108, min<uint32_t>(160, held * 160 / 700), 2, ST77XX_GREEN);
-    animate = true;
-  }
+  canvas.drawFastHLine(4, 110, 152, RadioDisplay::RuleColor);
+  label(4, 114, 152, hint, RadioDisplay::Cyan, RadioDisplay::ChromeFont);
 }
-inline String filterLabel(const Filter& f) {
-  if (f.source == RadioModel::Source::Akashvani)
-    return String("India / ") + (f.location[0] ? f.location : "All locations");
-  return String(f.country ? RadioConfig::Countries[f.country].code : "ALL") + " / " + RadioConfig::Genres[f.genre].name;
+inline const char* compactLocation(const char* location) {
+  return RadioDisplay::compactLocationLabel(location);
 }
-inline int stationOptions() {
-  if (!catalog) return 1;
-  return catalog->count + (catalog->request.offset ? 1 : 0) + (catalog->hasNext ? 1 : 0) + 1;
+inline String filterLabel(const Filter& filter) {
+  if (filter.source == RadioModel::Source::Akashvani)
+    return String("Akashvani / ") + compactLocation(filter.location);
+  String value = String("RB / ") + (filter.country ? RadioConfig::Countries[filter.country].code : "All");
+  if(filter.genre) value += String(" / ") + RadioConfig::Genres[filter.genre].name;
+  return value;
 }
-inline String stationOptionLabel(int index) {
-  if (catalog && index < catalog->count) return catalog->stations[index].name;
-  int action = index - (catalog ? catalog->count : 0);
-  if (catalog && catalog->request.offset) { if (action == 0) return "< Previous page"; --action; }
-  if (catalog && catalog->hasNext) { if (action == 0) return "More stations >"; --action; }
-  if (search.pending) return "Loading stations...";
-  if (search.failed) return String("Retry ") + sourceLabel(search.request.filter.source);
-  return "Refresh stations";
+inline int stationOptions() { return RadioNavigation::choiceCount(catalog, search.failed); }
+inline Action stationAction() { return RadioNavigation::actionAt(stationCursor, catalog, search.failed); }
+inline const Station& displayedStation() {
+  return RadioModel::validStation(playback.requested) ? playback.requested : lastGood;
+}
+inline bool enrichLocation(Station& station) {
+  if(!catalog || !RadioModel::validStation(station)) return false;
+  const int index = RadioModel::findStation(catalog->stations, catalog->count, station);
+  if(index < 0 || !catalog->stations[index].location[0] ||
+      !strcmp(station.location, catalog->stations[index].location)) return false;
+  strlcpy(station.location, catalog->stations[index].location, sizeof(station.location));
+  return true;
+}
+inline RadioDisplay::Icon audioIcon() {
+  using RadioAudio::State;
+  if(!online || playback.state == State::Offline) return RadioDisplay::Icon::Offline;
+  if(playback.state == State::Connecting || playback.state == State::Retrying || playback.state == State::Buffering)
+    return RadioDisplay::Icon::Spinner;
+  if(playback.state == State::Failed) return RadioDisplay::Icon::Warning;
+  if(settings.muted || settings.volume == 0) return RadioDisplay::Icon::Muted;
+  return RadioDisplay::Icon::Play;
 }
 inline void drawListening() {
-  const Station& displayed = RadioModel::validStation(playback.requested) ? playback.requested : lastGood;
+  const Station& displayed = displayedStation();
   const uint32_t now = millis();
   const RadioUi::Message message = RadioUi::messageFor(playback, online, wifi.status(), settings.muted,
-                                                      notices, restorationNotice.active());
-  const String name = displayText(displayed.name[0] ? displayed.name : "GTS Radio");
+                                                      notices, restorationNotice.active(), settings.volume == 0);
+  const String name = displayText(displayed.name[0] ? displayed.name : "Choose a station");
   const String messageText = displayText(message.text);
   RadioDisplay::ListeningFrame frame{settings, displayed, playback, name.c_str(), messageText.c_str(), message.tone, now};
   frame.online = online;
@@ -209,91 +214,129 @@ inline void drawListening() {
   frame.heldMs = frame.buttonDown ? now - input.pressedAt() : 0;
   animate |= RadioDisplay::drawListeningScreen(canvas, frame, listeningMotion);
 }
-inline void drawMenu() {
-  header("Menu");
-  const int count = visibleMenuCount();
-  menuIndex = constrain(menuIndex, 0, count - 1);
-  const int first = constrain(menuIndex - 2, 0, max(0, count - 6));
-  for (int row = 0; row < 6 && first + row < count; ++row) {
-    const int index = first + row, y = 20 + row * 14;
-    const MenuItem item = visibleMenuItem(index);
-    const bool selected = menuIndex == index;
-    if (selected) canvas.fillRect(2, y - 1, 156, 13, 0x0320);
-    char label[64];
-    if (item == Source) snprintf(label, sizeof(label), "%c Source: %s", selected ? '>' : ' ', sourceLabel(settings.source));
-    else snprintf(label, sizeof(label), "%c %s", selected ? '>' : ' ', MenuLabels[item]);
-    text(4, y, 152, label, ST77XX_WHITE, 1, selected);
+inline void drawSettings() {
+  using RadioDisplay::Icon;
+  header("Settings");
+  ui.setting = constrain(ui.setting, 0, 2);
+  const char* labels[] = {"Wi-Fi setup", "Retry audio", settings.muted ? "Unmute audio" : "Mute audio"};
+  const Icon icons[] = {Icon::Wifi, Icon::Retry, settings.muted ? Icon::Volume : Icon::Muted};
+  for(int index = 0; index < 3; ++index) {
+    const int y = 25 + index * 19;
+    if(index == ui.setting) RadioDisplay::focusRow(canvas, y - 2, 18);
+    RadioDisplay::drawIcon(canvas, icons[index], 7, y, 13, RadioDisplay::White);
+    label(26, y, 127, labels[index]);
   }
-  footer("Click:select Hold:back");
-}
-inline void drawStations() {
-  char title[32];
-  const Filter filter = catalog ? catalog->request.filter : RadioCatalog::filterFor(settings);
-  const unsigned page = catalog ? catalog->request.offset / RadioModel::kPageSize + 1 : 1;
-  const bool totalKnown = catalog && catalog->totalKnown && !catalog->cached;
-  if (catalog && catalog->cached)
-    snprintf(title, sizeof(title), "%s cached", filter.source == RadioModel::Source::Akashvani ? "Akashvani" : "RB");
-  else if (totalKnown && catalog->totalCount) {
-    const unsigned pages = (catalog->totalCount + RadioModel::kPageSize - 1) / RadioModel::kPageSize;
-    snprintf(title, sizeof(title), "%s p%u/%u", filter.source == RadioModel::Source::Akashvani ? "Akashvani" : "RB", page, pages);
-  } else snprintf(title, sizeof(title), "%s p%u", filter.source == RadioModel::Source::Akashvani ? "Akashvani" : "RB", page);
-  header(title);
-  String filters = filterLabel(filter);
-  text(4, 20, 152, filters.c_str(), ST77XX_GREEN, 1, true);
-  const int options = stationOptions();
-  stationCursor = constrain(stationCursor, 0, options - 1);
-  char summary[80];
-  if (search.pending) snprintf(summary, sizeof(summary), "Loading %s...", sourceLabel(search.request.filter.source));
-  else if (search.failed) snprintf(summary, sizeof(summary), "%s unavailable", sourceLabel(search.request.filter.source));
-  else if (!catalog || !catalog->count) snprintf(summary, sizeof(summary), "No stations; edit filters");
-  else if (stationCursor < catalog->count) {
-    if (totalKnown) snprintf(summary, sizeof(summary), "Station %u/%u; %u here",
-                             catalog->request.offset + stationCursor + 1, catalog->totalCount, catalog->count);
-    else snprintf(summary, sizeof(summary), "%u %s; station %d/%u", catalog->count,
-                  catalog->cached ? "cached" : "here", stationCursor + 1, catalog->count);
-  } else {
-    int action = stationCursor - catalog->count;
-    const char* label = "Refresh";
-    if (catalog->request.offset && action-- == 0) label = "Prev page";
-    else if (catalog->hasNext && action == 0) label = "Next page";
-    snprintf(summary, sizeof(summary), "%u %s; %s", totalKnown ? catalog->totalCount : catalog->count,
-             totalKnown ? "total" : catalog->cached ? "cached" : "here", label);
-  }
-  text(4, 33, 152, summary, ST77XX_YELLOW);
-  int first = constrain(stationCursor - 1, 0, max(0, options - 4));
-  for (int row = 0; row < 4 && first + row < options; ++row) {
-    int index = first + row, y = 49 + row * 14;
-    const bool selected = index == stationCursor;
-    if (selected) canvas.fillRect(2, y - 2, 156, 12, 0x0320);
-    const bool playing = catalog && index < catalog->count &&
-                         RadioModel::findStation(&catalog->stations[index], 1, playback.confirmed) == 0;
-    text(4, y, 8, playing ? "*" : selected ? ">" : " ", ST77XX_YELLOW);
-    String label = stationOptionLabel(index);
-    text(14, y, 142, label.c_str(), ST77XX_WHITE, 1, selected);
-  }
-  footer(catalog && stationCursor < catalog->count ? "Click:play Hold:back" : "Click:load Hold:back");
+  RadioDisplay::footer(canvas, Icon::Check, "Select", Icon::Back, "Back");
 }
 inline const char* draftLabel(String& scratch) {
-  if (editItem == Source) return sourceLabel(static_cast<RadioModel::Source>(draft));
-  if (editItem == Location) {
-    if (editSettings.source == RadioModel::Source::Akashvani)
+  if(editItem == Field::Source) return sourceLabel(static_cast<RadioModel::Source>(draft));
+  if(editItem == Field::Location) {
+    if(editSettings.source == RadioModel::Source::Akashvani)
       return draft > 0 && draft <= airLocationCount ? airLocations[draft - 1] : "All locations";
-    return draft ? RadioConfig::Countries[draft].name : "All locations";
+    return RadioConfig::Countries[draft].name;
   }
-  if (editItem == Genre) return RadioConfig::Genres[draft].name;
-  if (editItem == Codec) return RadioConfig::Codecs[draft];
-  scratch = draft ? String(RadioConfig::BitrateCaps[draft]) + " kbps" : "No bitrate cap";
+  if(editItem == Field::Genre) return RadioConfig::Genres[draft].name;
+  if(editItem == Field::Codec) return draft ? RadioConfig::Codecs[draft] : "All";
+  scratch = draft ? String(RadioConfig::BitrateCaps[draft]) + " kbps" : "No cap";
   return scratch.c_str();
 }
-inline void drawEdit() {
-  header(MenuLabels[editItem]);
-  const bool missingLocations = editItem == Location && editSettings.source == RadioModel::Source::Akashvani && !airLocationsReady;
-  text(4, 26, 152, missingLocations ? "All until source refresh" : "Turn to choose", ST77XX_CYAN);
-  String scratch;
-  text(4, 49, 152, draftLabel(scratch), ST77XX_YELLOW, 1, true);
-  text(4, 74, 152, "Playback continues");
-  text(4, 90, 152, "Applied after search", ST77XX_GREEN);
-  footer("Click:apply Hold:cancel");
+inline String fieldValue(Field field) {
+  if(field == Field::Source) return sourceLabel(settings.source);
+  if(field == Field::Location)
+    return settings.source == RadioModel::Source::Akashvani ?
+        (settings.airLocation[0] ? settings.airLocation : "All locations") : RadioConfig::Countries[settings.country].name;
+  if(field == Field::Genre) return RadioConfig::Genres[settings.genre].name;
+  if(field == Field::Codec) return settings.codec ? RadioConfig::Codecs[settings.codec] : "All";
+  return settings.bitrateCap ? String(settings.bitrateCap) + " kbps" : String("No cap");
+}
+inline void drawStations() {
+  using RadioDisplay::Icon;
+  const bool busy = search.pending, problem = search.failed;
+  const bool editing = ui.mode != FilterMode::Browse && !busy && !problem;
+  const Filter filter = busy || problem ? search.request.filter :
+      catalog ? catalog->request.filter : RadioCatalog::filterFor(settings);
+  const uint16_t offset = busy || problem ? search.request.offset : catalog ? catalog->request.offset : 0;
+  char context[24];
+  if(editing) strlcpy(context, ui.mode == FilterMode::Value ? FieldLabels[static_cast<int>(editItem)] : "Filters", sizeof(context));
+  else if(catalog && catalog->cached && !busy && !problem) strlcpy(context, "Cached", sizeof(context));
+  else if(catalog && catalog->totalKnown && catalog->totalCount && !busy && !problem)
+    snprintf(context, sizeof(context), "p%u/%u", offset / RadioModel::kPageSize + 1,
+             (catalog->totalCount + RadioModel::kPageSize - 1) / RadioModel::kPageSize);
+  else snprintf(context, sizeof(context), "p%u", offset / RadioModel::kPageSize + 1);
+  header(context);
+  stationCursor = constrain(stationCursor, 0, stationOptions() - 1);
+  const Action action = stationAction();
+  if(editing || (!busy && action == Action::Filters)) RadioDisplay::focusRow(canvas, 19, 14);
+  if(editing && ui.mode == FilterMode::Value) {
+    String scratch;
+    RadioDisplay::drawIcon(canvas, Icon::Prev, 6, 22, 9, RadioDisplay::Cyan);
+    label(20, 21, 120, draftLabel(scratch), RadioDisplay::Cyan, RadioDisplay::ChromeFont);
+    RadioDisplay::drawIcon(canvas, Icon::Next, 145, 22, 9, RadioDisplay::Cyan);
+  } else {
+    static const Icon fieldIcons[] = {Icon::Source, Icon::Location, Icon::Genre, Icon::Codec, Icon::Bitrate};
+    const Icon symbol = editing ? fieldIcons[ui.fieldCursor] : Icon::Filters;
+    RadioDisplay::drawIcon(canvas, symbol, 6, 22, 10, RadioDisplay::Green);
+    const String summary = editing ? String(FieldLabels[ui.fieldCursor]) + ": " + fieldValue(static_cast<Field>(ui.fieldCursor)) : filterLabel(filter);
+    label(20, 21, 124, summary.c_str(), RadioDisplay::Green, RadioDisplay::ChromeFont);
+    RadioDisplay::drawIcon(canvas, editing ? Icon::ChevronUpDown : Icon::ChevronDown, 145, 22, 10, RadioDisplay::Green);
+  }
+  if(busy) {
+    RadioDisplay::drawIcon(canvas, Icon::Spinner, 68, 43, 24, RadioDisplay::Cyan, millis());
+    animate = true;
+    char loading[32]; snprintf(loading, sizeof(loading), "Loading page %u", offset / RadioModel::kPageSize + 1);
+    label(18, 76, 140, loading);
+    footer("Hold Back");
+    return;
+  }
+  if(problem) {
+    RadioDisplay::drawIcon(canvas, online ? Icon::Warning : Icon::Offline, 69, 39, 22, RadioDisplay::Yellow);
+    label(5, 65, 150, online ? "Could not load page" : "Wi-Fi unavailable", RadioDisplay::Yellow);
+    label(5, 83, 150, catalog ? "Previous page kept" : "Change filters or retry", RadioDisplay::MutedInk, RadioDisplay::ChromeFont);
+    if(action == Action::Retry) canvas.fillRect(3, 112, 78, 14, RadioDisplay::FocusBackground);
+    RadioDisplay::footer(canvas, action == Action::Filters ? Icon::Filters : Icon::Retry,
+                         action == Action::Filters ? "Filters" : "Retry", Icon::Back, "Back");
+    return;
+  }
+  if(!catalog || !catalog->count) {
+    RadioDisplay::drawIcon(canvas, Icon::Stations, 69, 39, 22, RadioDisplay::MutedInk);
+    label(4, 65, 152, catalog && catalog->hasNext ? "No playable rows" : offset ? "End of results" : "No matching stations");
+    if(catalog && catalog->hasNext) label(30, 83, 125, "Try next page", RadioDisplay::Cyan, RadioDisplay::ChromeFont);
+  } else {
+    if(!editing && action == Action::Station) ui.lastStation = stationCursor - 1;
+    const int selected = !editing && action == Action::Station ? stationCursor - 1 : ui.lastStation;
+    const int shown = min<int>(5, catalog->count);
+    const int first = constrain(selected - 1, 0, max(0, catalog->count - shown));
+    for(int row = 0; row < shown; ++row) {
+      const int index = first + row, y = 34 + row * 15;
+      if(!editing && action == Action::Station && stationCursor - 1 == index)
+        RadioDisplay::focusRow(canvas, y - 1);
+      if(RadioModel::findStation(&catalog->stations[index], 1, displayedStation()) == 0) {
+        const Icon symbol = audioIcon();
+        const uint16_t color = symbol == Icon::Play ? RadioDisplay::Green :
+            symbol == Icon::Warning ? RadioDisplay::Red : RadioDisplay::Yellow;
+        RadioDisplay::drawIcon(canvas, symbol, 6, y + 1, 10, color, millis());
+        if(symbol == Icon::Spinner) animate = true;
+      }
+      label(20, y, 135, catalog->stations[index].name, editing ? RadioDisplay::MutedInk : RadioDisplay::White);
+    }
+    if(catalog->count > shown) {
+      const int track = 73, thumb = track * shown / catalog->count;
+      canvas.fillRect(158, 34, 2, track, RadioDisplay::RuleColor);
+      canvas.fillRect(158, 34 + (track - thumb) * first / (catalog->count - shown), 2, thumb, RadioDisplay::MutedInk);
+    }
+  }
+  canvas.drawFastHLine(4, 110, 152, RadioDisplay::RuleColor);
+  RadioDisplay::navButton(canvas, false, Icon::Prev, "Prev", !editing && action == Action::Previous,
+                           editing || !catalog || !catalog->request.offset);
+  RadioDisplay::navButton(canvas, true, Icon::Next, "Next", !editing && action == Action::Next,
+                           editing || !catalog || !catalog->hasNext);
+  if(editing && ui.mode == FilterMode::Value) {
+    canvas.fillRect(52, 112, 56, 14, RadioDisplay::FocusBackground);
+    RadioDisplay::drawIcon(canvas, Icon::Check, 58, 114, 10, RadioDisplay::Green);
+    label(73, 114, 34, "Set", RadioDisplay::Green, RadioDisplay::ChromeFont);
+  } else label(52, 114, 56, !editing && action == Action::Filters ? "Edit filters" : "Hold Back",
+               !editing && action == Action::Filters ? RadioDisplay::Green : RadioDisplay::MutedInk,
+               RadioDisplay::ChromeFont);
 }
 inline void drawWifi() {
   header("Wi-Fi setup");
@@ -324,9 +367,8 @@ inline void draw() {
     footer("Restart after correction");
   } else switch (view) {
     case View::Listening: drawListening(); break;
-    case View::Menu: drawMenu(); break;
+    case View::Settings: drawSettings(); break;
     case View::Stations: drawStations(); break;
-    case View::Edit: drawEdit(); break;
     case View::Wifi: drawWifi(); break;
   }
   tft.drawRGBBitmap(0, 0, canvas.getBuffer(), 160, 128);
@@ -349,191 +391,283 @@ inline void startStation(const Station& station) {
   autoStartFirst = false;
   dirty = true;
 }
-inline void requestDirectory(const Filter& filter, uint16_t offset, bool refresh = false) {
-  if (!directoryReady) { notify("Station service unavailable"); return; }
-  const RadioCatalog::Request request = search.begin(filter, offset, millis(), refresh);
-  if (!directory.request(request)) {
-    search.fail(request.generation, millis());
-    notify("Cannot queue station search");
-    return;
+inline bool requestDirectory(const Filter& filter, uint16_t offset, bool refresh = false,
+                             Purpose purpose = Purpose::Background) {
+  if(purpose == Purpose::Background && (requestOrigin.valid ||
+      (view == View::Stations && ui.mode != FilterMode::Browse))) return false;
+  backgroundRefreshDue = false;
+  if(purpose != Purpose::Background) {
+    requestOrigin.capture(ui, editSettings);
+    autoStartFirst = false;
   }
+  requestPurpose = purpose;
+  const RadioCatalog::Request request = search.begin(filter, offset, millis(), refresh);
+  directoryError[0] = 0;
+  if(purpose != Purpose::Background) { ui.mode = FilterMode::Browse; enter(View::Stations); }
+  if(!directoryReady || !directory.request(request)) {
+    search.fail(request.generation, millis());
+    strlcpy(directoryError, "Station service unavailable", sizeof(directoryError));
+    stationCursor = 1;
+    notify(directoryError);
+    return false;
+  }
+  dirty = true;
+  return true;
+}
+inline void cancelDirectoryToOrigin() {
+  if(directoryReady) directory.cancel(search.request.generation);
+  search.cancel();
+  directoryError[0] = 0;
+  if(requestOrigin.valid) requestOrigin.restore(ui, editSettings);
+  else enter(View::Listening);
+  requestPurpose = Purpose::Background;
+  listeningMotion = RadioDisplay::ListeningMotion{};
   dirty = true;
 }
 inline void showStations() {
-  int playing = catalog ? RadioModel::findStation(catalog->stations, catalog->count, playback.confirmed) : -1;
-  stationCursor = playing >= 0 ? playing : 0;
+  autoStartFirst = false;
+  if(search.pending || search.failed) {
+    requestOrigin.capture(ui, editSettings);
+    requestPurpose = Purpose::EntryRefresh;
+    ui.mode = FilterMode::Browse;
+    stationCursor = search.failed ? 1 : 0;
+    enter(View::Stations);
+    return;
+  }
+  if(!catalog || (catalog->cached && online)) {
+    requestDirectory(catalog ? catalog->request.filter : RadioCatalog::filterFor(settings),
+                     0, false, Purpose::EntryRefresh);
+    return;
+  }
+  const RadioNavigation::EntryFocus focus = RadioNavigation::entryFocus(catalog, displayedStation());
+  if(focus.nextPage && catalog->request.offset <= UINT16_MAX - RadioModel::kPageSize) {
+    requestDirectory(catalog->request.filter, catalog->request.offset + RadioModel::kPageSize, false, Purpose::Entry);
+    return;
+  }
+  ui.mode = FilterMode::Browse;
+  stationCursor = focus.cursor;
+  ui.lastStation = focus.lastStation;
   enter(View::Stations);
-  if (!catalog && !search.pending && !search.failed) requestDirectory(RadioCatalog::filterFor(settings), 0);
 }
-inline void beginEdit(MenuItem item) {
-  // A pending search can finish while this editor is open. Keep the draft's
-  // provider and options stable until Apply or Cancel.
+inline void beginFields() {
+  if(search.pending || search.failed) {
+    if(directoryReady) directory.cancel(search.request.generation);
+    search.cancel();
+    if(requestOrigin.valid) requestOrigin.restore(ui, editSettings);
+    requestPurpose = Purpose::Background;
+  }
+  autoStartFirst = false;
   editSettings = settings;
-  editItem = item;
-  if (item == Source) draft = static_cast<int>(editSettings.source);
-  else if (item == Location) {
-    if (editSettings.source == RadioModel::Source::Akashvani) {
-      if (catalog) rememberAirLocations(*catalog);
-      draft = 0;
-      for (int i = 0; i < airLocationCount; ++i)
-        if (!strcmp(editSettings.airLocation, airLocations[i])) draft = i + 1;
-    } else draft = editSettings.country;
-  }
-  else if (item == Genre) draft = editSettings.genre;
-  else if (item == Codec) draft = editSettings.codec;
-  else {
-    draft = 0;
-    for (int i = 0; i < RadioConfig::BitrateCapCount; ++i) if (editSettings.bitrateCap == RadioConfig::BitrateCaps[i]) draft = i;
-  }
-  enter(View::Edit);
-}
-inline void applyDraft() {
-  Filter candidate = RadioCatalog::filterFor(editSettings);
-  if (editItem == Source) {
-    Settings sourceSettings = editSettings;
-    sourceSettings.source = static_cast<RadioModel::Source>(draft);
-    // Before the official location catalog has been loaded, All is the only
-    // selectable location. Existing Radio Browser filters remain remembered.
-    if (sourceSettings.source == RadioModel::Source::Akashvani &&
-        editSettings.source != RadioModel::Source::Akashvani && !airLocationsReady)
-      sourceSettings.airLocation[0] = '\0';
-    candidate = RadioCatalog::filterFor(sourceSettings);
-  } else if (editItem == Location) {
-    if (editSettings.source == RadioModel::Source::Akashvani)
-      strlcpy(candidate.location, draft > 0 && draft <= airLocationCount ? airLocations[draft - 1] : "", sizeof(candidate.location));
-    else candidate.country = draft;
-  }
-  else if (editItem == Genre) candidate.genre = draft;
-  else if (editItem == Codec) candidate.codec = draft;
-  else candidate.bitrateCap = RadioConfig::BitrateCaps[draft];
-  // Keep the committed settings, catalog, and currently playing station intact until a valid response.
-  // A re-applied committed filter must supersede an older pending/retrying
-  // request too; otherwise that older response could later replace this choice.
-  if (search.shouldApply(RadioCatalog::filterFor(settings), candidate, catalog != nullptr))
-    requestDirectory(candidate, 0);
+  ui.mode = FilterMode::Fields;
+  ui.fieldCursor = 0;
   stationCursor = 0;
   enter(View::Stations);
 }
-inline void chooseStationOption() {
-  if (catalog && stationCursor < catalog->count) {
-    startStation(catalog->stations[stationCursor]); enter(View::Listening); return;
+inline void beginEdit(Field item) {
+  editSettings = settings;
+  editItem = item;
+  if(item == Field::Source) draft = static_cast<int>(editSettings.source);
+  else if(item == Field::Location) {
+    if(editSettings.source == RadioModel::Source::Akashvani) {
+      if(catalog) rememberAirLocations(*catalog);
+      draft = 0;
+      for(int index = 0; index < airLocationCount; ++index)
+        if(!strcmp(editSettings.airLocation, airLocations[index])) draft = index + 1;
+      // A remembered official group is still selectable before the full session
+      // snapshot is online. Never silently replace it with All on a new boot.
+      if(!draft && editSettings.airLocation[0] && airLocationCount < 64) {
+        strlcpy(airLocations[airLocationCount], editSettings.airLocation, sizeof(airLocations[0]));
+        draft = ++airLocationCount;
+      }
+    } else draft = editSettings.country;
+  } else if(item == Field::Genre) draft = editSettings.genre;
+  else if(item == Field::Codec) draft = editSettings.codec;
+  else {
+    draft = 0;
+    for(int index = 0; index < RadioConfig::BitrateCapCount; ++index)
+      if(editSettings.bitrateCap == RadioConfig::BitrateCaps[index]) draft = index;
   }
-  if (search.pending) { notify("Search in progress", 5000, RadioUi::NoticePriority::Info); return; }
-  int action = stationCursor - (catalog ? catalog->count : 0);
-  const Filter filter = catalog ? catalog->request.filter : RadioCatalog::filterFor(settings);
-  if (catalog && catalog->request.offset) {
-    if (action == 0) { requestDirectory(filter, catalog->request.offset - RadioModel::kPageSize); return; }
-    --action;
-  }
-  if (catalog && catalog->hasNext) {
-    if (action == 0) {
-      if (catalog->request.offset > UINT16_MAX - RadioModel::kPageSize)
-        notify("End of supported page range", 5000, RadioUi::NoticePriority::Info);
-      else requestDirectory(filter, catalog->request.offset + RadioModel::kPageSize);
-      return;
-    }
-    --action;
-  }
-  if (search.failed) requestDirectory(search.request.filter, search.request.offset, true);
-  else requestDirectory(filter, catalog ? catalog->request.offset : 0, true);
+  ui.mode = FilterMode::Value;
+  enter(View::Stations);
 }
-inline int wrap(int current, int delta, int count) { return ((current + delta) % count + count) % count; }
+inline void applyDraft() {
+  Filter candidate = RadioCatalog::filterFor(editSettings);
+  if(editItem == Field::Source) {
+    Settings selected = editSettings;
+    selected.source = static_cast<RadioModel::Source>(draft);
+    candidate = RadioCatalog::filterFor(selected);
+  } else if(editItem == Field::Location) {
+    if(editSettings.source == RadioModel::Source::Akashvani)
+      strlcpy(candidate.location, draft > 0 && draft <= airLocationCount ? airLocations[draft - 1] : "", sizeof(candidate.location));
+    else candidate.country = draft;
+  } else if(editItem == Field::Genre) candidate.genre = draft;
+  else if(editItem == Field::Codec) candidate.codec = draft;
+  else candidate.bitrateCap = RadioConfig::BitrateCaps[draft];
+  candidate = RadioCatalog::normalizeFilter(candidate);
+  if(catalog && candidate == RadioCatalog::filterFor(settings)) {
+    ui.mode = FilterMode::Browse; // Same value: keep the accepted page/cursor, no hidden Refresh.
+    dirty = true;
+    return;
+  }
+  requestDirectory(candidate, 0, false, Purpose::Filter);
+}
+inline void chooseStationOption() {
+  if(search.pending) return;
+  if(ui.mode == FilterMode::Fields) { beginEdit(static_cast<Field>(ui.fieldCursor)); return; }
+  if(ui.mode == FilterMode::Value) { applyDraft(); return; }
+  const Action action = stationAction();
+  if(action == Action::Filters) { beginFields(); return; }
+  if(action == Action::Station && catalog) {
+    startStation(catalog->stations[stationCursor - 1]); enter(View::Listening); return;
+  }
+  if(action == Action::Retry) {
+    const RadioCatalog::Request attempted = search.request;
+    requestDirectory(attempted.filter, attempted.offset, attempted.refresh,
+                     requestOrigin.valid ? requestPurpose : Purpose::Page);
+    return;
+  }
+  if(!catalog) return;
+  if(action == Action::Previous) requestDirectory(catalog->request.filter,
+      catalog->request.offset - RadioModel::kPageSize, false, Purpose::Page);
+  else if(action == Action::Next) {
+    if(catalog->request.offset > UINT16_MAX - RadioModel::kPageSize)
+      notify("End of supported page range", 5000, RadioUi::NoticePriority::Info);
+    else requestDirectory(catalog->request.filter,
+      catalog->request.offset + RadioModel::kPageSize, false, Purpose::Page);
+  }
+}
+inline int wrap(int current, int delta, int count) {
+  return count > 0 ? ((current + delta) % count + count) % count : 0;
+}
 inline void handleInput(const RadioInput::Event& event) {
   lastActionAt = millis();
   dirty = true;
   using RadioInput::EventType;
-  if (event.type == EventType::ButtonDown) { eventButtonDown = true; gestureView = view; return; }
-  if (event.type == EventType::ButtonUp) { eventButtonDown = false; return; }
-  if ((event.type == EventType::ShortPress || event.type == EventType::LongPress) && gestureView != view) return;
-  if (event.type == EventType::LongPress) {
-    if (view == View::Listening) enter(View::Menu);
-    else if (view == View::Menu) enter(View::Listening);
-    else enter(View::Menu); // Draft is discarded; next entry always starts from committed settings.
+  if(event.type == EventType::ButtonDown) {
+    eventButtonDown = true; gestureView = view; gestureState = ui;
+    gestureSearch = search.generation; gesturePending = search.pending; gestureFailed = search.failed;
     return;
   }
-  if (event.type == EventType::Rotate) {
-    // Use historical ordered edges here, not the live task snapshot. A held
-    // turn may be processed after the user has already released the button.
-    if (eventButtonDown) return;
-    if (view == View::Listening) {
+  if(event.type == EventType::ButtonUp) { eventButtonDown = false; return; }
+  const bool press = event.type == EventType::ShortPress || event.type == EventType::LongPress;
+  if(press && (!RadioNavigation::sameControlContext(gestureState, ui) || gestureView != view ||
+      (view == View::Stations && (gestureSearch != search.generation ||
+        gesturePending != search.pending || gestureFailed != search.failed)))) return;
+  if(event.type == EventType::LongPress) {
+    if(view == View::Listening) { autoStartFirst = false; ui.setting = 0; enter(View::Settings); }
+    else if(view == View::Settings) enter(View::Listening);
+    else if(view == View::Wifi) enter(View::Settings);
+    else if(search.pending || search.failed) cancelDirectoryToOrigin();
+    else if(ui.mode == FilterMode::Value) { ui.mode = FilterMode::Fields; }
+    else if(ui.mode == FilterMode::Fields) { ui.mode = FilterMode::Browse; stationCursor = 0; }
+    else enter(View::Listening);
+    return;
+  }
+  if(event.type == EventType::Rotate) {
+    if(eventButtonDown) return;
+    if(view == View::Listening) {
       Settings previous = settings;
       RadioModel::adjustVolume(settings, event.delta);
-      if (previous.volume != settings.volume || previous.muted != settings.muted) {
+      if(previous.volume != settings.volume || previous.muted != settings.muted) {
         audio.volume(RadioModel::outputVolume(settings)); markSettingsDirty();
       }
-    } else if (view == View::Menu) menuIndex = wrap(menuIndex, event.delta, visibleMenuCount());
-    else if (view == View::Stations) stationCursor = wrap(stationCursor, event.delta, stationOptions());
-    else if (view == View::Edit) {
-      int count = editItem == Source ? 2 : editItem == Location ?
-                  (editSettings.source == RadioModel::Source::Akashvani ? airLocationCount + 1 : RadioModel::kCountryCount) :
-                  editItem == Genre ? RadioModel::kGenreCount : editItem == Codec ? RadioModel::kCodecCount : RadioConfig::BitrateCapCount;
-      draft = wrap(draft, event.delta, count);
+    } else if(view == View::Settings) ui.setting = wrap(ui.setting, event.delta, 3);
+    else if(view == View::Stations && !search.pending) {
+      if(ui.mode == FilterMode::Fields)
+        ui.fieldCursor = wrap(ui.fieldCursor, event.delta, RadioNavigation::fieldCount(settings.source));
+      else if(ui.mode == FilterMode::Value) {
+        const int count = editItem == Field::Source ? 2 : editItem == Field::Location ?
+            (editSettings.source == RadioModel::Source::Akashvani ? airLocationCount + 1 : RadioModel::kCountryCount) :
+            editItem == Field::Genre ? RadioModel::kGenreCount : editItem == Field::Codec ? RadioModel::kCodecCount : RadioConfig::BitrateCapCount;
+        draft = wrap(draft, event.delta, count);
+      } else stationCursor = wrap(stationCursor, event.delta, stationOptions());
     }
     return;
   }
-  if (event.type != EventType::ShortPress) return;
-  if (view == View::Listening) {
-    RadioModel::toggleMute(settings); audio.volume(RadioModel::outputVolume(settings)); markSettingsDirty();
-  } else if (view == View::Stations) chooseStationOption();
-  else if (view == View::Edit) applyDraft();
-  else if (view == View::Menu) {
-    const MenuItem item = visibleMenuItem(menuIndex);
-    if (item == Stations) showStations();
-    else if (item >= Source && item <= Bitrate) beginEdit(item);
-    else if (item == Wifi) { wifi.startPortal(); enter(View::Wifi); }
-    else if (item == Retry) {
-      const Station& station = RadioModel::validStation(playback.requested) ? playback.requested : lastGood;
-      if (RadioModel::validStation(station)) { startStation(station); enter(View::Listening); }
-      else showStations();
+  if(event.type != EventType::ShortPress) return;
+  if(view == View::Listening) showStations();
+  else if(view == View::Stations) chooseStationOption();
+  else if(view == View::Settings) {
+    if(ui.setting == 0) { wifi.startPortal(); enter(View::Wifi); }
+    else if(ui.setting == 1) {
+      const Station& station = displayedStation();
+      if(RadioModel::validStation(station)) startStation(station);
+      else notify("Choose a station first", 5000, RadioUi::NoticePriority::Info);
+      enter(View::Listening);
+    } else {
+      RadioModel::toggleMute(settings);
+      audio.volume(RadioModel::outputVolume(settings));
+      markSettingsDirty();
     }
   }
 }
 
 inline void serviceDirectory() {
   uint32_t startedGeneration = 0;
-  if (directoryReady && directory.pollStarted(startedGeneration)) search.started(startedGeneration, millis());
+  if(directoryReady && directory.pollStarted(startedGeneration)) search.started(startedGeneration, millis());
   RadioCatalog::Result* result = nullptr;
-  if (directoryReady && directory.poll(result)) {
-    if (!search.accepts(result->request.generation)) { delete result; return; }
-    if (result->status == RadioCatalog::ResultStatus::Error) {
+  if(directoryReady && directory.poll(result)) {
+    if(!search.accepts(result->request.generation)) { delete result; return; }
+    if(result->status == RadioCatalog::ResultStatus::Error) {
       search.fail(result->request.generation, millis());
+      strlcpy(directoryError, result->message, sizeof(directoryError));
+      stationCursor = 1;
       notify(result->message, 10000);
       delete result;
     } else {
+      const Purpose completedPurpose = requestPurpose;
       search.succeed(result->request.generation);
       delete catalog;
       catalog = result;
-      const bool changedSource = settings.source != result->request.filter.source;
+      enrichLocation(playback.requested);
+      enrichLocation(playback.confirmed);
+      if(enrichLocation(lastGood)) markSettingsDirty();
       settings.source = result->request.filter.source;
-      if (settings.source == RadioModel::Source::Akashvani) {
+      if(settings.source == RadioModel::Source::Akashvani) {
         strlcpy(settings.airLocation, result->request.filter.location, sizeof(settings.airLocation));
-        if (!(view == View::Edit && editItem == Location && editSettings.source == RadioModel::Source::Akashvani))
-          rememberAirLocations(*result);
+        rememberAirLocations(*result);
       } else {
-        // AIR's normalized filter contains no RB genre/codec/country choices.
-        // Keep those preferences intact while browsing the other provider.
         settings.country = result->request.filter.country;
         settings.genre = result->request.filter.genre;
         settings.codec = result->request.filter.codec;
         settings.bitrateCap = result->request.filter.bitrateCap;
       }
-      if (changedSource) menuIndex = 0;
+      ui.fieldCursor = 0;
       markSettingsDirty();
-      const Station& current = RadioModel::validStation(playback.confirmed) ? playback.confirmed : playback.requested;
-      stationCursor = max(0, RadioModel::findStation(catalog->stations, catalog->count, current));
-      if (storageReady && !storage.saveCache(*catalog, settings)) notify("Cannot queue station cache");
-      if (autoStartFirst && catalog->count && !RadioModel::validStation(playback.requested)) startStation(catalog->stations[0]);
+      ui.mode = FilterMode::Browse;
+      ui.lastStation = 0;
+      stationCursor = catalog->count ? 1 : max(0, RadioNavigation::cursorFor(Action::Next, catalog));
+      if(storageReady && !storage.saveCache(*catalog, settings)) notify("Cannot queue station cache");
+      if(completedPurpose == Purpose::EntryRefresh) {
+        const RadioNavigation::EntryFocus focus = RadioNavigation::entryFocus(catalog, displayedStation());
+        stationCursor = focus.cursor; ui.lastStation = focus.lastStation;
+        if(focus.nextPage && catalog->request.offset <= UINT16_MAX - RadioModel::kPageSize) {
+          requestDirectory(catalog->request.filter, catalog->request.offset + RadioModel::kPageSize, false, Purpose::Entry);
+          return; // Keep the original player rollback across the entry's full-page refresh.
+        }
+      }
+      requestOrigin.valid = false;
+      requestPurpose = Purpose::Background;
+      directoryError[0] = 0;
+      if(autoStartFirst && catalog->count && !RadioModel::validStation(playback.requested))
+        startStation(catalog->stations[0]);
       else notify(catalog->message, 5000, RadioUi::NoticePriority::Info);
     }
     dirty = true;
   }
   const uint32_t now = millis();
-  if (search.expire(now)) {
-    char message[80];
-    snprintf(message, sizeof(message), "%s timeout; previous list kept", sourceLabel(search.request.filter.source));
-    notify(message, 10000);
+  if(search.expire(now)) {
+    snprintf(directoryError, sizeof(directoryError), "%s timeout", sourceLabel(search.request.filter.source));
+    stationCursor = 1;
+    notify(directoryError, 10000);
   }
-  if (search.retryDue(online, now)) requestDirectory(search.request.filter, search.request.offset, search.request.refresh);
+  // Visible user operations wait for Retry or Back. Background startup/network
+  // refreshes can back off automatically, but cancellation clears their token.
+  if(backgroundRefreshDue && online && !search.pending && !requestOrigin.valid &&
+      !(view == View::Stations && ui.mode != FilterMode::Browse))
+    requestDirectory(RadioCatalog::filterFor(settings), 0, true);
+  else if(!requestOrigin.valid && search.retryDue(online, now))
+    requestDirectory(search.request.filter, search.request.offset, search.request.refresh);
 }
 inline void serviceAudio() {
   RadioAudio::Snapshot update;
@@ -553,6 +687,8 @@ inline void serviceAudio() {
       dirty = true;
     }
   }
+  enrichLocation(playback.requested);
+  enrichLocation(playback.confirmed);
   if (playback.state == RadioAudio::State::Playing && RadioModel::validStation(playback.confirmed) &&
       (playback.confirmed.source != lastGood.source || strcmp(playback.confirmed.id, lastGood.id) ||
        strcmp(playback.confirmed.url, lastGood.url))) {
@@ -642,7 +778,7 @@ inline void loop() {
   if (portalWasActive != wifi.portalActive()) {
     portalWasActive = wifi.portalActive();
     if (portalWasActive) {
-      notify("Wi-Fi setup available in menu", 10000, RadioUi::NoticePriority::Info);
+      notify("Wi-Fi setup available in Settings", 10000, RadioUi::NoticePriority::Info);
       if (!RadioModel::validStation(playback.requested)) enter(View::Wifi);
     }
     else if (view == View::Wifi) enter(View::Listening);
@@ -655,8 +791,9 @@ inline void loop() {
     online = connected;
     audio.network(online);
     if (online) {
+      backgroundRefreshDue = true;
       notify("Wi-Fi connected", 5000, RadioUi::NoticePriority::Info);
-      if (!search.pending) {
+      if (!search.pending && !requestOrigin.valid) {
         if (search.failed) requestDirectory(search.request.filter, search.request.offset, search.request.refresh);
         else requestDirectory(RadioCatalog::filterFor(settings), 0, true);
       }
@@ -681,16 +818,12 @@ inline void loop() {
     if (storage.save(settings, lastGood)) settingsDirty = false;
     else { dirtySince = now; notify("Settings queue unavailable"); }
   }
-  const uint32_t timeout = view == View::Edit ? RadioConfig::EditTimeoutMs : RadioConfig::MenuTimeoutMs;
-  const uint32_t activity = inputReady ? input.lastActivity() : lastActionAt;
-  // Raw edges refresh activity during debounce; held gestures cannot change mode on timeout.
-  if (view != View::Listening && view != View::Wifi && (!inputReady || !input.buttonDown()) &&
-      now - lastActionAt > timeout && static_cast<int32_t>(now - activity) > static_cast<int32_t>(timeout) &&
-      now - viewEnteredAt > timeout) enter(View::Listening);
+  // Browsing/settings/editing stay open until the user goes Back. In particular
+  // a slow directory request cannot change the destination of a held gesture.
   // Static short text needs no animation, but notices still expire and redraw.
   // Hidden warnings/restoration feedback keep their remaining visible time.
   const RadioUi::Message message = RadioUi::messageFor(playback, online, wifi.status(), settings.muted,
-                                                      notices, restorationNotice.active());
+                                                      notices, restorationNotice.active(), settings.volume == 0);
   if (notices.update(now, view == View::Listening && !initializationError[0] && message.usesNotice)) dirty = true;
   if (restorationNotice.update(now, view == View::Listening && !initializationError[0] && message.usesFallback)) dirty = true;
   const uint32_t interval = inputReady && input.buttonDown() ? 50 : 250;

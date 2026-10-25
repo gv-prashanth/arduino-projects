@@ -86,6 +86,7 @@ struct Radio {
     RadioModel::copyText(station.name, "Raagam");
     RadioModel::copyText(station.url, "https://example.com/live.m3u8");
     RadioModel::copyText(station.country, "IN");
+    RadioModel::copyText(station.location, "NATIONAL");
     audio.state = RadioAudio::State::Playing;
     RadioModel::copyText(audio.codec, "AAC");
     RadioModel::copyText(audio.detail, "Decoded audio ready");
@@ -93,7 +94,7 @@ struct Radio {
   }
   Canvas render(uint32_t now) {
     const RadioUi::Message message = RadioUi::messageFor(audio, online, "Wi-Fi reconnecting", settings.muted,
-                                                        notices, fallback);
+                                                        notices, fallback, settings.volume == 0);
     RadioDisplay::ListeningFrame frame(settings, station, audio, station.name, message.text, message.tone, now);
     frame.online = online;
     frame.buttonDown = buttonDown;
@@ -107,11 +108,17 @@ struct Radio {
 void testReadableAndStatic() {
   assert(RadioDisplay::fontHeight(*RadioFonts::Body) == 14);
   assert(RadioDisplay::fontHeight(*RadioFonts::Title) == 19);
-  assert(RadioDisplay::textWidth(*RadioFonts::Body, "Click:mute Hold:menu") <= 152);
+  assert(RadioDisplay::fontHeight(*RadioDisplay::RowFont) == 13);
+  assert(RadioDisplay::fontHeight(*RadioDisplay::ChromeFont) == 10);
+  assert(RadioDisplay::textWidth(*RadioDisplay::ChromeFont, "GTS RADIO") <= 61);
+  assert(RadioDisplay::textWidth(*RadioDisplay::ChromeFont, "Settings") <= 40);
+  assert(RadioDisplay::textWidth(*RadioDisplay::ChromeFont, "Click Stations") <= 64);
+  assert(RadioDisplay::textWidth(*RadioDisplay::ChromeFont, "Hold Settings") <= 63);
+  assert(97 + RadioDisplay::fontHeight(*RadioDisplay::RowFont) <= RadioDisplay::FooterTop);
   Radio radio;
   const Canvas first = radio.render(100);
   assert(!radio.animated);
-  assert(first.blank(0, 92, 160, 14)); // No redundant healthy playback text.
+  assert(first.blank(0, 97, 160, 13)); // No redundant healthy playback text.
   for (uint32_t now : {4100u, 8100u, 60000u}) {
     const Canvas later = radio.render(now);
     assert(!radio.animated && first.pixels == later.pixels);
@@ -121,18 +128,103 @@ void testReadableAndStatic() {
   const Canvas otherBrowser = radio.render(61000);
   assert(first.pixels == otherBrowser.pixels);
   Canvas expected;
-  RadioDisplay::drawText(expected, *RadioFonts::Body, 4, 22, 152, "Akashvani / IN", RadioDisplay::Green, false, 0);
-  sameRegion(first, expected, 0, 22, 160, 14);
-  RadioDisplay::drawText(expected, *RadioFonts::Body, 4, 113, 152,
-                         "Click:mute Hold:menu", RadioDisplay::Cyan, false, 0);
-  sameRegion(first, expected, 0, 113, 160, 15);
+  RadioDisplay::drawText(expected, *RadioDisplay::ChromeFont, 4, 21, 152, "Akashvani / National", RadioDisplay::Green, false, 0);
+  sameRegion(first, expected, 0, 21, 160, 10);
+  RadioDisplay::footer(expected, RadioDisplay::Icon::Stations, "Stations", RadioDisplay::Icon::Settings, "Settings");
+  sameRegion(first, expected, 0, 110, 160, 16);
+  radio.station.location[0] = '\0';
+  const Canvas countryFallback = radio.render(61500);
+  expected = Canvas{};
+  RadioDisplay::drawText(expected, *RadioDisplay::ChromeFont, 4, 21, 152, "Akashvani / IN", RadioDisplay::Green, false, 0);
+  sameRegion(countryFallback, expected, 0, 21, 160, 10);
+  radio.station.country[0] = '\0';
+  const Canvas unknownLocation = radio.render(61700);
+  expected = Canvas{};
+  RadioDisplay::drawText(expected, *RadioDisplay::ChromeFont, 4, 21, 152, "Akashvani", RadioDisplay::Green, false, 0);
+  sameRegion(unknownLocation, expected, 0, 21, 160, 10); // Missing station metadata is not an All filter.
   radio.station = RadioModel::Station{};
   radio.audio.state = RadioAudio::State::Idle;
   const Canvas noStation = radio.render(62000);
   expected = Canvas{};
-  RadioDisplay::drawText(expected, *RadioFonts::Body, 4, 22, 152,
+  RadioDisplay::drawText(expected, *RadioDisplay::ChromeFont, 4, 21, 152,
                          "No station selected", RadioDisplay::Green, false, 0);
-  sameRegion(noStation, expected, 0, 22, 160, 14);
+  sameRegion(noStation, expected, 0, 21, 160, 10);
+}
+
+void testSharedChromeBounds(const std::string& previewPrefix) {
+  RadioModel::Settings settings;
+  Canvas emptyHeader, caption;
+  RadioDisplay::brandHeader(emptyHeader, settings);
+  for (const char* context : {"p1/3", "p14/14", "Settings", "Source", "Location", "Genre", "Codec", "Bitrate"}) {
+    caption = Canvas{};
+    RadioDisplay::brandHeader(caption, settings, context);
+    sameRegion(emptyHeader, caption, 0, 0, 67, 18);
+    sameRegion(emptyHeader, caption, 107, 0, 53, 18);
+    assert(caption.contains(67, 4, 40, 10, RadioDisplay::MutedInk));
+  }
+  if (!previewPrefix.empty()) caption.write(previewPrefix + "header.ppm");
+  // Every icon uses its requested square, including the spinner's extremes.
+  for (int value = static_cast<int>(RadioDisplay::Icon::Play);
+       value <= static_cast<int>(RadioDisplay::Icon::ChevronUpDown); ++value) {
+    Canvas canvas;
+    RadioDisplay::drawIcon(canvas, static_cast<RadioDisplay::Icon>(value), 147, 115, 13, RadioDisplay::Cyan, 300);
+    assert(!canvas.blank(147, 115, 13, 13));
+    RadioDisplay::drawIcon(canvas, static_cast<RadioDisplay::Icon>(value), 159, 127, 1, RadioDisplay::Cyan);
+  }
+  Canvas nav;
+  RadioDisplay::navButton(nav, false, RadioDisplay::Icon::Prev, "Prev", false, true);
+  RadioDisplay::navButton(nav, true, RadioDisplay::Icon::Next, "Next", true, false);
+  assert(nav.contains(4, 112, 46, 14, RadioDisplay::DisabledInk));
+  assert(nav.contains(110, 112, 46, 14, RadioDisplay::FocusBackground));
+  const struct {const char* location; const char* label;} locations[] = {
+    {nullptr, "All"}, {"", "All"}, {"NATIONAL", "National"}, {"Andhra Pradesh", "AP"},
+    {"ANDHRA PRADESH", "AP"}, {"Telangana", "TS"}, {"India", "IN"},
+    {"United Kingdom", "UK"}, {"United States", "US"}, {"Kerala", "Kerala"}
+  };
+  for (const auto& location : locations)
+    assert(!std::strcmp(RadioDisplay::compactLocationLabel(location.location), location.label));
+  Canvas volumeIcon, muteIcon;
+  RadioDisplay::drawIcon(volumeIcon, RadioDisplay::Icon::Volume, 4, 4, 13);
+  RadioDisplay::drawIcon(muteIcon, RadioDisplay::Icon::Muted, 4, 4, 13);
+  assert(volumeIcon.pixels != muteIcon.pixels);
+}
+
+void testStationTitleIsFittedAndStatic(const std::string& previewPrefix) {
+  Radio radio;
+  RadioModel::copyText(radio.station.name, "Visakhapatnam Akashvani Radio");
+  const Canvas first = radio.render(1000);
+  assert(!radio.animated);
+  assert(!first.blank(4, 58, 152, 19));
+  for (uint32_t now : {2499u, 5000u, 60000u}) assert(first.pixels == radio.render(now).pixels);
+  char lineOne[128] = {}, lineTwo[128] = {};
+  RadioDisplay::listening_detail::titleLines(radio.station.name, lineOne, lineTwo);
+  assert(RadioDisplay::textWidth(*RadioFonts::Title, lineOne) <= 152);
+  assert(lineTwo[0]);
+  assert(39 + RadioDisplay::fontHeight(*RadioFonts::Title) * 2 <= 80);
+  assert(RadioDisplay::listening_detail::titleFont(radio.station.name) == RadioFonts::Title);
+  if (!previewPrefix.empty()) first.write(previewPrefix + "long-name.ppm");
+  RadioModel::copyText(radio.station.name, "Thiruvananthapuram");
+  assert(RadioDisplay::listening_detail::titleFont(radio.station.name) == RadioFonts::Body);
+  RadioDisplay::listening_detail::titleLines(radio.station.name, lineOne, lineTwo, *RadioFonts::Body);
+  assert(!std::strcmp(lineOne, radio.station.name) && !lineTwo[0]);
+  const Canvas singleWord = radio.render(60500);
+  assert(singleWord.blank(4, 53, 152, 24)); // No orphaned last character on a second line.
+  assert(!radio.animated && singleWord.pixels == radio.render(60999).pixels);
+  if (!previewPrefix.empty()) singleWord.write(previewPrefix + "single-word.ppm");
+  RadioModel::copyText(radio.station.name, "OneVeryLongUnbrokenStationNameThatMustNotShiftOrReachTheCodecRow");
+  const Canvas longToken = radio.render(61000);
+  assert(!radio.animated && longToken.pixels == radio.render(71000).pixels);
+  sameRegion(first, longToken, 0, 80, 160, 48);
+}
+
+void testStatusDoesNotRepeatInTheDetailRow() {
+  using RadioDisplay::listening_detail::detailAfterStatus;
+  assert(!std::strcmp(detailAfterStatus("Buffering; waiting for decoded audio", "Buffering"), "waiting for decoded audio"));
+  assert(!std::strcmp(detailAfterStatus("Playback failed; Server unavailable", "Playback failed"), "Server unavailable"));
+  assert(!std::strcmp(detailAfterStatus("Wi-Fi offline; reconnecting", "Wi-Fi offline"), "reconnecting"));
+  assert(!std::strcmp(detailAfterStatus("Connecting", "Connecting"), ""));
+  assert(!std::strcmp(detailAfterStatus("Connection attempt 2/3", "Connecting"), "Connection attempt 2/3"));
+  assert(!std::strcmp(detailAfterStatus("Bufferingstation", "Buffering"), "Bufferingstation"));
 }
 
 void testStatusAndMotion(const std::string& previewPrefix) {
@@ -144,13 +236,12 @@ void testStatusAndMotion(const std::string& previewPrefix) {
   const Canvas maxVolume = radio.render(150);
   radio.settings.muted = true;
   const Canvas muted = radio.render(200);
-  assert(!maxVolume.contains(100, 0, 16, 17, RadioDisplay::Yellow));
-  assert(muted.contains(100, 0, 16, 17, RadioDisplay::Yellow));
+  assert(!maxVolume.contains(109, 0, 10, 17, RadioDisplay::Yellow));
+  assert(muted.contains(109, 0, 10, 17, RadioDisplay::Yellow));
   sameRegion(muted, maxVolume, 0, 0, 96, 18); // The mute symbol does not cover the logo.
-  assert(!muted.blank(4, 92, 152, 14));
+  assert(!muted.blank(4, 97, 152, 13));
   if (!previewPrefix.empty()) muted.write(previewPrefix + "muted.ppm");
   radio.settings.muted = false;
-  RadioModel::copyText(radio.station.name, "Visakhapatnam Akashvani Radio");
   RadioModel::copyText(radio.audio.title, "A long programme title from the station to exercise clipping and scrolling");
   const Canvas initial = radio.render(1000);
   assert(radio.animated);
@@ -159,7 +250,7 @@ void testStatusAndMotion(const std::string& previewPrefix) {
   const Canvas scrolled = radio.render(4000);
   assert(initial.pixels != scrolled.pixels);
   sameRegion(initial, scrolled, 0, 110, 160, 18); // Body marquees never move the footer.
-  if (!previewPrefix.empty()) initial.write(previewPrefix + "long-name.ppm");
+  if (!previewPrefix.empty()) initial.write(previewPrefix + "programme.ppm");
   RadioModel::copyText(radio.station.name, "Raagam");
   radio.audio.title[0] = '\0';
   struct Example { RadioAudio::State state; const char* detail; const char* name; };
@@ -176,18 +267,23 @@ void testStatusAndMotion(const std::string& previewPrefix) {
     radio.audio.state = example.state;
     RadioModel::copyText(radio.audio.detail, example.detail);
     const Canvas frame = radio.render(now);
-    assert(!frame.blank(4, 92, 152, 14)); // Status remains visible without metadata.
-    if (example.state != RadioAudio::State::Buffering)
-      assert(frame.blank(0, 70, 160, 14)); // Old codec never implies a new connection succeeded.
+    assert(!frame.blank(23, 80, 133, 13)); // State remains visible without metadata.
+    assert(!frame.contains(23, 80, 133, 13, RadioDisplay::Cyan)); // Old codec never implies a new connection succeeded.
     for (uint32_t elapsed : {0u, 1499u, 1500u, 1540u, 4000u, 8000u, 60000u}) {
       const Canvas later = radio.render(now + elapsed);
-      sameRegion(frame, later, 0, 110, 160, 18);
+      sameRegion(frame, later, 0, 110, 160, 16);
     }
     if (!previewPrefix.empty()) frame.write(previewPrefix + example.name + ".ppm");
     now += 100000;
   }
   radio.audio.state = RadioAudio::State::Playing;
   radio.audio.detail[0] = '\0';
+  radio.settings.volume = 0;
+  const Canvas zero = radio.render(now);
+  assert(zero.contains(109, 0, 10, 17, RadioDisplay::Yellow));
+  assert(!zero.blank(4, 97, 152, 13));
+  if (!previewPrefix.empty()) zero.write(previewPrefix + "zero-volume.ppm");
+  radio.settings.volume = 10;
   radio.notices.post("Station directory unavailable; previous list kept", 5000, now, RadioUi::NoticePriority::Warning);
   const Canvas warning = radio.render(now);
   if (!previewPrefix.empty()) warning.write(previewPrefix + "warning.ppm");
@@ -200,12 +296,16 @@ void testStatusAndMotion(const std::string& previewPrefix) {
     radio.heldMs = held;
     const Canvas heldFrame = radio.render(now + held);
     assert(radio.animated);
-    sameRegion(restored, heldFrame, 0, 110, 160, 18);
+    sameRegion(restored, heldFrame, 0, 110, 160, 16);
   }
 }
 } // namespace
 
 int main(int argc, char** argv) {
+  const std::string prefix = argc > 1 ? argv[1] : "";
   testReadableAndStatic();
-  testStatusAndMotion(argc > 1 ? argv[1] : "");
+  testSharedChromeBounds(prefix);
+  testStationTitleIsFittedAndStatic(prefix);
+  testStatusDoesNotRepeatInTheDetailRow();
+  testStatusAndMotion(prefix);
 }

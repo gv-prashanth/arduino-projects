@@ -53,7 +53,7 @@ static void staleMetadataCannotHidePlaybackState() {
       {State::Connecting, "Connecting", Tone::Info},
       {State::Retrying, "Retrying audio", Tone::Warning},
       {State::Buffering, "Buffering", Tone::Warning},
-      {State::Failed, "Playback failed; Menu > Retry audio", Tone::Error},
+      {State::Failed, "Playback failed; Settings > Retry audio", Tone::Error},
       {State::Offline, "Wi-Fi offline; reconnecting", Tone::Warning}};
   for (const auto& example : cases) {
     NoticeCenter notices;
@@ -79,10 +79,11 @@ static void specificProgressAndFailureRemainActionable() {
       {State::Retrying, "Starting selected station", "Starting selected station"},
       {State::Retrying, "Returning to previous station", "Returning to previous station"},
       {State::Buffering, "Waiting for audio data", "Waiting for audio data"},
-      {State::Failed, "Open menu > Retry audio", "Playback failed; Open menu > Retry audio"},
-      {State::Failed, "No decodable audio", "Playback failed; No decodable audio; Menu > Retry audio"},
-      {State::Failed, "Playback failed", "Playback failed; Menu > Retry audio"},
-      {State::Failed, "Playback failed; try again", "Playback failed; try again; Menu > Retry audio"}};
+      {State::Failed, "Open menu > Retry audio", "Playback failed; Open Settings > Retry audio"},
+      {State::Failed, "Menu > Retry audio", "Playback failed; Settings > Retry audio"},
+      {State::Failed, "No decodable audio", "Playback failed; No decodable audio; Settings > Retry audio"},
+      {State::Failed, "Playback failed", "Playback failed; Settings > Retry audio"},
+      {State::Failed, "Playback failed; try again", "Playback failed; try again; Settings > Retry audio"}};
   for (const auto& example : cases) {
     const Snapshot snapshot = playback(example.state, example.detail, "Stale metadata");
     const Message message = RadioUi::messageFor(snapshot, true, "", true, notices, true);
@@ -133,6 +134,25 @@ static void idleKeepsItsPromptUnlessAWarningNeedsAttention() {
   notices.post("Cannot queue station search", 5000, 0, NoticePriority::Warning);
   message = RadioUi::messageFor(snapshot, true, "", true, notices, true);
   assert(!std::strcmp(message.text, "Cannot queue station search") && message.usesNotice);
+}
+
+static void zeroVolumeUsesTheSamePriorityAsMute() {
+  NoticeCenter notices;
+  notices.post("Stations ready", 5000, 0);
+  const Snapshot snapshot = playback(State::Playing, "Decoded audio ready", "Programme title");
+  Message message = RadioUi::messageFor(snapshot, true, "", false, notices, true, true);
+  assert(!std::strcmp(message.text, "Volume 0"));
+  assert(!message.usesNotice && !message.usesFallback);
+  message = RadioUi::messageFor(snapshot, true, "", true, notices, true, true);
+  assert(!std::strcmp(message.text, "Muted"));
+  notices.post("Settings write failed", 5000, 0, NoticePriority::Warning);
+  message = RadioUi::messageFor(snapshot, true, "", false, notices, true, true);
+  assert(message.usesNotice && !std::strcmp(message.text, "Settings write failed"));
+  message = RadioUi::messageFor(playback(State::Connecting, "Connection attempt 1/3"),
+                               true, "", false, notices, true, true);
+  assert(!std::strcmp(message.text, "Connection attempt 1/3") && !message.usesNotice);
+  message = RadioUi::messageFor(snapshot, false, "Wi-Fi lost", false, notices, true, true);
+  assert(!std::strcmp(message.text, "Wi-Fi lost"));
 }
 
 static void warningsHaveIndependentVisibleTime() {
@@ -263,6 +283,7 @@ int main() {
   specificProgressAndFailureRemainActionable();
   priorityIsIndependentOfMuteAndMetadata();
   idleKeepsItsPromptUnlessAWarningNeedsAttention();
+  zeroVolumeUsesTheSamePriorityAsMute();
   warningsHaveIndependentVisibleTime();
   criticalStatesAndOtherViewsPausePendingWarnings();
   restorationCanUseTheSameVisibleTimeMechanism();

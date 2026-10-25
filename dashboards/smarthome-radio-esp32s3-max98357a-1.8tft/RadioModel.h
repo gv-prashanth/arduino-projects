@@ -25,6 +25,7 @@ struct Station {
   char name[128] = {};
   char url[512] = {};
   char country[3] = {};
+  char location[64] = {};
   std::uint16_t bitrateKbps = 0;
 };
 
@@ -54,10 +55,11 @@ inline bool copyText(char (&destination)[N], const char* source) {
 }
 
 inline void adjustVolume(Settings& settings, int delta) {
+  const std::uint8_t previous = settings.volume;
   const std::int64_t candidate = static_cast<std::int64_t>(settings.volume) + delta;
   settings.volume = static_cast<std::uint8_t>(
       candidate < 0 ? 0 : candidate > kMaxVolume ? kMaxVolume : candidate);
-  settings.muted = false;
+  if (settings.volume != previous) settings.muted = false;
 }
 
 inline void toggleMute(Settings& settings) { settings.muted = !settings.muted; }
@@ -90,7 +92,7 @@ inline bool allZero(const char (&text)[N]) {
 
 inline bool emptyStation(const Station& station) {
   return station.source == Source::RadioBrowser && allZero(station.id) && allZero(station.name) && allZero(station.url) &&
-         allZero(station.country) && station.bitrateKbps == 0;
+         allZero(station.country) && allZero(station.location) && station.bitrateKbps == 0;
 }
 
 inline char asciiLower(char c) {
@@ -109,6 +111,7 @@ inline bool startsWithIgnoreCase(const char* text, const char* prefix) {
 inline bool validStation(const Station& station) {
   if (!validSource(station.source) || !detail::terminated(station.id) || !detail::terminated(station.name) ||
       !detail::terminated(station.url) || !detail::terminated(station.country) ||
+      !detail::terminated(station.location) ||
       station.name[0] == '\0') return false;
 
   const char* authority = nullptr;
@@ -125,6 +128,13 @@ inline bool validStation(const Station& station) {
   return station.country[0] >= 'A' && station.country[0] <= 'Z' &&
          station.country[1] >= 'A' && station.country[1] <= 'Z' &&
          station.country[2] == '\0';
+}
+
+// A provider's location is display metadata; missing/oversized names fall back
+// to that station's own ISO country rather than any current search filter.
+inline void assignStationLocation(Station& station, const char* location) {
+  if (!location || !*location || !copyText(station.location, location))
+    copyText(station.location, detail::terminated(station.country) ? station.country : "");
 }
 
 // IDs survive URL changes. Radio Browser also permits URL fallback for legacy
@@ -154,11 +164,13 @@ inline int previewIndex(int proposed, int count) {
   return proposed >= count ? count - 1 : proposed;
 }
 
-// Explicit version 2 byte format, including independent browsing/playing sources
-// and the remembered AIR location. Version 1 remains readable for migration.
+// Explicit version 3 adds the playing station location to version 2.
+// Earlier source-aware version 2 and original version 1 remain readable.
 constexpr std::size_t kLegacySettingsRecordSize = 701;
 struct LegacySettingsRecord { std::uint8_t bytes[kLegacySettingsRecordSize] = {}; };
-constexpr std::size_t kSettingsRecordSize = 767;
+constexpr std::size_t kPreviousSettingsRecordSize = 767;
+struct PreviousSettingsRecord { std::uint8_t bytes[kPreviousSettingsRecordSize] = {}; };
+constexpr std::size_t kSettingsRecordSize = 831;
 struct SettingsRecord {
   std::uint8_t bytes[kSettingsRecordSize] = {};
 };
@@ -225,7 +237,7 @@ inline SettingsRecord makeSettingsRecord(const Settings& settings, const Station
   record.bytes[1] = 'A';
   record.bytes[2] = 'D';
   record.bytes[3] = 'I';
-  record.bytes[4] = 2;
+  record.bytes[4] = 3;
   record.bytes[5] = settings.volume;
   record.bytes[6] = settings.muted ? 1 : 0;
   record.bytes[7] = settings.country;
@@ -241,6 +253,8 @@ inline SettingsRecord makeSettingsRecord(const Settings& settings, const Station
   detail::writeText(bytes, lastGood.url);
   detail::writeText(bytes, lastGood.country);
   detail::writeU16(bytes, lastGood.bitrateKbps);
+  bytes += 2;
+  detail::writeText(bytes, lastGood.location);
   detail::writeU32(record.bytes + detail::kRecordPayloadSize,
                    detail::crc32(record.bytes, detail::kRecordPayloadSize));
   return record;
@@ -250,9 +264,44 @@ inline SettingsRecord makeSettingsRecord(const Settings& settings, const Station
 inline bool decodeSettingsRecord(const SettingsRecord& record, Settings& outSettings,
                                  Station& outStation) {
   if (record.bytes[0] != 'R' || record.bytes[1] != 'A' || record.bytes[2] != 'D' ||
-      record.bytes[3] != 'I' || record.bytes[4] != 2 || record.bytes[6] > 1 ||
+      record.bytes[3] != 'I' || record.bytes[4] != 3 || record.bytes[6] > 1 ||
       detail::readU32(record.bytes + detail::kRecordPayloadSize) !=
           detail::crc32(record.bytes, detail::kRecordPayloadSize)) return false;
+
+  Settings settings;
+  settings.volume = record.bytes[5];
+  settings.muted = record.bytes[6] == 1;
+  settings.country = record.bytes[7];
+  settings.genre = record.bytes[8];
+  settings.codec = record.bytes[9];
+  settings.bitrateCap = detail::readU16(record.bytes + 10);
+  Station station;
+  settings.source = static_cast<Source>(record.bytes[12]);
+  const std::uint8_t* bytes = record.bytes + 13;
+  detail::readText(bytes, settings.airLocation);
+  station.source = static_cast<Source>(*bytes++);
+  detail::readText(bytes, station.id);
+  detail::readText(bytes, station.name);
+  detail::readText(bytes, station.url);
+  detail::readText(bytes, station.country);
+  station.bitrateKbps = detail::readU16(bytes);
+  bytes += 2;
+  detail::readText(bytes, station.location);
+  if (!validSettings(settings) ||
+      (!detail::emptyStation(station) && !validStation(station))) return false;
+
+  outSettings = settings;
+  outStation = station;
+  return true;
+}
+
+// Decode the previous source-aware 767-byte record; its station location was absent.
+inline bool decodeSettingsRecord(const PreviousSettingsRecord& record, Settings& outSettings,
+                                 Station& outStation) {
+  if (record.bytes[0] != 'R' || record.bytes[1] != 'A' || record.bytes[2] != 'D' ||
+      record.bytes[3] != 'I' || record.bytes[4] != 2 || record.bytes[6] > 1 ||
+      detail::readU32(record.bytes + (kPreviousSettingsRecordSize - 4)) !=
+          detail::crc32(record.bytes, (kPreviousSettingsRecordSize - 4))) return false;
 
   Settings settings;
   settings.volume = record.bytes[5];

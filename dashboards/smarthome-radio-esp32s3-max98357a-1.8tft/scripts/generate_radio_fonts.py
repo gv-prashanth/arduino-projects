@@ -23,10 +23,12 @@ SOURCE_HASHES = {
 CONVERTER_SHA256 = "42e70906d68e4a7bced1c47a7bb12d2a86c29484eeb564f76449ea7a9b6c3ba1"
 FONTS = [("Body", "LiberationSans-Regular.ttf", 7),
          ("Title", "LiberationSans-Bold.ttf", 10),
-         ("Small", "LiberationSans-Regular.ttf", 6)]
+         ("Small", "LiberationSans-Regular.ttf", 6),
+         ("Chrome", "LiberationSans-Regular.ttf", 5)]
 SAMPLES = ["GTS RADIO", "Vol21", "Muted", "Akashvani / IN", "Radio Browser / IN",
            "Click:mute Hold:menu", "Click mute | Hold menu", "Playing - ready",
-           "AAC 67 kbps", "Akashvani p14/14"]
+           "AAC 67 kbps", "Akashvani p14/14", "Click Stations", "Hold Settings",
+           "Settings", "Location", "Bitrate", "p14/14", "Vol 21"]
 GLYPH_PATTERN = r"\{\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*\}"
 
 

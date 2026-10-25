@@ -23,8 +23,11 @@ inline void buildAkashvaniPage(const RadioAkashvani::Entry* entries, std::size_t
   for (std::size_t i = 0; i < count; ++i) {
     if (location[0] && std::strcmp(location, entries[i].location) != 0) continue;
     const unsigned index = matched++;
-    if (index >= result.request.offset && result.count < RadioModel::kPageSize)
-      result.stations[result.count++] = entries[i].station;
+    if (index >= result.request.offset && result.count < RadioModel::kPageSize) {
+      Station& station = result.stations[result.count++];
+      station = entries[i].station;
+      RadioModel::assignStationLocation(station, entries[i].location);
+    }
   }
   result.hasNext = static_cast<unsigned>(result.request.offset) + result.count < result.totalCount;
 }

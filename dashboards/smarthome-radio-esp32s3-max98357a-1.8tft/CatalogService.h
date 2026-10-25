@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <new>
 #include <time.h>
+#include <atomic>
 #include "RadioBrowserProvider.h"
 #include "AkashvaniProvider.h"
 
@@ -17,7 +18,11 @@ class CatalogService {
     return xTaskCreate(taskEntry, "catalog", 12288, this, 1, &task_) == pdPASS;
   }
   bool request(const Request& request) {
+    desiredGeneration_.store(request.generation);
     return requests_ && xQueueOverwrite(requests_, &request) == pdTRUE;
+  }
+  void cancel(uint32_t generation) {
+    desiredGeneration_.compare_exchange_strong(generation, 0);
   }
   // Results have exactly one owner: worker until received, then caller.
   bool poll(Result*& result) { return results_ && xQueueReceive(results_, &result, 0) == pdTRUE; }
@@ -28,9 +33,12 @@ class CatalogService {
   TaskHandle_t task_ = nullptr;
   RadioBrowserProvider radioBrowser_;
   AkashvaniProvider akashvani_;
+  std::atomic<uint32_t> desiredGeneration_{0};
+  struct ActiveRequest { CatalogService* service; uint32_t generation; };
   static void taskEntry(void* self) { static_cast<CatalogService*>(self)->run(); }
   static bool superseded(void* self) {
-    return uxQueueMessagesWaiting(static_cast<CatalogService*>(self)->requests_) != 0;
+    const ActiveRequest& active = *static_cast<ActiveRequest*>(self);
+    return active.service->desiredGeneration_.load() != active.generation;
   }
   void deliver(Result* result) {
     Result* stale = nullptr;
@@ -41,11 +49,13 @@ class CatalogService {
     Request request;
     for (;;) {
       if (xQueueReceive(requests_, &request, portMAX_DELAY) != pdTRUE) continue;
+      if(desiredGeneration_.load() != request.generation) continue;
       xQueueOverwrite(started_, &request.generation);
       Result* result = new (std::nothrow) Result;
       if (!result) { Serial.println("catalog: no memory for result"); continue; }
       result->request = request;
-      RadioNetwork::ReadCancellation cancellation(superseded, this);
+      ActiveRequest active{this, request.generation};
+      RadioNetwork::ReadCancellation cancellation(superseded, &active);
       const bool isAkashvani = request.filter.source == RadioModel::Source::Akashvani;
       const bool local = isAkashvani && akashvani_.canServe(request);
       if (!local) {

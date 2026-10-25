@@ -37,6 +37,7 @@ int main() {
     assert(page.hasNext == (offset + expected < size));
     assert(std::strtoul(page.stations[0].id, nullptr, 10) == offset + 1);
     assert(page.stations[0].source == RadioModel::Source::Akashvani);
+    assert(std::strcmp(page.stations[0].location, offset < 3 ? "NATIONAL" : "KARNATAKA") == 0);
   }
   page.request.offset = 0;
   RadioModel::copyText(page.request.filter.location, "NATIONAL");
@@ -48,6 +49,7 @@ int main() {
   buildAkashvaniPage(entries.get(), size, page);
   assert(page.totalCount == 274 && page.count == 20 && page.hasNext);
   assert(std::strcmp(page.stations[0].id, "24") == 0);
+  assert(std::strcmp(page.stations[0].location, "KARNATAKA") == 0);
   RadioModel::copyText(page.request.filter.location, "REMOVED LOCATION");
   buildAkashvaniPage(entries.get(), size, page);
   assert(page.totalKnown && !page.totalCount && !page.count && !page.hasNext);

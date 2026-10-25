@@ -21,6 +21,7 @@ def main():
         ("input", "c++11", []),
         ("wifi_portal", "c++11", []),
         ("catalog_state", "c++11", []),
+        ("navigation_state", "c++11", []),
         ("settings_restore", "c++11", []),
         ("akashvani_catalog", "c++11", []),
         ("akashvani_page", "c++11", []),
@@ -28,6 +29,7 @@ def main():
         ("listening_ui", "c++11", []),
         ("proportional_text", "c++11", ["-I", str(root / "tests" / "display_stubs")]),
         ("listening_screen", "c++11", ["-I", str(root / "tests" / "display_stubs")]),
+        ("radio_app", "c++17", ["-I", str(root / "tests" / "display_stubs")]),
     ]
     for api in range(4):
         tests.append(("audio_service_api" + str(api), "c++17", [

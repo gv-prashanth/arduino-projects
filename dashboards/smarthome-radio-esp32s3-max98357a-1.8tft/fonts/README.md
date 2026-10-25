@@ -18,6 +18,7 @@ Only trailing whitespace is normalized in the bundled license text.
 | Body | Regular | 7 pt | 10 px | 4 px | 14 px | 16 px |
 | Title | Bold | 10 pt | 14 px | 5 px | 19 px | 23 px |
 | Small | Regular | 6 pt | 9 px | 4 px | 13 px | 14 px |
+| Chrome (header, filter strip, controls) | Regular | 5 pt | 7 px | 3 px | 10 px | 11 px |
 
 The ink bounds include every printable ASCII glyph, including braces and
 underscores. Individual phrases can be shorter. Use measured pixel bounds, not a

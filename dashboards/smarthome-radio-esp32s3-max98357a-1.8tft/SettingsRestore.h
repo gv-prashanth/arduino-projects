@@ -5,10 +5,12 @@
 namespace RadioStorage {
 
 constexpr int CachedStations = 8;
-// Explicit cache v3 bytes: GTC3/version, normalized filter, count, eight station
+// Explicit cache v4 bytes: GTC4/version, normalized filter, count, eight station
 // payloads, CRC32. No settings repeated per row and no C++ padding persisted.
 constexpr std::size_t kCacheHeaderSize = 76;
-constexpr std::size_t kCacheStationSize = 686;
+constexpr std::size_t kPreviousCacheRecordSize = 5568;
+struct PreviousCacheRecord { uint8_t bytes[kPreviousCacheRecordSize] = {}; };
+constexpr std::size_t kCacheStationSize = 750;
 constexpr std::size_t kCacheRecordSize = kCacheHeaderSize + CachedStations * kCacheStationSize + 4;
 struct CacheRecord { uint8_t bytes[kCacheRecordSize] = {}; };
 
@@ -43,7 +45,7 @@ inline bool buildCacheRecord(CacheRecord& record, const RadioCatalog::Filter& fi
                              const RadioModel::Station* stations, uint8_t count) {
   std::memset(record.bytes, 0, sizeof(record.bytes));
   if (!validFilter(filter) || count > CachedStations || (count && !stations)) return false;
-  record.bytes[0] = 'G'; record.bytes[1] = 'T'; record.bytes[2] = 'C'; record.bytes[3] = '3';
+  record.bytes[0] = 'G'; record.bytes[1] = 'T'; record.bytes[2] = 'C'; record.bytes[3] = '4';
   record.bytes[4] = 1;
   record.bytes[5] = static_cast<uint8_t>(filter.source);
   record.bytes[6] = filter.country;
@@ -66,6 +68,7 @@ inline bool buildCacheRecord(CacheRecord& record, const RadioCatalog::Filter& fi
     RadioModel::detail::writeText(bytes, station.country);
     RadioModel::detail::writeU16(bytes, station.bitrateKbps);
     bytes += 2;
+    RadioModel::detail::writeText(bytes, station.location);
   }
   RadioModel::detail::writeU32(record.bytes + kCacheRecordSize - 4,
       RadioModel::detail::crc32(record.bytes, kCacheRecordSize - 4));
@@ -79,11 +82,16 @@ inline CacheRecord makeCacheRecord(const RadioCatalog::Filter& filter,
   return record;
 }
 
-inline bool validCacheHeader(const CacheRecord& record, const RadioCatalog::Filter& wanted) {
+template<class Record>
+inline bool validCacheHeader(const Record& record, const RadioCatalog::Filter& wanted) {
+  static_assert(sizeof(record.bytes) == kCacheRecordSize || sizeof(record.bytes) == kPreviousCacheRecordSize,
+                "Unsupported cache byte format");
+  const bool current = sizeof(record.bytes) == kCacheRecordSize;
+  const std::size_t payload = sizeof(record.bytes) - 4;
   if (record.bytes[0] != 'G' || record.bytes[1] != 'T' || record.bytes[2] != 'C' ||
-      record.bytes[3] != '3' || record.bytes[4] != 1 || record.bytes[75] > CachedStations ||
-      RadioModel::detail::readU32(record.bytes + kCacheRecordSize - 4) !=
-          RadioModel::detail::crc32(record.bytes, kCacheRecordSize - 4)) return false;
+      record.bytes[3] != (current ? '4' : '3') || record.bytes[4] != 1 || record.bytes[75] > CachedStations ||
+      RadioModel::detail::readU32(record.bytes + payload) !=
+          RadioModel::detail::crc32(record.bytes, payload)) return false;
   RadioCatalog::Filter filter;
   filter.source = static_cast<RadioModel::Source>(record.bytes[5]);
   filter.country = record.bytes[6];
@@ -97,8 +105,8 @@ inline bool validCacheHeader(const CacheRecord& record, const RadioCatalog::Filt
 
 // Count commits only after the whole record validates. The cache is a partial
 // first-page preview; its count never implies a complete page or next offset.
-template<std::size_t Capacity>
-inline bool restoreCacheRecord(const CacheRecord& record, const RadioCatalog::Filter& wanted,
+template<class Record, std::size_t Capacity>
+inline bool restoreCacheRecord(const Record& record, const RadioCatalog::Filter& wanted,
                                RadioModel::Station (&stations)[Capacity], uint8_t& count) {
   count = 0;
   if (!validCacheHeader(record, wanted)) return false;
@@ -113,6 +121,7 @@ inline bool restoreCacheRecord(const CacheRecord& record, const RadioCatalog::Fi
     RadioModel::detail::readText(bytes, station.country);
     station.bitrateKbps = RadioModel::detail::readU16(bytes);
     bytes += 2;
+    if (sizeof(record.bytes) == kCacheRecordSize) RadioModel::detail::readText(bytes, station.location);
     if (!RadioModel::validStation(station) || station.source != wanted.source) return false;
     if (retiredCuratedStation(station)) continue;
     if (accepted >= Capacity) return false;

@@ -86,8 +86,8 @@ class RadioBrowserProvider {
       return false;
     }
     // Filter locally; the directory does not promise a server-side fields= projection.
-    StaticJsonDocument<256> filter;
-    const char* fields[] = {"stationuuid", "name", "url_resolved", "bitrate", "countrycode", "codec"};
+    StaticJsonDocument<320> filter;
+    const char* fields[] = {"stationuuid", "name", "url_resolved", "bitrate", "countrycode", "country", "codec"};
     for (const char* field : fields) filter[0][field] = true;
     DynamicJsonDocument doc(32768);
     NetworkClock clock;
@@ -120,6 +120,7 @@ class RadioBrowserProvider {
           !copyField(station.name, sizeof(station.name), row["name"] | "") ||
           !copyField(station.url, sizeof(station.url), row["url_resolved"] | "") ||
           !copyField(station.country, sizeof(station.country), row["countrycode"] | "")) continue;
+      RadioModel::assignStationLocation(station, row["country"] | "");
       station.bitrateKbps = row["bitrate"] | 0;
       if (RadioModel::validStation(station)) result.stations[result.count++] = station;
     }

@@ -188,6 +188,21 @@ int main() {
   static_assert(std::is_trivially_copyable<Filter>::value, "Filters must remain queue-safe");
   static_assert(std::is_trivially_copyable<Request>::value, "Requests must remain queue-safe");
   testFiltersAndInitialState();
+  {
+    Transaction cancelled;
+    const Request abandoned = cancelled.begin(country(2), 20, 100);
+    cancelled.cancel();
+    assert(!cancelled.pending && !cancelled.failed && !cancelled.retryDue(true, 1000000));
+    assert(!cancelled.accepts(abandoned.generation) && !cancelled.succeed(abandoned.generation));
+    assert(!cancelled.fail(abandoned.generation, 101));
+    const Request retry = cancelled.begin(country(3), 0, 200);
+    assert(cancelled.fail(retry.generation, 201));
+    cancelled.cancel();
+    assert(!cancelled.failed && !cancelled.failures && !cancelled.retryDue(true, 1000000));
+    cancelled.generation = std::numeric_limits<std::uint32_t>::max();
+    cancelled.cancel();
+    assert(cancelled.generation == 1);
+  }
   Transaction refresh;
   auto explicitRefresh = refresh.begin(country(2), 0, 100, true);
   assert(explicitRefresh.refresh);

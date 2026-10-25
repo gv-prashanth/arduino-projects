@@ -33,6 +33,19 @@ inline void copyText(char (&out)[Capacity], const char* text) {
 inline bool usefulDetail(const char* text) {
   return text && text[0] && std::strcmp(text, "Decoded audio ready") && std::strcmp(text, "Playing");
 }
+template<std::size_t Capacity>
+inline void currentActionNames(char (&out)[Capacity], const char* text) {
+  std::size_t used = 0;
+  if (!text) text = "";
+  while (*text && used + 1 < Capacity) {
+    if (!std::strncmp(text, "Menu >", 6) || !std::strncmp(text, "menu >", 6)) {
+      const char* replacement = "Settings >";
+      while (*replacement && used + 1 < Capacity) out[used++] = *replacement++;
+      text += 6;
+    } else out[used++] = *text++;
+  }
+  out[used] = '\0';
+}
 }  // namespace detail
 
 // Routine success messages have a wall-clock TTL. Warnings have a separate
@@ -96,7 +109,8 @@ struct Message {
 };
 
 inline Message messageFor(const RadioAudio::Snapshot& playback, bool online, const char* wifiStatus,
-                          bool muted, const NoticeCenter& notices, bool fallbackVisible = false) {
+                          bool muted, const NoticeCenter& notices, bool fallbackVisible = false,
+                          bool zeroVolume = false) {
   Message message;
   using RadioAudio::State;
   if (!online || playback.state == State::Offline) {
@@ -107,11 +121,13 @@ inline Message messageFor(const RadioAudio::Snapshot& playback, bool online, con
   }
   if (playback.state == State::Failed) {
     if (detail::usefulDetail(playback.detail) && std::strcmp(playback.detail, "Playback failed")) {
-      const bool hasPrefix = std::strncmp(playback.detail, "Playback failed", sizeof("Playback failed") - 1) == 0;
-      const bool hasAction = std::strstr(playback.detail, "Retry audio") != nullptr;
+      char explanation[96];
+      detail::currentActionNames(explanation, playback.detail);
+      const bool hasPrefix = std::strncmp(explanation, "Playback failed", sizeof("Playback failed") - 1) == 0;
+      const bool hasAction = std::strstr(explanation, "Retry audio") != nullptr;
       std::snprintf(message.text, sizeof(message.text), "%s%s%s", hasPrefix ? "" : "Playback failed; ",
-                    playback.detail, hasAction ? "" : "; Menu > Retry audio");
-    } else detail::copyText(message.text, "Playback failed; Menu > Retry audio");
+                    explanation, hasAction ? "" : "; Settings > Retry audio");
+    } else detail::copyText(message.text, "Playback failed; Settings > Retry audio");
     message.tone = Tone::Error;
     return message;
   }
@@ -133,8 +149,8 @@ inline Message messageFor(const RadioAudio::Snapshot& playback, bool online, con
     message.tone = Tone::Info;
     return message;
   }
-  if (muted) {
-    detail::copyText(message.text, "Muted");
+  if (muted || zeroVolume) {
+    detail::copyText(message.text, muted ? "Muted" : "Volume 0");
     message.tone = Tone::Info;
     return message;
   }

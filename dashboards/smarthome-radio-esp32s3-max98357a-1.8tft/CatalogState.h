@@ -78,6 +78,13 @@ class Transaction {
     return pending && resultGeneration == request.generation;
   }
 
+  void cancel() {
+    if (++generation == 0) ++generation;
+    pending = failed = false;
+    failures = 0;
+    retryAt = 0;
+  }
+
   bool started(std::uint32_t resultGeneration, std::uint32_t now) {
     if (!accepts(resultGeneration)) return false;
     startedAt = now; // Queuing behind a superseded download is not execution time.
