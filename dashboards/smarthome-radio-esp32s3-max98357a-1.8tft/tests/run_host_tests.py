@@ -25,6 +25,9 @@ def main():
         ("akashvani_catalog", "c++11", []),
         ("akashvani_page", "c++11", []),
         ("hls_redirect", "c++11", []),
+        ("listening_ui", "c++11", []),
+        ("proportional_text", "c++11", ["-I", str(root / "tests" / "display_stubs")]),
+        ("listening_screen", "c++11", ["-I", str(root / "tests" / "display_stubs")]),
     ]
     for api in range(4):
         tests.append(("audio_service_api" + str(api), "c++17", [

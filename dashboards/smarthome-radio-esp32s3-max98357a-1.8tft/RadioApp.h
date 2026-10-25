@@ -7,6 +7,7 @@
 #include "SettingsService.h"
 #include "WifiPortal.h"
 #include "RotaryInput.h"
+#include "ListeningScreen.h"
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -56,19 +57,28 @@ View gestureView = View::Listening;
 uint32_t audioGeneration = 0;
 uint32_t dirtySince = 0, lastDrawAt = 0, viewEnteredAt = 0, lastActionAt = 0;
 uint32_t candidateSince = 0, lastOverflow = 0;
-char notice[96] = {}, initializationError[80] = {};
+RadioUi::NoticeCenter notices, restorationNotice;
+RadioDisplay::ListeningMotion listeningMotion;
+uint32_t restoredGeneration = 0;
+char initializationError[80] = {};
 char lastWifiStatus[80] = {};
-uint32_t noticeUntil = 0;
 
 inline bool due(uint32_t now, uint32_t deadline) { return static_cast<int32_t>(now - deadline) >= 0; }
-inline void notify(const char* message, uint32_t duration = 5000) {
-  strlcpy(notice, message, sizeof(notice));
-  noticeUntil = millis() + duration;
+inline String displayText(const char* raw);
+inline void notify(const char* message, uint32_t duration = 5000,
+                   RadioUi::NoticePriority priority = RadioUi::NoticePriority::Warning) {
+  if (priority == RadioUi::NoticePriority::Warning)
+    duration = RadioUi::warningReadDuration(duration,
+        RadioDisplay::textWidth(*RadioFonts::Body, displayText(message).c_str()));
+  notices.post(message, duration, millis(), priority);
   Serial.printf("radio: %s\n", message);
   dirty = true;
 }
 inline void markSettingsDirty() { settingsDirty = true; dirtySince = millis(); }
-inline void enter(View next) { view = next; viewEnteredAt = lastActionAt = millis(); dirty = true; }
+inline void enter(View next) {
+  if (next == View::Listening) listeningMotion = RadioDisplay::ListeningMotion{};
+  view = next; viewEnteredAt = lastActionAt = millis(); dirty = true;
+}
 inline const char* sourceLabel(RadioModel::Source source) {
   return source == RadioModel::Source::Akashvani ? "Akashvani" : "Radio Browser";
 }
@@ -153,8 +163,10 @@ inline void header(const char* title) {
   canvas.fillRect(0, 0, 160, 16, 0x2808);
   text(4, 4, 100, title, ST77XX_GREEN);
   char right[12];
-  snprintf(right, sizeof(right), "%s%02u %c", settings.muted ? "M" : "V", settings.volume, online ? '+' : '-');
-  text(112, 4, 48, right, settings.muted ? ST77XX_YELLOW : ST77XX_WHITE);
+  snprintf(right, sizeof(right), "Vol %u", settings.volume);
+  const int volumeX = 156 - 6 * strlen(right);
+  if (settings.muted) RadioDisplay::drawMuteIcon(canvas, volumeX - 16, 2, ST77XX_YELLOW);
+  text(volumeX, 4, 156 - volumeX, right, settings.muted ? ST77XX_YELLOW : ST77XX_WHITE);
 }
 inline void footer(const char* hint) {
   canvas.drawFastHLine(0, 110, 160, 0x7BEF);
@@ -185,26 +197,17 @@ inline String stationOptionLabel(int index) {
   return "Refresh stations";
 }
 inline void drawListening() {
-  header("GTS RADIO");
-  const char* status = !online ? wifi.status() : settings.muted && playback.state == RadioAudio::State::Playing
-                       ? "Muted (stream playing)" : RadioAudio::stateName(playback.state);
-  text(4, 21, 152, status, playback.state == RadioAudio::State::Failed ? ST77XX_RED : ST77XX_YELLOW);
   const Station& displayed = RadioModel::validStation(playback.requested) ? playback.requested : lastGood;
-  text(4, 38, 152, displayed.name[0] ? displayed.name : "GTS Radio", ST77XX_WHITE, 2, true);
-  char technical[64];
-  if (playback.bitrateKbps) snprintf(technical, sizeof(technical), "%s %u kbps", playback.codec, playback.bitrateKbps);
-  else snprintf(technical, sizeof(technical), "%s", playback.codec[0] && strcmp(playback.codec, "unknown") ? playback.codec : "Audio not ready");
-  text(4, 61, 152, technical, ST77XX_CYAN);
-  const bool showingNotice = notice[0] && !due(millis(), noticeUntil);
-  text(4, 76, 152, showingNotice ? notice : playback.title[0] ? playback.title : playback.detail, ST77XX_WHITE, 1, true);
-  // Browsing another source does not retune playback. Identify the displayed
-  // station's provider rather than presenting the current catalog's filters.
-  const bool hasStation = RadioModel::validStation(displayed);
-  String provider = hasStation ? sourceLabel(displayed.source) : "No station selected";
-  if (hasStation && displayed.country[0]) provider += String(" / ") + displayed.country;
-  text(4, 94, 152, provider.c_str(), ST77XX_GREEN, 1, true);
-  footer((millis() / 4000) % 2 ? "Hold: menu" : "Turn:vol  Click:mute");
-  animate = true; // Alternate complete hints even when metadata is unchanged.
+  const uint32_t now = millis();
+  const RadioUi::Message message = RadioUi::messageFor(playback, online, wifi.status(), settings.muted,
+                                                      notices, restorationNotice.active());
+  const String name = displayText(displayed.name[0] ? displayed.name : "GTS Radio");
+  const String messageText = displayText(message.text);
+  RadioDisplay::ListeningFrame frame{settings, displayed, playback, name.c_str(), messageText.c_str(), message.tone, now};
+  frame.online = online;
+  frame.buttonDown = inputReady && input.buttonDown();
+  frame.heldMs = frame.buttonDown ? now - input.pressedAt() : 0;
+  animate |= RadioDisplay::drawListeningScreen(canvas, frame, listeningMotion);
 }
 inline void drawMenu() {
   header("Menu");
@@ -342,6 +345,7 @@ inline void startStation(const Station& station) {
   playback.bitrateKbps = 0;
   strlcpy(playback.detail, online ? "Starting station" : "Will resume when Wi-Fi connects", sizeof(playback.detail));
   candidateSince = 0;
+  restorationNotice = RadioUi::NoticeCenter{};
   autoStartFirst = false;
   dirty = true;
 }
@@ -414,7 +418,7 @@ inline void chooseStationOption() {
   if (catalog && stationCursor < catalog->count) {
     startStation(catalog->stations[stationCursor]); enter(View::Listening); return;
   }
-  if (search.pending) { notify("Search in progress"); return; }
+  if (search.pending) { notify("Search in progress", 5000, RadioUi::NoticePriority::Info); return; }
   int action = stationCursor - (catalog ? catalog->count : 0);
   const Filter filter = catalog ? catalog->request.filter : RadioCatalog::filterFor(settings);
   if (catalog && catalog->request.offset) {
@@ -423,7 +427,8 @@ inline void chooseStationOption() {
   }
   if (catalog && catalog->hasNext) {
     if (action == 0) {
-      if (catalog->request.offset > UINT16_MAX - RadioModel::kPageSize) notify("End of supported page range");
+      if (catalog->request.offset > UINT16_MAX - RadioModel::kPageSize)
+        notify("End of supported page range", 5000, RadioUi::NoticePriority::Info);
       else requestDirectory(filter, catalog->request.offset + RadioModel::kPageSize);
       return;
     }
@@ -518,7 +523,7 @@ inline void serviceDirectory() {
       stationCursor = max(0, RadioModel::findStation(catalog->stations, catalog->count, current));
       if (storageReady && !storage.saveCache(*catalog, settings)) notify("Cannot queue station cache");
       if (autoStartFirst && catalog->count && !RadioModel::validStation(playback.requested)) startStation(catalog->stations[0]);
-      else notify(catalog->message);
+      else notify(catalog->message, 5000, RadioUi::NoticePriority::Info);
     }
     dirty = true;
   }
@@ -540,6 +545,11 @@ inline void serviceAudio() {
       dirty = true;
     } else if (update.generation >= audioGeneration && memcmp(&playback, &update, sizeof(update))) {
       playback = update;
+      if (update.state == RadioAudio::State::Playing && update.generation != restoredGeneration &&
+          !strcmp(update.detail, "Previous station restored")) {
+        restoredGeneration = update.generation;
+        restorationNotice.post("Previous station restored", 5000, millis(), RadioUi::NoticePriority::Warning);
+      }
       dirty = true;
     }
   }
@@ -598,7 +608,8 @@ inline void setup() {
   directoryReady = directory.begin();
   if (!storageReady || !inputReady || !audioReady || !directoryReady)
     strlcpy(initializationError, "Worker/queue initialization failed", sizeof(initializationError));
-  if (!wifi.begin(credentials, WIFI_SSID, WIFI_PASSWORD)) notify("Wi-Fi startup failed; retrying", 10000);
+  if (!wifi.begin(credentials, WIFI_SSID, WIFI_PASSWORD))
+    notify("Wi-Fi startup failed; retrying", 10000, RadioUi::NoticePriority::Info);
   portalWasActive = wifi.portalActive();
   if (wifi.portalActive()) enter(View::Wifi);
   if (audioReady) {
@@ -631,7 +642,7 @@ inline void loop() {
   if (portalWasActive != wifi.portalActive()) {
     portalWasActive = wifi.portalActive();
     if (portalWasActive) {
-      notify("Wi-Fi setup available in menu", 10000);
+      notify("Wi-Fi setup available in menu", 10000, RadioUi::NoticePriority::Info);
       if (!RadioModel::validStation(playback.requested)) enter(View::Wifi);
     }
     else if (view == View::Wifi) enter(View::Listening);
@@ -644,12 +655,12 @@ inline void loop() {
     online = connected;
     audio.network(online);
     if (online) {
-      notify("Wi-Fi connected");
+      notify("Wi-Fi connected", 5000, RadioUi::NoticePriority::Info);
       if (!search.pending) {
         if (search.failed) requestDirectory(search.request.filter, search.request.offset, search.request.refresh);
         else requestDirectory(RadioCatalog::filterFor(settings), 0, true);
       }
-    } else notify("Wi-Fi offline; reconnecting", 10000);
+    } else notify("Wi-Fi offline; reconnecting", 10000, RadioUi::NoticePriority::Info);
     dirty = true;
   }
   RadioInput::Event event;
@@ -676,6 +687,12 @@ inline void loop() {
   if (view != View::Listening && view != View::Wifi && (!inputReady || !input.buttonDown()) &&
       now - lastActionAt > timeout && static_cast<int32_t>(now - activity) > static_cast<int32_t>(timeout) &&
       now - viewEnteredAt > timeout) enter(View::Listening);
+  // Static short text needs no animation, but notices still expire and redraw.
+  // Hidden warnings/restoration feedback keep their remaining visible time.
+  const RadioUi::Message message = RadioUi::messageFor(playback, online, wifi.status(), settings.muted,
+                                                      notices, restorationNotice.active());
+  if (notices.update(now, view == View::Listening && !initializationError[0] && message.usesNotice)) dirty = true;
+  if (restorationNotice.update(now, view == View::Listening && !initializationError[0] && message.usesFallback)) dirty = true;
   const uint32_t interval = inputReady && input.buttonDown() ? 50 : 250;
   if ((dirty && now - lastDrawAt >= 40) || (animate && now - lastDrawAt >= interval)) draw();
   delay(2);

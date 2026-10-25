@@ -1,0 +1,74 @@
+{
+  "Body": {
+    "source": "LiberationSans-Regular.ttf",
+    "points": 7,
+    "dpi": 141,
+    "first": 32,
+    "last": 126,
+    "top": -10,
+    "bottom": 3,
+    "height": 14,
+    "yAdvance": 16,
+    "bitmapBytes": 690,
+    "sampleAdvances": {
+      "GTS RADIO": 76,
+      "Vol21": 36,
+      "Muted": 39,
+      "Akashvani / IN": 89,
+      "Radio Browser / IN": 116,
+      "Click:mute Hold:menu": 136,
+      "Click mute | Hold menu": 143,
+      "Playing - ready": 95,
+      "AAC 67 kbps": 82,
+      "Akashvani p14/14": 113
+    }
+  },
+  "Title": {
+    "source": "LiberationSans-Bold.ttf",
+    "points": 10,
+    "dpi": 141,
+    "first": 32,
+    "last": 126,
+    "top": -14,
+    "bottom": 4,
+    "height": 19,
+    "yAdvance": 23,
+    "bitmapBytes": 1516,
+    "sampleAdvances": {
+      "GTS RADIO": 110,
+      "Vol21": 52,
+      "Muted": 59,
+      "Akashvani / IN": 134,
+      "Radio Browser / IN": 176,
+      "Click:mute Hold:menu": 208,
+      "Click mute | Hold menu": 218,
+      "Playing - ready": 141,
+      "AAC 67 kbps": 120,
+      "Akashvani p14/14": 165
+    }
+  },
+  "Small": {
+    "source": "LiberationSans-Regular.ttf",
+    "points": 6,
+    "dpi": 141,
+    "first": 32,
+    "last": 126,
+    "top": -9,
+    "bottom": 3,
+    "height": 13,
+    "yAdvance": 14,
+    "bitmapBytes": 539,
+    "sampleAdvances": {
+      "GTS RADIO": 64,
+      "Vol21": 31,
+      "Muted": 33,
+      "Akashvani / IN": 77,
+      "Radio Browser / IN": 103,
+      "Click:mute Hold:menu": 122,
+      "Click mute | Hold menu": 128,
+      "Playing - ready": 80,
+      "AAC 67 kbps": 70,
+      "Akashvani p14/14": 97
+    }
+  }
+}

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <Audio.h>
 #include <type_traits>
+#include "AudioState.h"
 #include "AudioCallbacks.h"
 #include "RadioConfig.h"
 #include "HlsStreamResolver.h"
@@ -27,16 +28,7 @@ inline const char* pcmApiName() {
          std::is_same<PcmCallback, LegacyPcmCallback>::value ? "16-bit PCM (legacy 5-argument)" :
          "16-bit PCM (3-argument)";
 }
-enum class State : uint8_t { Idle, Connecting, Playing, Buffering, Retrying, Failed, Offline };
 struct StartRequest { Station station, fallback; uint32_t generation = 0; };
-struct Snapshot {
-  State state = State::Idle;
-  bool fatal = false;
-  Station requested, confirmed;
-  uint32_t generation = 0;
-  uint16_t bitrateKbps = 0;
-  char codec[12] = {}, title[192] = {}, detail[80] = {};
-};
 struct Metadata { MetadataType type; uint32_t generation, epoch; char text[192]; };
 static QueueHandle_t metadataQueue = nullptr;
 static portMUX_TYPE signalMux = portMUX_INITIALIZER_UNLOCKED;

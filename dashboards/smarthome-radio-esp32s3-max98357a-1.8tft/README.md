@@ -72,7 +72,7 @@ Build outputs are in `.pio/build/esp32s3-n16r8/`: `firmware.bin` is the applicat
 
 ## Arduino IDE build and serial monitor
 
-Keep the `.ino`, headers, `AudioCallbacks.cpp`, and `HlsStreamResolver.cpp` together in the sketch folder. For a standard N16R8 board, use these Arduino IDE Tools settings:
+Keep the `.ino`, headers, `AudioCallbacks.cpp`, `HlsStreamResolver.cpp`, and the bundled `fonts/` directory together in the sketch folder. The listening screen's bitmap fonts require no additional library installation. For a standard N16R8 board, use these Arduino IDE Tools settings:
 
 | Setting | Value |
 | --- | --- |
@@ -120,13 +120,15 @@ Akashvani publishes no genre, codec or bitrate fields in its catalog, so those r
 
 Changing a filter searches without retuning the current station. The new filter/list becomes active only after a valid response; network or parse failures keep the previous list. A successful empty response shows no matches. Switching Source also preserves current audio and commits the new source/list together only after success. Loading and failure messages identify the requested source, while retained results keep their original provider label. The listening screen identifies the actual station provider independently of browsing. Radio Browser defaults to all supported codecs without a bitrate cap; its menus offer AAC/MP3 and 64–320 kbps caps.
 
-Playback shows connecting, playing, buffering, retrying, failed, or offline states. A working station is restored directly after Wi-Fi connects while directory refresh runs separately. Failed streams receive bounded retries and can fall back to the previous confirmed station; **Retry audio** starts another attempt. Up to eight stations from the last successful first page are cached for startup browsing, with the source and exact filters recorded. There is one persistent cache slot, replaced by a successful first-page result from either source. The complete Akashvani catalog lives in PSRAM for the session; paging and Location changes reuse it. First use after boot, Wi-Fi reconnection, and **Refresh stations** download a fresh official catalog. A failed refresh preserves the previous valid list and session snapshot. After restart, the full catalog needs to download again; cached browsing does not make internet audio available offline.
+The listening screen places the actual station's source/location below the header, followed by a larger station name, codec/bitrate, and one message row. A green play icon beside the codec indicates confirmed decoded audio; mute uses a yellow icon and keeps **Vol** visible. The message row shows the programme title during normal playback, or stays empty when the station supplies no title. Connection progress, buffering, retries, playback failures, and Wi-Fi loss take priority over titles and routine notifications. Warnings remain readable after returning from the menu, with enough time for long messages to scroll. The footer stays fixed at **Click:mute Hold:menu**. Only overflowing names/messages scroll, after a short initial pause.
+
+A working station is restored directly after Wi-Fi connects while directory refresh runs separately. Failed streams receive bounded retries and can fall back to the previous confirmed station; **Retry audio** starts another attempt. Up to eight stations from the last successful first page are cached for startup browsing, with the source and exact filters recorded. There is one persistent cache slot, replaced by a successful first-page result from either source. The complete Akashvani catalog lives in PSRAM for the session; paging and Location changes reuse it. First use after boot, Wi-Fi reconnection, and **Refresh stations** download a fresh official catalog. A failed refresh preserves the previous valid list and session snapshot. After restart, the full catalog needs to download again; cached browsing does not make internet audio available offline.
 
 On upgrade, the former injected entries with IDs `curated-air-0` and `curated-air-1` are removed from the restored station list and saved startup selection. Other settings and directory stations are preserved; AIR stations returned normally by Radio Browser remain available. This upgrade migrates the original 701-byte saved state to a new version that records browsing and playing sources independently. Existing devices retain Radio Browser, their filters, volume, mute state, Wi-Fi and last working station. The obsolete `cache_v2` is discarded before new writes to preserve room in the 20 KiB NVS partition; the new source-qualified `cache_v3` is rebuilt online. Cache writes are nonfatal and identical blobs are not rewritten.
 
 Volume defaults to 10 on a fresh device, with a 0–21 range. Mute preserves the desired listening volume across restarts. A station becomes the saved working station after four seconds continuously in the Playing state; this exceeds the three-second audio freshness window so a single decoded frame cannot replace the previous working station. Settings save after a further 1.5 seconds of inactivity, so allow about six seconds after a station starts before removing power. Old-format settings are migrated when possible; the original firmware never saved pre-mute volume, so that lost value cannot be recovered.
 
-Station names and stream titles scroll within the display. UTF-8 is decoded before fitting text, but the built-in ASCII font has limited glyph coverage: common Latin letters are transliterated and other unsupported characters use `?`.
+UTF-8 is decoded before fitting text, but the display fonts cover printable ASCII: common Latin letters are transliterated and other unsupported characters use `?`. The listening screen uses proportional RadioSans fonts with 14-pixel body and 19-pixel station-name ink bounds; menus keep their compact layout. Font sources, licensing, and reproduction instructions are in [`fonts/README.md`](fonts/README.md).
 
 ## Source structure
 
@@ -134,7 +136,10 @@ Station names and stream titles scroll within the display. UTF-8 is decoded befo
 | --- | --- |
 | `smarthome-radio-esp32s3-max98357a-1.8tft.ino` | Arduino entry points |
 | `RadioApp.h` | UI, navigation, worker coordination, deferred settings saves |
+| `ListeningScreen.h` / `ListeningUi.h` | Listening layout, message priority, and visible warning lifetimes |
+| `ProportionalText.h` / `RadioFonts.h` / `fonts/` | Clipped proportional text, overflow scrolling, and bundled bitmap fonts |
 | `AudioService.h` | One task owns public Audio calls; callbacks pass copied metadata/frame signals |
+| `AudioState.h` | Hardware-independent playback snapshot shared by audio and display |
 | `AudioCallbacks.h` / `AudioCallbacks.cpp` | Callback bridge declarations and separately compiled strong PCM/legacy metadata hooks |
 | `HlsStreamResolver.h` / `HlsStreamResolver.cpp` / `HlsRedirect.h` | Resolve HLS HTTP redirects before connection while retaining official station identity |
 | `CatalogService.h` / `CatalogTypes.h` | Catalog worker dispatch, provider-neutral requests/results and ownership |
@@ -191,6 +196,7 @@ A successful build and host tests cannot verify wiring, amplifier output, exact 
 | Disconnect/reconnect home Wi-Fi | Offline/reconnect state appears; setup remains reachable after failed attempts; the requested station resumes after recovery |
 | Select a broken stream, then Retry audio | Connecting/failure states and bounded retries occur; previous confirmed station is available as fallback |
 | Read a long or non-ASCII station/title | Text stays inside the screen; scrolling works; unsupported glyphs use a safe replacement |
+| Listen for a minute, mute, open/close the menu, and interrupt a long warning | The footer stays fixed; Vol and mute remain clear; warnings resume with time to read; state/errors override titles |
 
 The USB serial startup log and `?` command report detected heap and PSRAM. Confirm the expected 8 MB PSRAM on the actual N16R8 board; with audioI2S 4.0.0, also confirm `32-bit PCM (3-argument)` and `event metadata callbacks`.
 
@@ -204,7 +210,7 @@ python3 tests/run_host_tests.py --sanitize
 
 This requires a C++17-capable compiler. Omit `--sanitize` if the compiler does not provide AddressSanitizer and UndefinedBehaviorSanitizer. Set `CXX` to select another compiler. The network JSON and dependency-patch tests run when the pinned libraries have been installed by `pio run`; otherwise the runner explicitly reports those skips.
 
-The C++ tests exercise platform-independent state/persistence helpers, saved-station/cache cleanup, encoder/button behavior, catalog request ordering/retry state, source-qualified identity/cache and legacy migration, official catalog parsing and local pagination, HLS redirect URL handling and playback identity/retry integration, Wi-Fi form validation, network JSON parsing with delayed packets and the real pinned ArduinoJson, and the audio service using deterministic Arduino/Audio stubs. The callback contract matrix separately links the production `AudioCallbacks.cpp` against four PCM APIs, including 4.0.0's weak default hook, and checks legacy/event metadata registration. These tests require no ESP32; they do not simulate true concurrent execution or validate upstream mutexes, I²S output, or speaker sound.
+The C++ tests exercise platform-independent state/persistence helpers, saved-station/cache cleanup, encoder/button behavior, catalog request ordering/retry state, source-qualified identity/cache and legacy migration, official catalog parsing and local pagination, HLS redirect URL handling and playback identity/retry integration, Wi-Fi form validation, network JSON parsing with delayed packets and the real pinned ArduinoJson, and the audio service using deterministic Arduino/Audio stubs. Listening-screen tests cover message priority, warning expiry/interruption, proportional glyph clipping, actual-font layout bounds, station-provider identity, and the fixed footer across playback states and marquee frames. The callback contract matrix separately links the production `AudioCallbacks.cpp` against four PCM APIs, including 4.0.0's weak default hook, and checks legacy/event metadata registration. These tests require no ESP32; they do not simulate true concurrent execution or validate upstream mutexes, I²S output, or speaker sound.
 
 ```sh
 c++ -std=c++11 -Wall -Wextra -Werror tests/model_test.cpp -o /tmp/radio-model-test
