@@ -5,7 +5,8 @@
 #else
 #include <Arduino.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_ST7735.h>
+#include "DisplayHardware.h"
+#include "FrameCanvas.h"
 #include "AudioService.h"
 #include "SettingsService.h"
 #include "WifiPortal.h"
@@ -25,6 +26,9 @@
 #endif
 
 namespace RadioApp {
+// Exact legacy colours for the original compact Wi-Fi/startup text.
+constexpr uint16_t LegacyWhite = 0xffff, LegacyYellow = 0xffe0, LegacyCyan = 0x07ff;
+constexpr uint16_t LegacyGreen = 0x07e0, LegacyRed = 0xf800;
 using RadioModel::Station;
 using RadioModel::Settings;
 using RadioCatalog::Filter;
@@ -35,8 +39,8 @@ using RadioNavigation::Action;
 constexpr const char* FieldLabels[] = {"Source", "Location", "Genre", "Codec", "Bitrate"};
 enum class Purpose : uint8_t { Background, Page, Filter, Entry, EntryRefresh };
 
-Adafruit_ST7735 tft(RadioConfig::TftCs, RadioConfig::TftDc, RadioConfig::TftReset);
-GFXcanvas16 canvas(160, 128);
+RadioDisplay::DisplayHardware radioDisplay;
+RadioDisplay::FrameCanvas canvas(RadioDisplay::ScreenWidth, RadioDisplay::ScreenHeight);
 RadioAudio::AudioService audio;
 RadioCatalog::CatalogService directory;
 RadioStorage::SettingsService storage;
@@ -61,6 +65,7 @@ char directoryError[80] = {};
 uint8_t airLocationCount = 0;
 char airLocations[64][64] = {};
 bool audioReady = false, directoryReady = false, storageReady = false, inputReady = false;
+bool displayReady = false;
 bool dirty = true, animate = false, settingsDirty = false;
 bool online = false, autoStartFirst = true;
 bool backgroundRefreshDue = false;
@@ -75,6 +80,7 @@ uint32_t dirtySince = 0, lastDrawAt = 0, viewEnteredAt = 0, lastActionAt = 0;
 uint32_t candidateSince = 0, lastOverflow = 0;
 RadioUi::NoticeCenter notices, restorationNotice;
 RadioDisplay::ListeningMotion listeningMotion;
+RadioDisplay::RowMotion filterValueMotion, wifiStatusMotion;
 uint32_t restoredGeneration = 0;
 char initializationError[80] = {};
 char lastWifiStatus[80] = {};
@@ -85,7 +91,8 @@ inline void notify(const char* message, uint32_t duration = 5000,
                    RadioUi::NoticePriority priority = RadioUi::NoticePriority::Warning) {
   if (priority == RadioUi::NoticePriority::Warning)
     duration = RadioUi::warningReadDuration(duration,
-        RadioDisplay::textWidth(*RadioFonts::Body, displayText(message).c_str()));
+        RadioDisplay::textWidth(*(RadioDisplay::LargeDisplay ? RadioDisplay::DetailFont : RadioFonts::Body),
+                                displayText(message).c_str()), RadioDisplay::ContentWidth);
   notices.post(message, duration, millis(), priority);
   Serial.printf("radio: %s\n", message);
   dirty = true;
@@ -140,7 +147,7 @@ inline String displayText(const char* raw) {
   }
   return out;
 }
-inline void text(int x, int y, int width, const char* raw, uint16_t color = ST77XX_WHITE,
+inline void text(int x, int y, int width, const char* raw, uint16_t color = LegacyWhite,
                  uint8_t size = 1, bool scroll = false) {
   String value = displayText(raw);
   const int cells = width / (6 * size);
@@ -164,18 +171,29 @@ inline void label(int x, int y, int width, const char* raw, uint16_t color = Rad
   const String value = displayText(raw);
   RadioDisplay::drawText(canvas, *font, x, y, width, value.c_str(), color, false, 0);
 }
+inline void centeredLabel(int y, const char* raw, uint16_t color = RadioDisplay::White,
+                          const GFXfont* font = RadioDisplay::RowFont) {
+  const String value = displayText(raw);
+  const int width = min(RadioDisplay::ContentWidth, RadioDisplay::textWidth(*font, value.c_str()));
+  label((RadioDisplay::ScreenWidth - width) / 2, y, width, value.c_str(), color, font);
+}
 inline void header(const char* context) { RadioDisplay::brandHeader(canvas, settings, context); }
 inline void footer(const char* hint) {
-  canvas.drawFastHLine(4, 110, 152, RadioDisplay::RuleColor);
-  label(4, 114, 152, hint, RadioDisplay::Cyan, RadioDisplay::ChromeFont);
+  canvas.drawFastHLine(RadioDisplay::ContentLeft, RadioDisplay::FooterTop,
+                      RadioDisplay::ContentWidth, RadioDisplay::RuleColor);
+  label(RadioDisplay::ContentLeft, RadioDisplay::FooterLabelTop, RadioDisplay::ContentWidth,
+        hint, RadioDisplay::Cyan, RadioDisplay::ChromeFont);
 }
 inline const char* compactLocation(const char* location) {
   return RadioDisplay::compactLocationLabel(location);
 }
 inline String filterLabel(const Filter& filter) {
   if (filter.source == RadioModel::Source::Akashvani)
-    return String("Akashvani / ") + compactLocation(filter.location);
-  String value = String("RB / ") + (filter.country ? RadioConfig::Countries[filter.country].code : "All");
+    return String("Akashvani / ") + (RadioDisplay::LargeDisplay ?
+        (filter.location[0] ? filter.location : "All locations") : compactLocation(filter.location));
+  String value = RadioDisplay::LargeDisplay ?
+      String("Radio Browser / ") + RadioConfig::Countries[filter.country].name :
+      String("RB / ") + (filter.country ? RadioConfig::Countries[filter.country].code : "All");
   if(filter.genre) value += String(" / ") + RadioConfig::Genres[filter.genre].name;
   return value;
 }
@@ -207,8 +225,10 @@ inline void drawListening() {
   const RadioUi::Message message = RadioUi::messageFor(playback, online, wifi.status(), settings.muted,
                                                       notices, restorationNotice.active(), settings.volume == 0);
   const String name = displayText(displayed.name[0] ? displayed.name : "Choose a station");
+  const String location = displayText(displayed.location[0] ? displayed.location : displayed.country);
   const String messageText = displayText(message.text);
   RadioDisplay::ListeningFrame frame{settings, displayed, playback, name.c_str(), messageText.c_str(), message.tone, now};
+  frame.stationLocation = location.c_str();
   frame.online = online;
   frame.buttonDown = inputReady && input.buttonDown();
   frame.heldMs = frame.buttonDown ? now - input.pressedAt() : 0;
@@ -221,10 +241,19 @@ inline void drawSettings() {
   const char* labels[] = {"Wi-Fi setup", "Retry audio", settings.muted ? "Unmute audio" : "Mute audio"};
   const Icon icons[] = {Icon::Wifi, Icon::Retry, settings.muted ? Icon::Volume : Icon::Muted};
   for(int index = 0; index < 3; ++index) {
-    const int y = 25 + index * 19;
-    if(index == ui.setting) RadioDisplay::focusRow(canvas, y - 2, 18);
-    RadioDisplay::drawIcon(canvas, icons[index], 7, y, 13, RadioDisplay::White);
-    label(26, y, 127, labels[index]);
+    const int y = RadioDisplay::LargeDisplay ? 56 + index * 40 : 25 + index * 19;
+    if(index == ui.setting) RadioDisplay::focusRow(canvas, y - (RadioDisplay::LargeDisplay ? 6 : 2),
+                                                RadioDisplay::LargeDisplay ? 34 : 18);
+    RadioDisplay::drawIcon(canvas, icons[index], RadioDisplay::LargeDisplay ? 17 : 7, y,
+                           RadioDisplay::LargeDisplay ? 22 : 13,
+                           RadioDisplay::LargeDisplay && index == ui.setting ? RadioDisplay::Green : RadioDisplay::White);
+    label(RadioDisplay::LargeDisplay ? 52 : 26, y,
+          RadioDisplay::LargeDisplay ? 252 : 127, labels[index]);
+  }
+  if (RadioDisplay::LargeDisplay) {
+    const char* descriptions[] = {"Change wireless network", "Reconnect the selected station",
+                                  settings.muted ? "Restore listening volume" : "Keep volume; silence audio"};
+    label(12, 184, 296, descriptions[ui.setting], RadioDisplay::MutedInk, RadioDisplay::ChromeFont);
   }
   RadioDisplay::footer(canvas, Icon::Check, "Select", Icon::Back, "Back");
 }
@@ -249,6 +278,84 @@ inline String fieldValue(Field field) {
   if(field == Field::Codec) return settings.codec ? RadioConfig::Codecs[settings.codec] : "All";
   return settings.bitrateCap ? String(settings.bitrateCap) + " kbps" : String("No cap");
 }
+inline void drawLargeStations(bool busy, bool problem, bool editing, const Filter& filter,
+                              uint16_t offset, Action action) {
+  using namespace RadioDisplay;
+  if (editing || (!busy && action == Action::Filters)) focusRow(canvas, FilterFocusTop, FilterHeight);
+  if (editing && ui.mode == FilterMode::Value) {
+    String scratch;
+    drawIcon(canvas, Icon::Prev, 12, 43, 16, Cyan);
+    const String value = displayText(draftLabel(scratch));
+    animate |= drawText(canvas, *ChromeFont, 36, FilterTop, 246, value.c_str(), Cyan, true,
+                        filterValueMotion.elapsed(value.c_str(), millis()));
+    drawIcon(canvas, Icon::Next, 292, 43, 16, Cyan);
+  } else {
+    static const Icon fieldIcons[] = {Icon::Source, Icon::Location, Icon::Genre, Icon::Codec, Icon::Bitrate};
+    drawIcon(canvas, editing ? fieldIcons[ui.fieldCursor] : Icon::Filters, 14, 42, 16, Green);
+    const String summary = editing ? String(FieldLabels[ui.fieldCursor]) + ": " +
+        fieldValue(static_cast<Field>(ui.fieldCursor)) : filterLabel(filter);
+    const String value = displayText(summary.c_str());
+    animate |= drawText(canvas, *ChromeFont, 40, FilterTop, 244, value.c_str(), Green, editing,
+                        filterValueMotion.elapsed(value.c_str(), millis()));
+    drawIcon(canvas, editing ? Icon::ChevronUpDown : Icon::ChevronDown, 292, 43, 16, Green);
+  }
+  if (busy) {
+    drawIcon(canvas, Icon::Spinner, 142, 88, 36, Cyan, millis());
+    animate = true;
+    char loading[32]; std::snprintf(loading, sizeof(loading), "Loading page %u", offset / RadioModel::kPageSize + 1);
+    centeredLabel(145, loading);
+    footer("Hold Back");
+    return;
+  }
+  if (problem) {
+    drawIcon(canvas, online ? Icon::Warning : Icon::Offline, 142, 87, 36, Yellow);
+    centeredLabel(137, online ? "Could not load page" : "Wi-Fi unavailable", Yellow);
+    centeredLabel(174, catalog ? "Previous page kept" : "Change filters or retry", MutedInk, DetailFont);
+    if (action == Action::Retry) canvas.fillRect(8, FooterControlTop, 150, FooterControlHeight, FocusBackground);
+    RadioDisplay::footer(canvas, action == Action::Filters ? Icon::Filters : Icon::Retry,
+                         action == Action::Filters ? "Filters" : "Retry", Icon::Back, "Back");
+    return;
+  }
+  if (!catalog || !catalog->count) {
+    drawIcon(canvas, Icon::Stations, 142, 87, 36, MutedInk);
+    centeredLabel(137, catalog && catalog->hasNext ? "No playable rows" : offset ? "End of results" : "No matching stations");
+    if (catalog && catalog->hasNext) centeredLabel(174, "Try next page", Cyan, DetailFont);
+  } else {
+    if (!editing && action == Action::Station) ui.lastStation = stationCursor - 1;
+    const int selected = !editing && action == Action::Station ? stationCursor - 1 : ui.lastStation;
+    const int shown = min<int>(VisibleStationRows, catalog->count);
+    const int first = constrain(selected - 1, 0, max(0, catalog->count - shown));
+    for (int row = 0; row < shown; ++row) {
+      const int index = first + row, y = FirstStationTop + row * StationRowHeight;
+      if (!editing && action == Action::Station && stationCursor - 1 == index) focusRow(canvas, y - 2);
+      if (RadioModel::findStation(&catalog->stations[index], 1, displayedStation()) == 0) {
+        const Icon symbol = audioIcon();
+        const uint16_t color = symbol == Icon::Play ? Green : symbol == Icon::Warning ? Red : Yellow;
+        drawIcon(canvas, symbol, 14, y + 3, 16, color, millis());
+        if (symbol == Icon::Spinner) animate = true;
+      }
+      label(40, y, 270, catalog->stations[index].name, editing ? MutedInk : White);
+    }
+    if (catalog->count > shown) {
+      const int track = StationRowHeight * VisibleStationRows - 3, thumb = track * shown / catalog->count;
+      canvas.fillRect(316, FirstStationTop, 3, track, RuleColor);
+      canvas.fillRect(316, FirstStationTop + (track - thumb) * first / (catalog->count - shown), 3, thumb, MutedInk);
+    }
+  }
+  canvas.drawFastHLine(ContentLeft, FooterTop, ContentWidth, RuleColor);
+  navButton(canvas, false, Icon::Prev, "Prev", !editing && action == Action::Previous,
+            editing || !catalog || !catalog->request.offset);
+  navButton(canvas, true, Icon::Next, "Next", !editing && action == Action::Next,
+            editing || !catalog || !catalog->hasNext);
+  if (editing && ui.mode == FilterMode::Value) {
+    canvas.fillRect(96, FooterControlTop, 128, FooterControlHeight, FocusBackground);
+    drawIcon(canvas, Icon::Check, 119, FooterLabelTop, 16, Green);
+    label(148, FooterLabelTop, 65, "Set", Green, ChromeFont);
+  } else {
+    const bool filters = !editing && action == Action::Filters;
+    label(108, FooterLabelTop, 112, filters ? "Edit filters" : "Hold Back", filters ? Green : MutedInk, ChromeFont);
+  }
+}
 inline void drawStations() {
   using RadioDisplay::Icon;
   const bool busy = search.pending, problem = search.failed;
@@ -266,6 +373,10 @@ inline void drawStations() {
   header(context);
   stationCursor = constrain(stationCursor, 0, stationOptions() - 1);
   const Action action = stationAction();
+  if (RadioDisplay::LargeDisplay) {
+    drawLargeStations(busy, problem, editing, filter, offset, action);
+    return;
+  }
   if(editing || (!busy && action == Action::Filters)) RadioDisplay::focusRow(canvas, 19, 14);
   if(editing && ui.mode == FilterMode::Value) {
     String scratch;
@@ -340,30 +451,64 @@ inline void drawStations() {
 }
 inline void drawWifi() {
   header("Wi-Fi setup");
-  text(4, 22, 152, wifi.status(), ST77XX_YELLOW, 1, true);
+  if (RadioDisplay::LargeDisplay) {
+    using namespace RadioDisplay;
+    const bool connecting = std::strstr(wifi.status(), "Connecting") || std::strstr(wifi.status(), "connecting");
+    drawIcon(canvas, connecting ? Icon::Spinner : Icon::Wifi, 12, 44, 20, Cyan, millis());
+    const String status = displayText(wifi.status());
+    animate |= connecting;
+    animate |= drawText(canvas, *DetailFont, 44, 44, 264, status.c_str(), Yellow, true,
+                        wifiStatusMotion.elapsed(status.c_str(), millis()));
+    if (!wifi.portalActive()) {
+      drawIcon(canvas, Icon::Spinner, 142, 88, 36, Cyan, millis());
+      animate = true;
+      centeredLabel(142, "Setup AP is restarting");
+      centeredLabel(177, "Retries within 60 seconds", Cyan, ChromeFont);
+      footer("Hold Back");
+      return;
+    }
+    label(12, 78, 296, "Connect phone to", MutedInk, ChromeFont);
+    label(12, 101, 296, wifi.apName());
+    const String password = "Key: " + String(wifi.apPassword());
+    label(12, 135, 296, password.c_str(), White, DetailFont);
+    const String address = "Open " + wifi.portalAddress();
+    label(12, 163, 296, address.c_str(), Green, DetailFont);
+    label(12, 191, 296, "Enter home Wi-Fi there", MutedInk, ChromeFont);
+    footer("Hold Back");
+    return;
+  }
+  text(4, 22, 152, wifi.status(), LegacyYellow, 1, true);
   if (!wifi.portalActive()) {
     text(4, 48, 152, "Setup AP is restarting");
-    text(4, 68, 152, "Retries within 60 seconds", ST77XX_CYAN);
+    text(4, 68, 152, "Retries within 60 seconds", LegacyCyan);
     footer("Hold:back");
     return;
   }
-  text(4, 38, 152, "Connect phone to:", ST77XX_CYAN);
+  text(4, 38, 152, "Connect phone to:", LegacyCyan);
   text(4, 51, 152, wifi.apName());
   String password = "Key: " + String(wifi.apPassword());
   text(4, 65, 152, password.c_str());
   String address = "Open " + wifi.portalAddress();
-  text(4, 81, 152, address.c_str(), ST77XX_GREEN);
+  text(4, 81, 152, address.c_str(), LegacyGreen);
   text(4, 96, 152, "Enter home Wi-Fi there");
   footer("Hold:back");
 }
 inline void draw() {
   if (!canvas.getBuffer()) return;
   animate = false;
-  canvas.fillScreen(ST77XX_BLACK);
+  canvas.fillScreen(0);
   if (initializationError[0]) {
     header("Startup error");
-    text(4, 28, 152, initializationError, ST77XX_RED, 1, true);
-    text(4, 60, 152, "See USB serial log");
+    if (RadioDisplay::LargeDisplay) {
+      RadioDisplay::drawIcon(canvas, RadioDisplay::Icon::Warning, 142, 60, 36, RadioDisplay::Red);
+      const String error = displayText(initializationError);
+      animate |= RadioDisplay::drawText(canvas, *RadioDisplay::DetailFont, 12, 123, 296,
+          error.c_str(), RadioDisplay::Red, true, wifiStatusMotion.elapsed(error.c_str(), millis()));
+      centeredLabel(166, "See USB serial log", RadioDisplay::MutedInk, RadioDisplay::DetailFont);
+    } else {
+      text(4, 28, 152, initializationError, LegacyRed, 1, true);
+      text(4, 60, 152, "See USB serial log");
+    }
     footer("Restart after correction");
   } else switch (view) {
     case View::Listening: drawListening(); break;
@@ -371,7 +516,7 @@ inline void draw() {
     case View::Stations: drawStations(); break;
     case View::Wifi: drawWifi(); break;
   }
-  tft.drawRGBBitmap(0, 0, canvas.getBuffer(), 160, 128);
+  if (displayReady) radioDisplay.present(canvas.getBuffer());
   lastDrawAt = millis();
   dirty = false;
 }
@@ -707,6 +852,13 @@ inline void printDiagnostics() {
   Serial.printf("GTS Radio: uptime=%lu s heap=%u PSRAM=%u Wi-Fi=%s audio=%s\n",
                 static_cast<unsigned long>(millis() / 1000), ESP.getFreeHeap(), ESP.getPsramSize(),
                 online ? "connected" : "offline", RadioAudio::stateName(playback.state));
+  Serial.printf("display: %s; %u x %u; frame %u bytes%s\n", radioDisplay.driverName(),
+                RadioDisplay::ScreenWidth, RadioDisplay::ScreenHeight,
+                RadioDisplay::ScreenWidth * RadioDisplay::ScreenHeight * unsigned(sizeof(uint16_t)),
+                RadioDisplay::LargeDisplay ? " in PSRAM" : "");
+  Serial.printf("display: %s%s%s; startup: %s\n", displayReady ? "ready" : "unavailable",
+                radioDisplay.error()[0] ? "; " : "", radioDisplay.error(),
+                initializationError[0] ? initializationError : "OK");
   Serial.printf("audio: %s; %s metadata callbacks\n", RadioAudio::pcmApiName(),
                 RadioAudio::MetadataCallbacks<Audio>::modern ? "event" : "legacy");
   const Station& selected = RadioModel::validStation(playback.requested) ? playback.requested : lastGood;
@@ -721,17 +873,17 @@ inline void printDiagnostics() {
 }
 inline void setup() {
   Serial.begin(115200);
-  SPI.begin(RadioConfig::TftClock, -1, RadioConfig::TftMosi, RadioConfig::TftCs);
-  tft.initR(INITR_BLACKTAB);
-  tft.setRotation(1);
-  tft.setTextWrap(false);
-  tft.fillScreen(ST77XX_BLACK);
-  tft.setTextColor(ST77XX_WHITE);
-  tft.setCursor(4, 12);
-  tft.print("GTS Radio starting...");
-  if (!canvas.getBuffer()) {
-    tft.setCursor(4, 32); tft.print("Display memory failed");
+  displayReady = radioDisplay.begin();
+  if (!displayReady) {
+    strlcpy(initializationError, radioDisplay.error(), sizeof(initializationError));
+    Serial.printf("display: %s\n", initializationError);
+    return;
+  }
+  radioDisplay.showMessage("GTS RADIO", "Starting radio...");
+  if (!canvas.allocate()) {
     strlcpy(initializationError, "Display allocation failed", sizeof(initializationError));
+    Serial.printf("display: %s; enable OPI PSRAM for the TFT shield\n", initializationError);
+    radioDisplay.showMessage("Display memory failed", RadioDisplay::LargeDisplay ? "Enable OPI PSRAM" : "Restart the radio");
     return;
   }
   RadioStorage::WifiCredentials credentials;
@@ -769,7 +921,7 @@ inline void loop() {
     diagnosticsAt = millis();
     printDiagnostics();
   }
-  if (!canvas.getBuffer()) { delay(20); return; }
+  if (!displayReady || !canvas.getBuffer()) { delay(20); return; }
   wifi.loop();
   if (strcmp(lastWifiStatus, wifi.status())) {
     strlcpy(lastWifiStatus, wifi.status(), sizeof(lastWifiStatus));

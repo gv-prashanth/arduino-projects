@@ -16,6 +16,7 @@ struct ListeningFrame {
   const char* messageText;
   RadioUi::Tone messageTone;
   uint32_t now;
+  const char* stationLocation = nullptr;
   bool online = true, buttonDown = false;
   uint32_t heldMs = 0;
   ListeningFrame(const RadioModel::Settings& volume, const RadioModel::Station& selected,
@@ -59,24 +60,25 @@ inline const char* detailAfterStatus(const char* message, const char* status) {
 // Use natural word breaks first, then split long unbroken names. The second
 // line's static truncation marker makes names longer than both lines apparent.
 inline const GFXfont* titleFont(const char* name) {
-  if (!name) return RadioFonts::Title;
+  if (!name) return PlayerTitleFont;
   while (*name == ' ') ++name;
   // Avoid an orphaned final character for one long station/city name when the
   // next readable size can show it whole. Multiword titles keep two big rows.
-  if (!std::strchr(name, ' ') && textWidth(*RadioFonts::Title, name) > 152 &&
-      textWidth(*RadioFonts::Body, name) <= 152) return RadioFonts::Body;
-  return RadioFonts::Title;
+  const GFXfont* fallback = LargeDisplay ? RadioFonts::LargeRow : RadioFonts::Body;
+  if (!std::strchr(name, ' ') && textWidth(*PlayerTitleFont, name) > ContentWidth &&
+      textWidth(*fallback, name) <= ContentWidth) return fallback;
+  return PlayerTitleFont;
 }
 
 inline void titleLines(const char* name, char (&first)[128], char (&second)[128],
-                       const GFXfont& font = *RadioFonts::Title) {
+                       const GFXfont& font = *PlayerTitleFont) {
   if (!name) name = "";
   while (*name == ' ') ++name;
-  if (textWidth(font, name) <= 152) { RadioModel::copyText(first, name); second[0] = '\0'; return; }
+  if (textWidth(font, name) <= ContentWidth) { RadioModel::copyText(first, name); second[0] = '\0'; return; }
   std::size_t used = 0, space = 0;
   while (name[used] && used + 1 < sizeof(first)) {
     first[used] = name[used]; first[used + 1] = '\0';
-    if (textWidth(font, first) > 152) break;
+    if (textWidth(font, first) > ContentWidth) break;
     if (name[used] == ' ') space = used;
     ++used;
   }
@@ -98,19 +100,21 @@ inline bool drawListeningScreen(Canvas& canvas, const ListeningFrame& frame, Lis
   // source/location filters used to browse a different catalog.
   const bool selected = RadioModel::validStation(frame.station);
   const char* provider = !selected ? "No station selected" :
-      frame.station.source == RadioModel::Source::Akashvani ? "Akashvani" : "RB";
-  const char* rawLocation = frame.station.location[0] ? frame.station.location : frame.station.country;
-  const char* location = compactLocationLabel(rawLocation);
+      frame.station.source == RadioModel::Source::Akashvani ? "Akashvani" : LargeDisplay ? "Radio Browser" : "RB";
+  const char* rawLocation = frame.stationLocation ? frame.stationLocation :
+      frame.station.location[0] ? frame.station.location : frame.station.country;
+  const char* location = LargeDisplay ? rawLocation : compactLocationLabel(rawLocation);
   char context[96];
   std::snprintf(context, sizeof(context), "%s%s%s", provider,
                 selected && rawLocation[0] ? " / " : "", selected && rawLocation[0] ? location : "");
-  drawText(canvas, *ChromeFont, 4, FilterTop, 152, context, Green, false, 0);
+  animated |= drawText(canvas, *ChromeFont, ContentLeft, FilterTop, ContentWidth, context, Green, LargeDisplay,
+                        LargeDisplay ? motion.context.elapsed(context, frame.now) : 0);
 
   char first[128] = {}, second[128] = {};
   const GFXfont& title = *listening_detail::titleFont(frame.stationName);
   listening_detail::titleLines(frame.stationName, first, second, title);
-  drawText(canvas, title, 4, 39, 152, first, White, false, 0);
-  drawText(canvas, title, 4, 39 + fontHeight(title), 152, second, White, false, 0);
+  drawText(canvas, title, ContentLeft, PlayerTitleTop, ContentWidth, first, White, false, 0);
+  drawText(canvas, title, ContentLeft, PlayerTitleTop + fontHeight(title), ContentWidth, second, White, false, 0);
 
   const State state = frame.playback.state;
   const bool offline = !frame.online || state == State::Offline;
@@ -120,7 +124,11 @@ inline bool drawListeningScreen(Canvas& canvas, const ListeningFrame& frame, Lis
   const Icon stateIcon = offline ? Icon::Offline : state == State::Failed ? Icon::Warning :
                          waiting ? Icon::Spinner : playing ? silent ? Icon::Muted : Icon::Play : Icon::Stations;
   const uint16_t stateColor = offline ? Yellow : state == State::Failed ? Red : waiting || silent ? Yellow : Green;
-  drawIcon(canvas, stateIcon, 5, 80, 13, stateColor, frame.now);
+  const int statusIconLeft = LargeDisplay ? 12 : 5;
+  const int statusIconSize = LargeDisplay ? 22 : 13;
+  const int statusTextLeft = LargeDisplay ? 44 : 23;
+  const int statusTextWidth = ScreenWidth - statusTextLeft - ContentLeft;
+  drawIcon(canvas, stateIcon, statusIconLeft, PlayerStatusTop, statusIconSize, stateColor, frame.now);
   animated |= waiting;
 
   char technical[48] = {};
@@ -146,17 +154,17 @@ inline bool drawListeningScreen(Canvas& canvas, const ListeningFrame& frame, Lis
              state == State::Buffering ? "Buffering" : "Choose a station";
     // Short actionable progress belongs in the status row. Longer reasons
     // retain the status label and use the separate programme/message row.
-    if (waiting && message[0] && textWidth(*RowFont, message) <= 133) status = message;
+    if (waiting && message[0] && textWidth(*RowFont, message) <= statusTextWidth) status = message;
     message = listening_detail::detailAfterStatus(message, status);
   }
-  drawText(canvas, *RowFont, 23, 80, 133, status, playing ? Cyan : stateColor, false, 0);
-  animated |= drawText(canvas, *RowFont, 4, 97, 152, message, messageColor, true,
+  drawText(canvas, *RowFont, statusTextLeft, PlayerStatusTop, statusTextWidth, status, playing ? Cyan : stateColor, false, 0);
+  animated |= drawText(canvas, *DetailFont, ContentLeft, PlayerMessageTop, ContentWidth, message, messageColor, true,
                        motion.message.elapsed(message, frame.now));
 
   footer(canvas, Icon::Stations, "Stations", Icon::Settings, "Settings");
   if (frame.buttonDown) {
-    const uint32_t progress = frame.heldMs >= 700 ? 160 : frame.heldMs * 160 / 700;
-    canvas.fillRect(0, 126, progress, 2, Green);
+    const uint32_t progress = frame.heldMs >= 700 ? ScreenWidth : frame.heldMs * ScreenWidth / 700;
+    canvas.fillRect(0, ScreenHeight - 2, progress, 2, Green);
     animated = true;
   }
   return animated;

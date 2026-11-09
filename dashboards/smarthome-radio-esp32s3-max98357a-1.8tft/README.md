@@ -1,6 +1,21 @@
 # ESP32-S3 internet radio
 
-Internet radio for an ESP32S3-N16R8-DualUSB board, a MAX98357A I²S amplifier, a 1.8-inch ST7735 TFT, and a rotary encoder with a push button.
+Internet radio for an ESP32S3-N16R8-DualUSB board, a MAX98357A I²S amplifier, a 2.4-inch parallel TFT shield or 1.8-inch ST7735 TFT, and a rotary encoder with a push button.
+
+## Select the display
+
+Open `DisplayProfile.h` and set the selection before compiling and uploading:
+
+```cpp
+#define RADIO_DISPLAY RADIO_DISPLAY_TFT_SHIELD_24 // Default: 2.4-inch parallel shield
+// Use RADIO_DISPLAY_ST7735_18 for the original 1.8-inch SPI display.
+```
+
+The shield uses a native **320 × 240 landscape** layout with larger fonts, full location labels, five station rows, and more space for player titles, status messages, and Wi-Fi instructions. The ST7735 selection keeps the existing **160 × 128** layout and its original pins. Each firmware build initializes and drives only the selected display. Navigation is identical: Player Click opens Stations, Player Hold opens Settings, and Hold returns through nested screens. The display selection is a compile-time choice and is not stored in NVS.
+
+PlatformIO build flags can override the file selection: `-DRADIO_DISPLAY=1` selects the shield and `-DRADIO_DISPLAY=2` selects the ST7735. The supplied `esp32s3-n16r8-st7735` environment selects the original display explicitly, so `pio run -e esp32s3-n16r8-st7735` can validate it without changing the default. Select one attached display; their GPIO assignments overlap.
+
+Both display selections use **TFT_eSPI** as the display driver. The 2.4-inch profile uses the confirmed **ILI9341_DRIVER** with an 8-bit parallel interface; the original display uses **ST7735_DRIVER**, black-tab initialization, and SPI. The project supplies the driver and pin configuration consistently to the sketch and the TFT_eSPI library compilation, so changing `RADIO_DISPLAY` is the only display-selection step.
 
 ## Hardware and wiring
 
@@ -11,16 +26,45 @@ The supplied PlatformIO environment targets **16 MB Quad SPI flash and 8 MB Octa
 | MAX98357A LRC/LRCLK | 4 |
 | MAX98357A BCLK | 5 |
 | MAX98357A DIN | 6 |
-| TFT CS | 10 |
-| TFT MOSI/SDA | 11 |
-| TFT SCK/SCL | 12 |
-| TFT DC/A0 | 13 |
-| TFT RESET | 14 |
 | Encoder CLK/A | 1 |
 | Encoder DT/B | 2 |
 | Encoder push button | 42 |
 
-Use a common ground. Encoder inputs use internal pull-ups and the button closes to ground. The TFT configuration is ST7735 black-tab, landscape 160 × 128 pixels. Match power and backlight wiring to the actual breakout modules. GPIO 19/20 remain available for native USB.
+**2.4-inch parallel TFT shield (default):**
+
+| Shield signal | ESP32-S3 GPIO |
+| --- | --- |
+| D0 | 8 |
+| D1 | 18 |
+| D2 | 14 |
+| D3 | 13 |
+| D4 | 12 |
+| D5 | 11 |
+| D6 | 10 |
+| D7 | 9 |
+| RST | 17 |
+| CS | 16 |
+| RS / DC | 15 |
+| WR | 7 |
+| RD | 21 |
+| SD CS | 38 |
+| SD D1 / MOSI | 39 |
+| SD D0 / MISO | 40 |
+| SD SCK | 41 |
+
+The SD wiring is recorded for the shield; radio playback still uses internet streams and does not mount or read an SD card. Touch is not added; use the same rotary encoder and button with either display.
+
+**1.8-inch ST7735 SPI display:**
+
+| Display signal | ESP32-S3 GPIO |
+| --- | --- |
+| CS | 10 |
+| MOSI / SDA | 11 |
+| SCK / SCL | 12 |
+| DC / A0 | 13 |
+| RESET | 14 |
+
+Use a common ground. Encoder inputs use internal pull-ups and the button closes to ground. The ST7735 uses the original black-tab initialization. Match power and backlight wiring to the actual breakout modules. GPIO 19/20 remain available for native USB. OPI PSRAM must be enabled: the larger shield's RGB565 framebuffer occupies 153,600 bytes in PSRAM so that display storage does not consume the audio/network tasks' internal heap.
 
 The encoder defaults to four quadrature transitions per detent, 25 ms button debounce, and a 700 ms long press. To match a different encoder, append `-DRADIO_INPUT_TICKS_PER_DETENT=2` (or `1`) to the existing `build_flags`. Append `-DRADIO_INPUT_REVERSE=1` if rotation runs in the opposite direction.
 
@@ -37,14 +81,13 @@ The encoder defaults to four quadrature transitions per detent, 25 ms button deb
 | ESP32-audioI2S | tag 3.0.12, commit `928c420d49fce2a09fa91f490b9fcabed6447c67` |
 | ArduinoJson | 6.21.6 |
 | Adafruit GFX | 1.12.6 |
-| Adafruit ST7735/ST7789 | 1.11.0 |
 | Adafruit BusIO | 1.17.4 |
-| Adafruit seesaw (display-library dependency) | 1.7.9 |
+| TFT_eSPI (both display drivers) | 2.5.43 |
 | SD | Arduino-ESP32's bundled 3.0.7 |
 
 The audio library is pinned by Git commit because its release's package manifest reports an older version. This remains the default reproducible build; the callback adapter also supports the ESP32-audioI2S **4.0.0** API used by Arduino IDE installations. The platform release's manifest identifies itself as `51.3.6`, but downloads Arduino-ESP32 **3.0.7**; the release URL is intentional.
 
-The explicit SD dependency points to the pinned framework's library. This prevents the display library's generic Arduino SD dependency from shadowing ESP32's incompatible filesystem API.
+The explicit SD dependency selects the pinned framework's ESP32 filesystem API.
 
 `default_16MB.csv` uses two application slots of **6,553,600 bytes each** within the 16 MB flash chip. The build checks firmware against the application slot size, rather than treating all physical flash as application space. The preliminary board label still names the generic N8 board; the environment overrides its flash and PSRAM configuration.
 
@@ -72,7 +115,13 @@ Build outputs are in `.pio/build/esp32s3-n16r8/`: `firmware.bin` is the applicat
 
 ## Arduino IDE build and serial monitor
 
-Keep the `.ino`, headers, `AudioCallbacks.cpp`, `HlsStreamResolver.cpp`, and the bundled `fonts/` directory together in the sketch folder. The listening screen's bitmap fonts require no additional library installation. For a standard N16R8 board, use these Arduino IDE Tools settings:
+Keep the `.ino`, headers, `build_opt.h`, `AudioCallbacks.cpp`, `HlsStreamResolver.cpp`, and the bundled `fonts/` directory together in the sketch folder. The listening screen's bitmap fonts require no additional library installation.
+
+Install **TFT_eSPI 2.5.43** by **Bodmer** and **Adafruit GFX**, along with the existing radio dependencies. TFT_eSPI drives both displays; Adafruit GFX provides the offscreen framebuffer and bundled-font structures used by the existing renderer. Select `RADIO_DISPLAY` in `DisplayProfile.h` before uploading.
+
+ESP32 Arduino core 3.x applies the bundled `build_opt.h` to the sketch and library source files. It includes `RadioTftSetup.h`, keeping TFT_eSPI's driver, interface, and pin definitions consistent with the selected profile. Keep both files in the sketch directory when opening it in Arduino IDE. PlatformIO applies the same project setup through its build flags.
+
+For a standard N16R8 board, use these Arduino IDE Tools settings:
 
 | Setting | Value |
 | --- | --- |
@@ -144,6 +193,10 @@ UTF-8 is decoded before fitting text, but the display fonts cover printable ASCI
 | --- | --- |
 | `smarthome-radio-esp32s3-max98357a-1.8tft.ino` | Arduino entry points |
 | `RadioApp.h` | UI, navigation, worker coordination, deferred settings saves |
+| `DisplayProfile.h` | Compile-time display selection and native screen geometry |
+| `DisplayHardware.h` | Selected display initialization and framebuffer transfer |
+| `RadioTftSetup.h` | Project-local TFT_eSPI driver and pin configuration |
+| `FrameCanvas.h` | Native RGB565 framebuffer with PSRAM allocation for the shield |
 | `NavigationState.h` | Hardware-independent screen/focus rules and request origins |
 | `RadioChrome.h` | Shared branded header, footer, icons, and display typography |
 | `ListeningScreen.h` / `ListeningUi.h` | Listening layout, message priority, and visible warning lifetimes |
@@ -194,6 +247,7 @@ A successful build and host tests cannot verify wiring, amplifier output, exact 
 
 | Check | Expected result |
 | --- | --- |
+| Compile/upload the selected display profile with its matching wiring | Shield renders native 320 × 240; ST7735 keeps 160 × 128; landscape orientation, colors, margins, encoder response, and audio remain correct during redraws |
 | Boot without credentials; complete the displayed setup form | TFT/input work before connection; setup AP appears; valid credentials connect and survive a restart |
 | Set a quiet player volume, open Settings to mute, wait a few seconds, restart, then unmute | Device remains muted after restart and returns to the chosen volume; an actual volume change also unmutes |
 | Browse stations and edit/cancel a filter while listening | Current audio continues until a station is explicitly selected; cancelled drafts do not change filters |
@@ -221,14 +275,18 @@ python3 tests/run_host_tests.py --sanitize
 
 This requires a C++17-capable compiler. Omit `--sanitize` if the compiler does not provide AddressSanitizer and UndefinedBehaviorSanitizer. Set `CXX` to select another compiler. The network JSON and dependency-patch tests run when the pinned libraries have been installed by `pio run`; otherwise the runner explicitly reports those skips.
 
-The application integration suite runs the real `RadioApp.h` input handlers and drawing code against simulated service boundaries. It covers filter rollback, cancellation and late results, held gestures across loading, automatic next-page entry, and reconnects while editing. To export its actual 160×128 screen renders for visual review:
+The application integration suite runs the real `RadioApp.h` input handlers and drawing code against simulated service boundaries for **both display selections**. It covers filter rollback, cancellation and late results, held gestures across loading, automatic next-page entry, and reconnects while editing. Rendering checks exercise five station rows, Settings, filter values, Wi-Fi setup/restart, startup failure, empty results, and every playback state without drawing outside the selected display. Unsupported display selections must fail compilation. To export actual screen renders for visual review:
 
 ```sh
-c++ -std=c++17 -Wall -Wextra -Werror -I tests/display_stubs tests/radio_app_test.cpp -o /tmp/radio-app-test
-/tmp/radio-app-test /tmp/radio-app-
+c++ -std=c++17 -Wall -Wextra -Werror -DRADIO_DISPLAY=1 -I tests/display_stubs tests/radio_app_test.cpp -o /tmp/radio-app-shield-test
+/tmp/radio-app-shield-test /tmp/radio-app-shield-
+c++ -std=c++17 -Wall -Wextra -Werror -DRADIO_DISPLAY=2 -I tests/display_stubs tests/radio_app_test.cpp -o /tmp/radio-app-st7735-test
+/tmp/radio-app-st7735-test /tmp/radio-app-st7735-
 ```
 
 This writes PPM images for Player, Stations, Settings, filter editing, loading, and failures.
+
+Display-driver host cases compile the production `DisplayHardware.h` against simulated GPIO and TFT_eSPI boundaries. These checks validate driver selection, pin configuration, control flow, and transfer dimensions; they do not prove electrical behavior on the attached shield.
 
 The C++ tests exercise platform-independent state/persistence helpers, saved-station/cache cleanup, encoder/button behavior, catalog request ordering/retry state, source-qualified identity/cache and legacy migration, official catalog parsing and local pagination, HLS redirect URL handling and playback identity/retry integration, Wi-Fi form validation, network JSON parsing with delayed packets and the real pinned ArduinoJson, and the audio service using deterministic Arduino/Audio stubs. Listening-screen tests cover message priority, warning expiry/interruption, proportional glyph clipping, actual-font layout bounds, station-provider identity, and the fixed footer across playback states and marquee frames. The callback contract matrix separately links the production `AudioCallbacks.cpp` against four PCM APIs, including 4.0.0's weak default hook, and checks legacy/event metadata registration. These tests require no ESP32; they do not simulate true concurrent execution or validate upstream mutexes, I²S output, or speaker sound.
 

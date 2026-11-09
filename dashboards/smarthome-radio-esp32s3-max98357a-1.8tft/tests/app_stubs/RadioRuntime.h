@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 #include "../../RadioConfig.h"
+#include "../../DisplayProfile.h"
 #include "../../CatalogTypes.h"
 #include "../../AudioState.h"
 #include "../../SettingsRestore.h"
@@ -72,6 +73,8 @@ class GFXcanvas16 {
   GFXcanvas16(int width, int height) : width_(width), height_(height), pixels(width * height) {}
   uint16_t* getBuffer() { return pixels.data(); }
   const uint16_t* getBuffer() const { return pixels.data(); }
+  int width() const { return width_; }
+  int height() const { return height_; }
   void fillScreen(uint16_t color) { std::fill(pixels.begin(), pixels.end(), color); }
   void drawPixel(int x, int y, uint16_t color) {
     if (x < 0 || y < 0 || x >= width_ || y >= height_) { ++clipped; return; }
@@ -148,6 +151,34 @@ class Adafruit_ST7735 : public GFXcanvas16 {
     pixels.assign(source, source + width * height);
   }
 };
+namespace RadioDisplay {
+class FrameCanvas : public GFXcanvas16 {
+ public:
+  FrameCanvas(int width, int height) : GFXcanvas16(width, height) {}
+  bool allocate() { return accepting; }
+  uint16_t* getBuffer() { return accepting ? GFXcanvas16::getBuffer() : nullptr; }
+  const uint16_t* getBuffer() const { return accepting ? GFXcanvas16::getBuffer() : nullptr; }
+  bool accepting = true;
+};
+class DisplayHardware {
+ public:
+  bool begin() { initialized = accepting; return accepting; }
+  void present(const uint16_t* buffer) {
+    assert(initialized && buffer);
+    ++presentCalls;
+    pixels.assign(buffer, buffer + ScreenWidth * ScreenHeight);
+  }
+  const char* error() const { return accepting ? "" : "Display initialization failed"; }
+  const char* driverName() const { return LargeDisplay ? "host shield" : "host ST7735"; }
+  void showMessage(const char* title, const char* detail) {
+    lastTitle = title ? title : ""; lastDetail = detail ? detail : "";
+  }
+  bool initialized = false, accepting = true;
+  unsigned presentCalls = 0;
+  std::vector<uint16_t> pixels;
+  std::string lastTitle, lastDetail;
+};
+}
 class Audio {};
 namespace RadioAudio {
 template<class T> struct MetadataCallbacks { static constexpr bool modern = false; };

@@ -7,18 +7,17 @@
 #include "RadioModel.h"
 #include "ProportionalText.h"
 
-// Shared 160 x 128 chrome. All coordinates are ink-box tops, not GFX baselines.
+// Shared display chrome. All coordinates are ink-box tops, not GFX baselines.
 // Keeping primitives here makes the host pixel checks exercise device drawing.
 namespace RadioDisplay {
 constexpr uint16_t Black = 0x0000, White = 0xf7bf, Green = 0x7f75;
 constexpr uint16_t Yellow = 0xfeeF, Red = 0xfcd2, Cyan = 0x76fd;
 constexpr uint16_t MutedInk = 0xadf8, DisabledInk = 0x63af;
 constexpr uint16_t HeaderBackground = 0x1926, FocusBackground = 0x19e6, RuleColor = 0x3229;
-constexpr int ScreenWidth = 160, ScreenHeight = 128, HeaderHeight = 18;
-constexpr int FilterTop = 21, FirstStationTop = 34, StationRowHeight = 15;
-constexpr int FooterTop = 110, FooterLabelTop = 114;
-constexpr const GFXfont* ChromeFont = RadioFonts::Chrome;
-constexpr const GFXfont* RowFont = RadioFonts::Small;
+constexpr const GFXfont* ChromeFont = LargeDisplay ? RadioFonts::LargeChrome : RadioFonts::Chrome;
+constexpr const GFXfont* RowFont = LargeDisplay ? RadioFonts::LargeRow : RadioFonts::Small;
+constexpr const GFXfont* DetailFont = LargeDisplay ? RadioFonts::LargeDetail : RadioFonts::Small;
+constexpr const GFXfont* PlayerTitleFont = LargeDisplay ? RadioFonts::LargeTitle : RadioFonts::Title;
 
 enum class Icon : uint8_t {
   Play, Muted, Volume, Spinner, Warning, Offline, Back, Prev, Next, Stations, Settings,
@@ -143,6 +142,17 @@ struct FittedCaption {
 template<class Canvas>
 inline void brandHeader(Canvas& canvas, const RadioModel::Settings& settings, const char* context = "") {
   canvas.fillRect(0, 0, ScreenWidth, HeaderHeight, HeaderBackground);
+  if (LargeDisplay) {
+    drawText(canvas, *ChromeFont, 12, 8, 112, "GTS RADIO", White, false, 0);
+    if (context && !std::strcmp(context, "Max bitrate")) context = "Bitrate";
+    drawText(canvas, *ChromeFont, 132, 8, 92, context, MutedInk, false, 0);
+    const bool silent = settings.muted || settings.volume == 0;
+    if (silent) drawIcon(canvas, Icon::Muted, 230, 8, 14, Yellow);
+    char volume[12];
+    std::snprintf(volume, sizeof(volume), "Vol %u", settings.volume);
+    drawText(canvas, *ChromeFont, 252, 8, 60, volume, silent ? Yellow : White, false, 0);
+    return;
+  }
   drawText(canvas, *ChromeFont, 4, 4, 61, "GTS RADIO", White, false, 0);
   // Compact captions use a stable 40px slot before the separate mute badge.
   if (context && !std::strcmp(context, "Max bitrate")) context = "Bitrate";
@@ -160,13 +170,25 @@ inline void brandHeader(Canvas& canvas, const RadioModel::Settings& settings, co
 
 template<class Canvas>
 inline void focusRow(Canvas& canvas, int y, int height = StationRowHeight) {
-  canvas.fillRect(3, y, 154, height, FocusBackground);
-  canvas.fillRect(3, y, 2, height, Green);
+  const int left = LargeDisplay ? 8 : 3;
+  canvas.fillRect(left, y, ScreenWidth - left * 2, height, FocusBackground);
+  canvas.fillRect(left, y, LargeDisplay ? 3 : 2, height, Green);
 }
 
 template<class Canvas>
 inline void footer(Canvas& canvas, Icon leftIcon, const char* leftLabel,
                    Icon rightIcon, const char* rightLabel) {
+  if (LargeDisplay) {
+    canvas.drawFastHLine(ContentLeft, FooterTop, ContentWidth, RuleColor);
+    drawIcon(canvas, leftIcon, 12, 219, 14, Cyan);
+    drawIcon(canvas, rightIcon, 172, 219, 14, Cyan);
+    char caption[64];
+    std::snprintf(caption, sizeof(caption), "Click %s", leftLabel ? leftLabel : "");
+    drawText(canvas, *ChromeFont, 34, FooterLabelTop, 126, caption, Cyan, false, 0);
+    std::snprintf(caption, sizeof(caption), "Hold %s", rightLabel ? rightLabel : "");
+    drawText(canvas, *ChromeFont, 194, FooterLabelTop, 118, caption, Cyan, false, 0);
+    return;
+  }
   canvas.drawFastHLine(4, FooterTop, 152, RuleColor);
   drawIcon(canvas, leftIcon, 5, 113, 11, Cyan);
   drawIcon(canvas, rightIcon, 83, 113, 11, Cyan);
@@ -180,6 +202,14 @@ inline void footer(Canvas& canvas, Icon leftIcon, const char* leftLabel,
 template<class Canvas>
 inline void navButton(Canvas& canvas, bool right, Icon symbol, const char* label,
                       bool focused, bool disabled) {
+  if (LargeDisplay) {
+    const int x = right ? 228 : 8;
+    if (focused && !disabled) canvas.fillRect(x, FooterControlTop, 84, FooterControlHeight, FocusBackground);
+    const uint16_t color = disabled ? DisabledInk : focused ? Green : White;
+    drawIcon(canvas, symbol, right ? 291 : 16, FooterLabelTop, 14, color);
+    drawText(canvas, *ChromeFont, right ? 240 : 38, FooterLabelTop, 50, label, color, false, 0);
+    return;
+  }
   const int x = right ? 110 : 4;
   if (focused && !disabled) canvas.fillRect(x, 112, 46, 14, FocusBackground);
   const uint16_t color = disabled ? DisabledInk : focused ? Green : White;

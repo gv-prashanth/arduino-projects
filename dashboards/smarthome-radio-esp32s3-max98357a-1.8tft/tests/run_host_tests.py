@@ -28,8 +28,15 @@ def main():
         ("hls_redirect", "c++11", []),
         ("listening_ui", "c++11", []),
         ("proportional_text", "c++11", ["-I", str(root / "tests" / "display_stubs")]),
-        ("listening_screen", "c++11", ["-I", str(root / "tests" / "display_stubs")]),
-        ("radio_app", "c++17", ["-I", str(root / "tests" / "display_stubs")]),
+        ("display_profile", "c++11", []),
+        ("display_hardware", "c++11", ["-I", str(root / "tests" / "hardware_stubs")]),
+        ("display_hardware_compact", "c++11", ["-DRADIO_DISPLAY=2", "-I", str(root / "tests" / "hardware_stubs")]),
+        ("frame_canvas", "c++11", ["-I", str(root / "tests" / "canvas_stubs")]),
+        ("frame_canvas_compact", "c++11", ["-DRADIO_DISPLAY=2", "-I", str(root / "tests" / "canvas_stubs")]),
+        ("listening_screen", "c++11", ["-DRADIO_DISPLAY=2", "-I", str(root / "tests" / "display_stubs")]),
+        ("large_listening_screen", "c++11", ["-DRADIO_DISPLAY=1", "-I", str(root / "tests" / "display_stubs")]),
+        ("radio_app", "c++17", ["-DRADIO_DISPLAY=2", "-I", str(root / "tests" / "display_stubs")]),
+        ("radio_app_large", "c++17", ["-DRADIO_DISPLAY=1", "-I", str(root / "tests" / "display_stubs")]),
     ]
     for api in range(4):
         tests.append(("audio_service_api" + str(api), "c++17", [
@@ -52,10 +59,24 @@ def main():
             command = compiler + ["-std=" + standard, "-Wall", "-Wextra", "-Werror", "-pedantic"]
             if args.sanitize:
                 command += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
-            source_name = "audio_service" if name.startswith("audio_service_api") else name
+            if name.startswith("audio_service_api"):
+                source_name = "audio_service"
+            elif name.startswith("display_hardware"):
+                source_name = "display_hardware"
+            elif name.startswith("frame_canvas"):
+                source_name = "frame_canvas"
+            else:
+                source_name = "radio_app" if name == "radio_app_large" else name
             command += extra + [str(root / "tests" / (source_name + "_test.cpp")), "-o", executable]
             subprocess.run(command, check=True, cwd=root)
             subprocess.run([executable], check=True, cwd=root)
+        print("Checking unsupported display profile fails explicitly", flush=True)
+        unsupported_display = compiler + ["-std=c++11", "-DRADIO_DISPLAY=99", "-x", "c++", "-c", "-",
+                                          "-I", str(root), "-o", str(Path(temporary) / "unsupported-display.o")]
+        result = subprocess.run(unsupported_display, input='#include "DisplayProfile.h"\n',
+                                text=True, capture_output=True, cwd=root)
+        if result.returncode == 0 or "RADIO_DISPLAY" not in result.stderr:
+            raise RuntimeError("Unsupported display profile did not fail with the intended diagnostic:\n" + result.stderr)
         print("Checking unsupported PCM callback API fails explicitly", flush=True)
         unsupported = compiler + ["-std=c++17", "-DRADIO_TEST_AUDIO_API=99", "-I",
                                   str(root / "tests" / "audio_stubs"), "-c",

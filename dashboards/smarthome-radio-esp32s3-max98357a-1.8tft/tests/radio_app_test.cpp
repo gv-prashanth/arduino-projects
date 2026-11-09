@@ -25,6 +25,8 @@ void reset() {
   airLocationCount = 0; std::memset(airLocations, 0, sizeof(airLocations));
   backgroundRefreshDue = false;
   audioReady = directoryReady = storageReady = inputReady = true;
+  radioDisplay = RadioDisplay::DisplayHardware{};
+  displayReady = radioDisplay.begin();
   dirty = true; animate = settingsDirty = false; online = true; autoStartFirst = false;
   portalWasActive = eventButtonDown = false;
   gestureView = View::Listening; gestureState = RadioNavigation::State{};
@@ -33,7 +35,9 @@ void reset() {
   candidateSince = lastOverflow = restoredGeneration = 0;
   notices = RadioUi::NoticeCenter{}; restorationNotice = RadioUi::NoticeCenter{};
   listeningMotion = RadioDisplay::ListeningMotion{};
+  filterValueMotion = RadioDisplay::RowMotion{}; wifiStatusMotion = RadioDisplay::RowMotion{};
   RadioHost::now = 1000;
+  canvas.accepting = true;
   canvas.fillScreen(0); canvas.clipped = 0;
 }
 Station station(unsigned index, Source source = Source::RadioBrowser) {
@@ -84,9 +88,12 @@ void fail(const char* reason = "Directory unavailable") {
 }
 void sameRegion(const std::vector<uint16_t>& expected, int x, int y, int width, int height) {
   for (int py = y; py < y + height; ++py) for (int px = x; px < x + width; ++px)
-    assert(canvas.at(px, py) == expected[static_cast<unsigned>(py * 160 + px)]);
+    assert(canvas.at(px, py) == expected[static_cast<unsigned>(py * RadioDisplay::ScreenWidth + px)]);
 }
-void render() { canvas.clipped = 0; draw(); assert(canvas.clipped == 0); }
+void render() {
+  canvas.clipped = 0; draw(); assert(canvas.clipped == 0);
+  assert(radioDisplay.pixels == canvas.pixels);
+}
 
 void testPlayerClickAndLastRowEntry() {
   reset(); installPage(); playing(catalog->stations[2]);
@@ -195,8 +202,10 @@ void testMetadataAndPixelScreens(const std::string& prefix) {
   for (int index = 0; index < 8; ++index) RadioModel::copyText(catalog->stations[index].name, names[index]);
   playing(catalog->stations[1]); enter(View::Stations); stationCursor = 3;
   render();
-  for (int row = 0; row < 5; ++row)
-    assert(canvas.contains(20, RadioDisplay::FirstStationTop + row * 15, 135, 13, RadioDisplay::White));
+  for (int row = 0; row < RadioDisplay::VisibleStationRows; ++row)
+    assert(canvas.contains(20, RadioDisplay::FirstStationTop + row * RadioDisplay::StationRowHeight,
+                           RadioDisplay::ScreenWidth - 25, RadioDisplay::fontHeight(*RadioDisplay::RowFont),
+                           RadioDisplay::White));
   if (!prefix.empty()) canvas.writePpm(prefix + "stations.ppm");
   beginFields(); render(); if (!prefix.empty()) canvas.writePpm(prefix + "filters.ppm");
   beginEdit(Field::Location); render(); if (!prefix.empty()) canvas.writePpm(prefix + "location-picker.ppm");
@@ -208,20 +217,78 @@ void testMetadataAndPixelScreens(const std::string& prefix) {
   fail(); render(); if (!prefix.empty()) canvas.writePpm(prefix + "directory-error.ppm");
   cancelDirectoryToOrigin();
   enter(View::Settings); ui.setting = 1; render();
-  for (int row = 0; row < 3; ++row) assert(canvas.contains(26, 25 + row * 19, 127, 13, RadioDisplay::White));
+  for (int row = 0; row < 3; ++row)
+    assert(canvas.contains(26, (RadioDisplay::LargeDisplay ? 56 : 25) + row * (RadioDisplay::LargeDisplay ? 40 : 19),
+                           RadioDisplay::ScreenWidth - 33, RadioDisplay::fontHeight(*RadioDisplay::RowFont),
+                           RadioDisplay::White));
   if (!prefix.empty()) canvas.writePpm(prefix + "settings.ppm");
   enter(View::Listening); notices = RadioUi::NoticeCenter{}; render();
   if (!prefix.empty()) canvas.writePpm(prefix + "player.ppm");
   const auto actualStationFrame = canvas.pixels;
   settings.source = Source::RadioBrowser; settings.country = 3; settings.genre = 2;
   render(); assert(canvas.pixels == actualStationFrame);
-  GFXcanvas16 expected(160, 128);
-  RadioDisplay::drawText(expected, *RadioDisplay::ChromeFont, 4, 21, 152,
-                         "Akashvani / AP", RadioDisplay::Green, false, 0);
-  sameRegion(expected.pixels, 0, 21, 160, 10);
+  GFXcanvas16 expected(RadioDisplay::ScreenWidth, RadioDisplay::ScreenHeight);
+  RadioDisplay::drawText(expected, *RadioDisplay::ChromeFont, RadioDisplay::ContentLeft,
+                         RadioDisplay::FilterTop, RadioDisplay::ContentWidth,
+                         RadioDisplay::LargeDisplay ? "Akashvani / Andhra Pradesh" : "Akashvani / AP",
+                         RadioDisplay::Green, false, 0);
+  sameRegion(expected.pixels, 0, RadioDisplay::FilterTop, RadioDisplay::ScreenWidth,
+             RadioDisplay::fontHeight(*RadioDisplay::ChromeFont));
   playback.state = RadioAudio::State::Failed;
   RadioModel::copyText(playback.detail, "Stream unavailable");
   render(); if (!prefix.empty()) canvas.writePpm(prefix + "playback-error.ppm");
+}
+void testAdditionalScreenStates(const std::string& prefix) {
+  reset();
+  enter(View::Wifi); wifi.portal = true; render();
+  if (!prefix.empty()) canvas.writePpm(prefix + "wifi.ppm");
+  wifi.portal = false; wifi.connected = false; render();
+  if (!prefix.empty()) canvas.writePpm(prefix + "wifi-restarting.ppm");
+  RadioModel::copyText(initializationError, "Worker/queue initialization failed");
+  render(); if (!prefix.empty()) canvas.writePpm(prefix + "startup-error.ppm");
+  reset(); installPage(0, false); enter(View::Stations); render();
+  if (!prefix.empty()) canvas.writePpm(prefix + "empty.ppm");
+  catalog->hasNext = true; render();
+  if (!prefix.empty()) canvas.writePpm(prefix + "empty-next.ppm");
+  reset(); installPage(); enter(View::Stations); beginFields();
+  for (Field field : {Field::Source, Field::Location, Field::Genre, Field::Codec, Field::Bitrate}) {
+    beginEdit(field); render(); hold();
+  }
+  reset(); installPage(); playing(catalog->stations[0]);
+  RadioModel::copyText(playback.requested.name, "A long station name with words that must fit safely inside the display");
+  for (RadioAudio::State state : {RadioAudio::State::Idle, RadioAudio::State::Connecting,
+       RadioAudio::State::Playing, RadioAudio::State::Buffering, RadioAudio::State::Retrying,
+       RadioAudio::State::Failed, RadioAudio::State::Offline}) {
+    playback.state = state; render();
+    if (!prefix.empty()) canvas.writePpm(prefix + "player-state-" + std::to_string(static_cast<int>(state)) + ".ppm");
+  }
+  settings.muted = true; playback.state = RadioAudio::State::Playing; render();
+  if (!prefix.empty()) canvas.writePpm(prefix + "muted.ppm");
+  settings.muted = false; settings.volume = 0; render();
+  if (!prefix.empty()) canvas.writePpm(prefix + "volume-zero.ppm");
+}
+void testLargeWarningSurvivesUntilItsEndCanBeRead() {
+  if (!RadioDisplay::LargeDisplay) return;
+  reset(); installPage(); playing(catalog->stations[0]);
+  const std::string warning(175, 'W');
+  notify(warning.c_str(), 1000, RadioUi::NoticePriority::Warning);
+  notices.update(millis(), true);
+  render();
+  // The real 18px message font must reach its final characters before the
+  // warning disappears, with a trailing reading pause after that travel.
+  const int overflow = RadioDisplay::textWidth(*RadioDisplay::DetailFont, notices.message()) -
+                       RadioDisplay::ContentWidth;
+  assert(overflow > 0);
+  RadioHost::now += 1500 + static_cast<uint32_t>(overflow) * 40;
+  assert(!notices.update(millis(), true) && notices.warning());
+  render();
+  assert(canvas.contains(RadioDisplay::ContentLeft + RadioDisplay::ContentWidth - 25,
+                         RadioDisplay::PlayerMessageTop, 25,
+                         RadioDisplay::fontHeight(*RadioDisplay::DetailFont), RadioDisplay::Yellow));
+  RadioHost::now += 1499;
+  assert(!notices.update(millis(), true) && notices.warning());
+  ++RadioHost::now;
+  assert(notices.update(millis(), true) && !notices.active());
 }
 void testSetupAndLoopBoundaries() {
   reset(); online = false; setup();
@@ -230,6 +297,18 @@ void testSetupAndLoopBoundaries() {
   // A network transition queues one startup request; no station starts before a valid result.
   assert(search.pending && directory.requests.size() == 1 && audio.startCalls == 0);
   autoStartFirst = true; succeed(); assert(audio.startCalls == 1);
+}
+void testDisplayStartupFailureStopsRendering() {
+  reset(); radioDisplay.accepting = false; setup();
+  assert(!displayReady && initializationError[0]);
+  const auto presentations = radioDisplay.presentCalls;
+  loop();
+  assert(radioDisplay.presentCalls == presentations && !search.pending);
+  reset(); canvas.accepting = false; setup();
+  assert(initializationError[0] && !radioDisplay.lastDetail.empty());
+  const auto allocationFailurePresentations = radioDisplay.presentCalls;
+  loop();
+  assert(radioDisplay.presentCalls == allocationFailurePresentations && !search.pending);
 }
 void testReconnectDefersWhileEditing() {
   reset(); installPage(); enter(View::Stations); beginFields();
@@ -260,7 +339,10 @@ int main(int argc, char** argv) {
   testSameValueAndEmptyPageNext();
   testSettingsAndHeldGestures();
   testMetadataAndPixelScreens(prefix);
+  testAdditionalScreenStates(prefix);
+  testLargeWarningSurvivesUntilItsEndCanBeRead();
   testSetupAndLoopBoundaries();
+  testDisplayStartupFailureStopsRendering();
   testReconnectDefersWhileEditing();
   reset();
   std::puts("RadioApp integration and pixel tests passed");

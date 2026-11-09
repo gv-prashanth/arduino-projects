@@ -19,6 +19,15 @@ Only trailing whitespace is normalized in the bundled license text.
 | Title | Bold | 10 pt | 14 px | 5 px | 19 px | 23 px |
 | Small | Regular | 6 pt | 9 px | 4 px | 13 px | 14 px |
 | Chrome (header, filter strip, controls) | Regular | 5 pt | 7 px | 3 px | 10 px | 11 px |
+| LargeChrome (2.4-inch header, filters, controls) | Regular | 8 pt | 12 px | 4 px | 16 px | 18 px |
+| LargeRow (2.4-inch stations, settings, status) | Regular | 11 pt | 16 px | 6 px | 22 px | 25 px |
+| LargeTitle (2.4-inch player title) | Bold | 16 pt | 22 px | 8 px | 30 px | 36 px |
+| LargeDetail (2.4-inch messages, setup details) | Regular | 9 pt | 13 px | 5 px | 18 px | 20 px |
+
+The 2.4-inch profile draws at its native 320×240 landscape resolution. Its fonts
+are separate rasterizations of the same verified TTF sources, so the extra
+screen area gives readable larger letters without stretching the 160×128
+framebuffer. The ST7735 profile retains its original four fonts and geometry.
 
 The ink bounds include every printable ASCII glyph, including braces and
 underscores. Individual phrases can be shorter. Use measured pixel bounds, not a
