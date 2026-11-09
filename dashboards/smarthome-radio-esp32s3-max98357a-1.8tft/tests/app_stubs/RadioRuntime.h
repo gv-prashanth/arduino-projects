@@ -246,6 +246,8 @@ class WifiManager {
   bool begin(const RadioStorage::WifiCredentials&, const char*, const char*) { return true; }
   void loop() {}
   bool online() const { return connected; }
+  int32_t rssi() const { return connected ? -55 : 0; }
+  int powerSaveMode() const { return 0; }
   const char* status() const { return connected ? "Wi-Fi connected" : "Wi-Fi reconnecting"; }
   bool portalActive() const { return portal; }
   void startPortal() { portal = true; }

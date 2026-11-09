@@ -329,6 +329,22 @@ void testReconnectDefersWhileEditing() {
   assert(search.pending && search.request.refresh && directory.requests.size() == 1);
   assert(search.request.filter == accepted && !backgroundRefreshDue);
 }
+void testAudioDiagnosticsDoNotRepaintUnchangedScreen() {
+  reset(); installPage(); playing(catalog->stations[0]);
+  dirty = false;
+  auto update = playback;
+  update.diagnostics.inputFilledBytes = 42000;
+  update.diagnostics.inputCapacityBytes = 655350;
+  update.diagnostics.maxPcmGapMs = 140;
+  audio.updates.push_back(update);
+  serviceAudio();
+  assert(playback.diagnostics.inputFilledBytes == 42000);
+  assert(playback.diagnostics.maxPcmGapMs == 140 && !dirty);
+  RadioModel::copyText(update.title, "New programme title");
+  audio.updates.push_back(update);
+  serviceAudio();
+  assert(dirty && !std::strcmp(playback.title, "New programme title"));
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -344,6 +360,7 @@ int main(int argc, char** argv) {
   testSetupAndLoopBoundaries();
   testDisplayStartupFailureStopsRendering();
   testReconnectDefersWhileEditing();
+  testAudioDiagnosticsDoNotRepaintUnchangedScreen();
   reset();
   std::puts("RadioApp integration and pixel tests passed");
 }

@@ -241,6 +241,18 @@ The library starts its own decoder/output task. Callbacks may run from that task
 
 The pinned audio library disables certificate verification internally for HTTPS audio streams and has no public CA setter. Directory HTTPS verification is configured independently by the application. Provider streams can also use plain HTTP. Updating stream TLS verification requires a compatible library change; this firmware does not claim authenticated audio delivery.
 
+## Investigating audio gaps
+
+The radio disables Wi-Fi modem sleep after each station/AP mode change to reduce receive latency during continuous streaming. This increases average power use. Connection, setup, and reconnect behavior stay the same; a failure to apply the setting is logged. Serial diagnostics query the actual driver power-save mode rather than assuming the request succeeded.
+
+At **115200 baud**, send **`?`** after hearing a gap. The report includes Wi-Fi RSSI and modem-sleep mode, input-buffer fill/capacity/minimum, sample rate/channels, largest observed PCM/pump gaps, and counts of library `slow stream` / `Stream lost` events. Minimum fill starts after real PCM begins, so an expected empty startup buffer does not poison that measurement. Peaks reset when selecting a station and survive automatic retries. Only the audio-owner task queries the Audio library; telemetry changes do not trigger full-screen redraws.
+
+The display can remain Playing through a short audible dropout: it switches to Buffering after three seconds without PCM. Buffer telemetry and the retained library messages are more useful for diagnosing shorter gaps. At 128 kbps, a stream consumes about 16,000 compressed bytes/second; at 256 kbps, about 32,000. The bitrate shown by a directory entry is not a guarantee of the live stream's format.
+
+In audioI2S **4.0.0**, the input buffer already has 655,350 bytes of main capacity. Direct MP3 starts just above an 18,000-byte decode floor and stops decoding below that same floor. Allocated capacity therefore does not imply a filled jitter reserve. Increasing the allocation alone cannot fix slow or bursty delivery. If no-sleep operation still exhibits input depletion, a further library change needs separate startup/refill thresholds that keep downloading while decoding waits; `pauseResume()` stops the network pump too, and mute still consumes audio. Such a patch also needs to respect the firmware's bounded no-PCM connection deadline on low-bitrate stations.
+
+These diagnostics identify likely causes but do not certify a fix on the assembled radio. A healthy input reserve with continued PCM gaps calls for investigating decoder/I2S scheduling or sample-rate behavior instead of assuming a network fault.
+
 ## Validation on the physical radio
 
 A successful build and host tests cannot verify wiring, amplifier output, exact encoder detents, TFT panel offsets, real stream decoder compatibility, or recovery timing. These checks require the assembled radio:

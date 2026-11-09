@@ -56,6 +56,8 @@ bool resolvePlaybackUrl(const RadioModel::Station& station, char (&out)[512], ch
 
 static_assert(std::is_trivially_copyable<RadioAudio::Snapshot>::value,
               "FreeRTOS queues require value-only snapshots");
+static_assert(std::is_trivially_copyable<RadioAudio::Diagnostics>::value,
+              "Diagnostics must remain queue-safe values");
 
 namespace RadioAudio {
 
@@ -87,6 +89,7 @@ struct AudioServiceTestAccess {
     RadioAudioHost::emitStartupMetadata = false;
     RadioAudioHost::frameSamples = 100;
     RadioAudioHost::playbackResolver = RadioAudioHost::PlaybackResolver{};
+    RadioAudioHost::serialLines.clear();
   }
 
   static void assertStopPolicy(const AudioService& service) {
@@ -467,6 +470,147 @@ struct AudioServiceTestAccess {
     cleanup(negative);
 #endif
   }
+
+  static void testDiagnosticsSamplingAndPcmGaps() {
+    AudioService service;
+    assert(service.begin());
+    RadioAudioHost::framesEnabled = false;
+    RadioAudioHost::nowMs = 100;
+    service.online_ = true;
+    service.reset({station("https://example.org/diagnostics"), RadioModel::Station{}, 101});
+    service.connect();
+    service.audio_.inputFilledBytes = 0;
+    service.sampleDiagnostics();
+    assert(!service.snapshot_.diagnostics.hasBufferSample && !service.minimumInputArmed_);
+    assert(service.snapshot_.diagnostics.sampleRateHz == 0 && service.audio_.formatReads == 0);
+    assert(service.audio_.bufferReads == 1);
+    RadioAudioHost::nowMs = 150;
+    service.sampleDiagnostics();
+    assert(service.audio_.bufferReads == 1); // Buffer getters run at most every100ms.
+    RadioAudioHost::nowMs = 200;
+    service.audio_.inputFilledBytes = 24000;
+    decodedFrame(100);
+    service.sampleDiagnostics();
+    assert(service.minimumInputArmed_ && service.snapshot_.diagnostics.hasBufferSample &&
+           service.snapshot_.diagnostics.minInputFilledBytes == 24000);
+    assert(service.snapshot_.diagnostics.sampleRateHz == 44100 && service.snapshot_.diagnostics.channels == 2);
+    assert(service.snapshot_.diagnostics.inputCapacityBytes == 655350);
+    RadioAudioHost::nowMs = 207; decodedFrame(100);
+    RadioAudioHost::nowMs = 248; decodedFrame(100);
+    RadioAudioHost::nowMs = 260; decodedFrame(0); decodedFrame(-1);
+    service.sampleDiagnostics();
+    assert(service.snapshot_.diagnostics.maxPcmGapMs == 41 && service.audio_.bufferReads == 2);
+    RadioAudioHost::nowMs = 300;
+    service.audio_.inputFilledBytes = 8000;
+    service.sampleDiagnostics();
+    assert(service.snapshot_.diagnostics.minInputFilledBytes == 8000);
+    RadioAudioHost::nowMs = 345; decodedFrame(100);
+    service.sampleDiagnostics();
+    assert(service.snapshot_.diagnostics.maxPcmGapMs == 97); // Zero/negative callbacks did not reset the clock.
+    service.failed("Simulated automatic retry");
+    RadioAudioHost::nowMs = 5000;
+    service.audio_.inputFilledBytes = 0;
+    service.sampleDiagnostics();
+    assert(service.snapshot_.diagnostics.minInputFilledBytes == 8000); // Retry zeros are not a playback low-water mark.
+    service.connect();
+    RadioAudioHost::nowMs = 5100;
+    service.audio_.inputFilledBytes = 32000;
+    decodedFrame(100);
+    service.sampleDiagnostics();
+    assert(service.snapshot_.diagnostics.maxPcmGapMs == 97); // Deliberate reconnect time is excluded.
+    assert(service.snapshot_.diagnostics.minInputFilledBytes == 8000);
+    RadioAudioHost::nowMs = 5200;
+    service.audio_.inputFilledBytes = 0;
+    service.sampleDiagnostics();
+    assert(service.snapshot_.diagnostics.minInputFilledBytes == 0); // A real post-PCM empty buffer is preserved.
+    service.reset({station("https://example.org/new-station"), RadioModel::Station{}, 102});
+    assert(!service.minimumInputArmed_ && !service.snapshot_.diagnostics.hasBufferSample);
+    assert(service.snapshot_.diagnostics.maxPcmGapMs == 0 && service.snapshot_.diagnostics.minInputFilledBytes == 0);
+    service.connect();
+    RadioAudioHost::nowMs = UINT32_MAX - 3; decodedFrame(100);
+    RadioAudioHost::nowMs = 2; decodedFrame(100);
+    service.sampleDiagnostics();
+    assert(service.snapshot_.diagnostics.maxPcmGapMs == 6); // Millis rollover is a short gap, not an outage.
+    cleanup(service);
+  }
+
+  static void testDiagnosticPumpGapsAndMetadata() {
+    AudioService service;
+    assert(service.begin());
+    MetadataCallbacks<Audio>::install();
+    RadioAudioHost::framesEnabled = false;
+    RadioAudioHost::nowMs = 100;
+    service.online_ = true;
+    StartRequest request{station("https://example.org/pump"), RadioModel::Station{}, 111};
+    service.reset(request); service.connect();
+    service.pumpAudio();
+    RadioAudioHost::nowMs = 108; service.pumpAudio();
+    RadioAudioHost::nowMs = 135; service.pumpAudio();
+    assert(service.snapshot_.diagnostics.maxPumpGapMs == 27);
+    RadioAudioHost::serialLines.clear();
+    Audio::emitInfo("slow stream, dropouts are possible");
+    Audio::emitLog("Stream lost -> try new connection");
+    Audio::emitLog("buffer underrun");
+    Audio::emitLog("indata underflow");
+    Audio::emitLog("partial write: 64 / 128");
+    Audio::emitInfo("Routine message");
+    service.drainMetadata();
+    assert(service.snapshot_.diagnostics.slowStreamEvents == 1 && service.snapshot_.diagnostics.streamLostEvents == 1);
+    assert(RadioAudioHost::serialLines.size() == 5);
+    assert(RadioAudioHost::serialLines[0].find("slow stream") != std::string::npos);
+    assert(RadioAudioHost::serialLines[4].find("partial write") != std::string::npos);
+    Metadata stale{}; stale.type = MetadataType::Info; stale.generation = request.generation;
+    stale.epoch = activeMetadataEpoch; RadioModel::copyText(stale.text, "slow stream");
+    service.failed("Automatic retry");
+    RadioAudioHost::playbackResolver.delayMs = 5000;
+    service.connect(); service.pumpAudio();
+    assert(service.snapshot_.diagnostics.maxPumpGapMs == 27);
+    assert(service.snapshot_.diagnostics.slowStreamEvents == 1 && service.snapshot_.diagnostics.streamLostEvents == 1);
+    assert(xQueueSend(metadataQueue, &stale, 0));
+    service.drainMetadata();
+    assert(service.snapshot_.diagnostics.slowStreamEvents == 1); // Old connection metadata cannot inflate new counters.
+    request.generation = 112;
+    service.reset(request);
+    assert(service.snapshot_.diagnostics.maxPumpGapMs == 0 && service.snapshot_.diagnostics.slowStreamEvents == 0);
+    assert(service.snapshot_.diagnostics.streamLostEvents == 0);
+    cleanup(service);
+  }
+
+  static void testDiagnosticsDoNotChangePresentation() {
+    Snapshot base;
+    base.state = State::Playing; base.generation = 1; base.bitrateKbps = 128;
+    base.requested = station("https://example.org/a"); base.confirmed = base.requested;
+    RadioModel::copyText(base.codec, "MP3"); RadioModel::copyText(base.title, "Song");
+    RadioModel::copyText(base.detail, "Decoded audio ready");
+    Snapshot other = base;
+    other.diagnostics.inputFilledBytes = 123; other.diagnostics.inputCapacityBytes = 655350;
+    other.diagnostics.minInputFilledBytes = 2; other.diagnostics.sampleRateHz = 44100;
+    other.diagnostics.maxPcmGapMs = 170; other.diagnostics.maxPumpGapMs = 4;
+    other.diagnostics.slowStreamEvents = 2; other.diagnostics.streamLostEvents = 1;
+    other.diagnostics.channels = 2; other.diagnostics.hasBufferSample = true;
+    assert(samePresentation(base, other));
+    other = base; other.state = State::Buffering; assert(!samePresentation(base, other));
+    other = base; other.fatal = true; assert(!samePresentation(base, other));
+    other = base; ++other.generation; assert(!samePresentation(base, other));
+    other = base; ++other.bitrateKbps; assert(!samePresentation(base, other));
+    other = base; RadioModel::copyText(other.codec, "AAC"); assert(!samePresentation(base, other));
+    other = base; RadioModel::copyText(other.title, "Other song"); assert(!samePresentation(base, other));
+    other = base; RadioModel::copyText(other.detail, "Recovered"); assert(!samePresentation(base, other));
+    for (bool confirmed : {false, true}) for (unsigned field = 0; field < 7; ++field) {
+      other = base;
+      RadioModel::Station& selected = confirmed ? other.confirmed : other.requested;
+      switch (field) {
+        case 0: selected.source = RadioModel::Source::Akashvani; break;
+        case 1: RadioModel::copyText(selected.id, "Other ID"); break;
+        case 2: RadioModel::copyText(selected.name, "Other station"); break;
+        case 3: RadioModel::copyText(selected.url, "https://example.org/other"); break;
+        case 4: RadioModel::copyText(selected.country, "IN"); break;
+        case 5: RadioModel::copyText(selected.location, "India"); break;
+        case 6: ++selected.bitrateKbps; break;
+      }
+      assert(!samePresentation(base, other));
+    }
+  }
 };
 
 }  // namespace RadioAudio
@@ -485,5 +629,8 @@ int main() {
   RadioAudio::AudioServiceTestAccess::testConnectionIsNotPcmConfirmation();
   RadioAudio::AudioServiceTestAccess::testSilentAndMutedPcmCounts();
   RadioAudio::AudioServiceTestAccess::testNonpositivePcmCounts();
+  RadioAudio::AudioServiceTestAccess::testDiagnosticsSamplingAndPcmGaps();
+  RadioAudio::AudioServiceTestAccess::testDiagnosticPumpGapsAndMetadata();
+  RadioAudio::AudioServiceTestAccess::testDiagnosticsDoNotChangePresentation();
   std::printf("AudioService tests passed (callback API %d)\n", RADIO_TEST_AUDIO_API);
 }

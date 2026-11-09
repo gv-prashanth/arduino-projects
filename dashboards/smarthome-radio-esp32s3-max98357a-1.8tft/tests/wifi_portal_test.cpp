@@ -9,6 +9,55 @@
 using namespace RadioWifi::Detail;
 static const char Token[] = "0123456789abcdef0123456789abcdef";
 
+static void testStreamingModeAcrossTransitions() {
+  struct Wifi {
+    bool modeReady = true, sleepAccepted = true, ignoreSleepRequest = false;
+    unsigned sleep = 1, modes = 0, sleepRequests = 0, preferenceReads = 0;
+    int selectedMode = 0;
+    std::string calls;
+    bool mode(int selected) {
+      calls += 'm'; ++modes; selectedMode = selected;
+      sleep = 1; // A mode transition may restore the platform default.
+      return modeReady;
+    }
+    bool setSleep(bool enabled) {
+      calls += 's'; ++sleepRequests;
+      assert(!enabled);
+      if (sleepAccepted && !ignoreSleepRequest) sleep = enabled;
+      return sleepAccepted;
+    }
+    unsigned getSleep() { calls += 'g'; ++preferenceReads; return sleep; }
+  } wifi;
+  // Startup, reconnect, opening AP+STA, and closing the portal all retain the
+  // radio's latency policy, even when mode() resets the fake's preference.
+  const int modes[] = {1, 1, 3, 1};
+  for (int mode : modes) {
+    wifi.calls.clear();
+    const StreamingModeResult result = streamingMode(wifi, mode);
+    assert(result.ready && result.sleepDisabled && wifi.sleep == 0);
+    assert(wifi.selectedMode == mode && wifi.calls == "msg");
+  }
+  assert(wifi.modes == 4 && wifi.sleepRequests == 4 && wifi.preferenceReads == 4);
+
+  wifi.modeReady = false; wifi.calls.clear();
+  StreamingModeResult result = streamingMode(wifi, 1);
+  assert(!result.ready && !result.sleepDisabled && wifi.calls == "m");
+
+  wifi.modeReady = true; wifi.sleepAccepted = false; wifi.calls.clear();
+  result = streamingMode(wifi, 1);
+  // A failed latency preference must not turn a valid connection mode into a
+  // Wi-Fi failure; the caller records it independently instead.
+  assert(result.ready && !result.sleepDisabled && wifi.calls == "ms");
+
+  wifi.sleepAccepted = true; wifi.ignoreSleepRequest = true; wifi.calls.clear();
+  result = streamingMode(wifi, 3);
+  assert(result.ready && !result.sleepDisabled && wifi.calls == "msg");
+
+  wifi.ignoreSleepRequest = false;
+  result = streamingMode(wifi, 1);
+  assert(result.ready && result.sleepDisabled);
+}
+
 static bool parse(const std::string& body, FormFields& fields) {
   return parseForm(body.data(), body.size(), fields);
 }
@@ -76,6 +125,7 @@ static void testSessionAndCsrf() {
 }
 
 int main() {
+  testStreamingModeAcrossTransitions();
   testFormDecodingAndBounds();
   testHtmlAttributeEscaping();
   testSessionAndCsrf();

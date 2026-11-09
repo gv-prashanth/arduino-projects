@@ -6,6 +6,15 @@
 
 namespace RadioWifi {
 namespace Detail {
+struct StreamingModeResult { bool ready, sleepDisabled; };
+template<class Wifi, class Mode>
+StreamingModeResult streamingMode(Wifi& wifi, Mode mode) {
+  if (!wifi.mode(mode)) return {false, false};
+  // Continuous audio needs prompt packet delivery, rather than the bursty
+  // arrivals produced by modem sleep. Reapply after every mode transition.
+  const bool accepted = wifi.setSleep(false);
+  return {true, accepted && static_cast<unsigned>(wifi.getSleep()) == 0};
+}
 constexpr std::size_t MaxFormBody = 512;
 struct FormFields { char ssid[33] = {}, password[65] = {}, csrf[33] = {}; };
 inline int hexDigit(unsigned char c) {
@@ -107,6 +116,7 @@ inline bool escapeHtml(const char* input, char* output, std::size_t capacity) {
 #ifndef RADIO_WIFI_HOST_TEST
 #include "SettingsService.h"
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <WebServer.h>
 #include <esp_random.h>
 #include <ctype.h>
@@ -124,7 +134,7 @@ class WifiManager {
     begun_ = true;
     WiFi.persistent(false);
     WiFi.setAutoReconnect(false);  // Retries below have an explicit deadline.
-    const bool initialized = WiFi.mode(WIFI_STA);
+    const bool initialized = setMode(WIFI_STA);
     const char* headers[] = {"Cookie", "Origin", "Content-Type"};
     server_.collectHeaders(headers, 3);
     server_.enableDelay(false);
@@ -203,6 +213,14 @@ class WifiManager {
   }
 
   bool online() const { return online_; }
+  int32_t rssi() const { return online_ ? WiFi.RSSI() : 0; }
+  int powerSaveMode() const {
+    wifi_ps_type_t mode = WIFI_PS_NONE;
+    return esp_wifi_get_ps(&mode) == ESP_OK ? static_cast<int>(mode) : -1;
+  }
+  // This records acceptance/readback of the no-sleep preference. The Wi-Fi
+  // driver applies that preference as STA starts or changes mode.
+  bool modemSleepDisabled() const { return sleepDisabled_; }
   bool portalActive() const { return portal_; }
   const char* apName() const { return apName_; }
   const char* apPassword() const { return apPassword_; }
@@ -217,7 +235,7 @@ class WifiManager {
     snprintf(apName_, sizeof(apName_), "GTS-Radio-%04X", static_cast<unsigned>(esp_random() & 0xffff));
     snprintf(apPassword_, sizeof(apPassword_), "%08lx", static_cast<unsigned long>(esp_random()));
     randomToken();
-    const bool modeReady = WiFi.mode(WIFI_AP_STA);
+    const bool modeReady = setMode(WIFI_AP_STA);
     const bool started = modeReady && WiFi.softAP(apName_, apPassword_, 1, 0, 2, false, WIFI_AUTH_WPA2_PSK);
     if (!started) {
       setStatus("Setup AP failed; will retry");
@@ -323,8 +341,15 @@ class WifiManager {
     strlcpy(out.password, password, sizeof(out.password));
     return acceptable(out);
   }
+  bool setMode(wifi_mode_t mode) {
+    const Detail::StreamingModeResult result = Detail::streamingMode(WiFi, mode);
+    sleepDisabled_ = result.sleepDisabled;
+    if (!result.ready) Serial.println("wifi: mode change failed");
+    else if (!sleepDisabled_) Serial.println("wifi: could not disable modem sleep");
+    return result.ready;
+  }
   void startAttempt(uint32_t now) {
-    WiFi.mode(portal_ ? WIFI_AP_STA : WIFI_STA);
+    setMode(portal_ ? WIFI_AP_STA : WIFI_STA);
     WiFi.disconnectAsync(false, false);
     WiFi.setMinSecurity(current_.password[0] ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN);
     WiFi.begin(current_.ssid, current_.password[0] ? current_.password : nullptr);
@@ -335,7 +360,7 @@ class WifiManager {
   void closePortal() {
     server_.stop();
     WiFi.softAPdisconnect(true);
-    WiFi.mode(WIFI_STA);
+    setMode(WIFI_STA);
     portal_ = false;
     portalRequested_ = false;
     closeAfterOnline_ = false;
@@ -414,6 +439,7 @@ class WifiManager {
   WebServer server_{80};
   RadioStorage::WifiCredentials current_{}, stagedCredentials_{};
   bool begun_ = false, portal_ = false, online_ = false, attempting_ = false;
+  bool sleepDisabled_ = false;
   bool portalRequested_ = false;
   bool haveCredentials_ = false, staged_ = false, credentialsReady_ = false;
   bool closeAfterOnline_ = false, bodyReady_ = false;

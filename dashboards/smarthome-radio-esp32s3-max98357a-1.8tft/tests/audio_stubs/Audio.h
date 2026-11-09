@@ -49,6 +49,9 @@ class Audio {
   unsigned pcmCallbacks = 0, positivePcmCallbacks = 0, silentPcmCallbacks = 0;
   bool running = false, startupMetadataPending = false;
   uint8_t volumeValue = 0;
+  uint32_t inputFilledBytes = 64000, inputCapacityBytes = 655350, sampleRateHz = 44100;
+  uint8_t channelCount = 2;
+  unsigned bufferReads = 0, formatReads = 0;
   std::string lastUrl;
 
   bool setPinout(int, int, int) { return RadioAudioHost::pinoutReady; }
@@ -74,4 +77,12 @@ class Audio {
   bool isRunning() { return running; }
   const char* getCodecname() { return "MP3"; }
   uint32_t getBitRate() { return 128000; }
+#if RADIO_TEST_AUDIO_API == 3
+  uint32_t getInBufferSize() { return inputCapacityBytes; }
+#else
+  uint32_t inBufferSize() { return inputCapacityBytes; }
+#endif
+  uint32_t inBufferFilled() { ++bufferReads; return inputFilledBytes; }
+  uint32_t getSampleRate() { ++formatReads; return sampleRateHz; }
+  uint8_t getChannels() { return channelCount; }
 };

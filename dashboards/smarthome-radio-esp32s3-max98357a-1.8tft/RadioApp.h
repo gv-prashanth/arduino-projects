@@ -822,14 +822,19 @@ inline void serviceAudio() {
       playback = update;
       audioReady = false;
       dirty = true;
-    } else if (update.generation >= audioGeneration && memcmp(&playback, &update, sizeof(update))) {
+    } else if (update.generation >= audioGeneration) {
+      enrichLocation(update.requested);
+      enrichLocation(update.confirmed);
+      // Buffer telemetry changes frequently; keep it available to serial
+      // diagnostics without repainting the whole TFT on every sample.
+      const bool presentationChanged = !RadioAudio::samePresentation(playback, update);
       playback = update;
       if (update.state == RadioAudio::State::Playing && update.generation != restoredGeneration &&
           !strcmp(update.detail, "Previous station restored")) {
         restoredGeneration = update.generation;
         restorationNotice.post("Previous station restored", 5000, millis(), RadioUi::NoticePriority::Warning);
       }
-      dirty = true;
+      dirty |= presentationChanged;
     }
   }
   enrichLocation(playback.requested);
@@ -861,6 +866,17 @@ inline void printDiagnostics() {
                 initializationError[0] ? initializationError : "OK");
   Serial.printf("audio: %s; %s metadata callbacks\n", RadioAudio::pcmApiName(),
                 RadioAudio::MetadataCallbacks<Audio>::modern ? "event" : "legacy");
+  const auto& health = playback.diagnostics;
+  Serial.printf("audio health: input=%u/%u B min=%u B%s; sample=%u Hz/%u ch\n",
+                unsigned(health.inputFilledBytes), unsigned(health.inputCapacityBytes),
+                unsigned(health.minInputFilledBytes), health.hasBufferSample ? "" : " (waiting for PCM)",
+                unsigned(health.sampleRateHz), unsigned(health.channels));
+  Serial.printf("audio health: max PCM gap=%u ms; max pump gap=%u ms; slow=%u lost=%u\n",
+                unsigned(health.maxPcmGapMs), unsigned(health.maxPumpGapMs),
+                unsigned(health.slowStreamEvents), unsigned(health.streamLostEvents));
+  const int powerSave = wifi.powerSaveMode();
+  const char* sleepMode = powerSave == 0 ? "off" : powerSave == 1 ? "minimum" : powerSave == 2 ? "maximum" : "unknown";
+  Serial.printf("Wi-Fi radio: RSSI=%ld dBm; modem sleep=%s\n", static_cast<long>(wifi.rssi()), sleepMode);
   const Station& selected = RadioModel::validStation(playback.requested) ? playback.requested : lastGood;
   Serial.printf("catalog: %s; %u visible stations%s; playing source: %s\n", sourceLabel(settings.source),
                 catalog ? catalog->count : 0, catalog && catalog->cached ? " (cached)" : "",

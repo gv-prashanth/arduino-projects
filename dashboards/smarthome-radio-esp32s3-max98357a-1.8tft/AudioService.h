@@ -33,6 +33,7 @@ struct Metadata { MetadataType type; uint32_t generation, epoch; char text[192];
 static QueueHandle_t metadataQueue = nullptr;
 static portMUX_TYPE signalMux = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t activeGeneration = 0, decodedGeneration = 0, lastFrameMs = 0, activeMetadataEpoch = 0;
+static uint32_t largestPcmGapMs = 0;
 
 void metadata(MetadataType type, const char* text) {
   if (!metadataQueue || !text) return;
@@ -48,7 +49,15 @@ void metadata(MetadataType type, const char* text) {
 void decodedFrame(int32_t samples) {
   if (samples <= 0) return;
   portENTER_CRITICAL(&signalMux);
-  if (activeGeneration) { decodedGeneration = activeGeneration; lastFrameMs = millis(); }
+  if (activeGeneration) {
+    const uint32_t now = millis();
+    if (decodedGeneration == activeGeneration) {
+      const uint32_t gap = now - lastFrameMs;
+      if (gap > largestPcmGapMs) largestPcmGapMs = gap;
+    }
+    decodedGeneration = activeGeneration;
+    lastFrameMs = now;
+  }
   portEXIT_CRITICAL(&signalMux);
 }
 
@@ -71,6 +80,15 @@ struct MetadataCallbacks<AudioType, decltype((void)AudioType::audio_info_callbac
   }
   static void install() { AudioType::audio_info_callback = dispatch; }
 };
+// The input-size query was renamed between the pinned legacy and 4.0 APIs.
+template<class AudioType>
+auto inputBufferCapacity(AudioType& audio, int) -> decltype(audio.getInBufferSize()) {
+  return audio.getInBufferSize();
+}
+template<class AudioType>
+auto inputBufferCapacity(AudioType& audio, long) -> decltype(audio.inBufferSize()) {
+  return audio.inBufferSize();
+}
 inline const char* stateName(State state) {
   switch (state) {
     case State::Idle: return "Choose a station";
@@ -117,15 +135,66 @@ class AudioService {
   uint8_t attempts_ = 0;
   uint32_t connectAt_ = 0, retryAt_ = 0, publishedAt_ = 0, metadataAt_ = 0;
   uint32_t playingSince_ = 0, metadataEpoch_ = 0;
+  uint32_t diagnosticsAt_ = 0, lastPumpAt_ = 0;
+  bool diagnosticSampled_ = false, minimumInputArmed_ = false, pumpClockArmed_ = false;
 
   static void taskEntry(void* self) { static_cast<AudioService*>(self)->run(); }
   void publish() { xQueueOverwrite(snapshots_, &snapshot_); publishedAt_ = millis(); }
+  void resetPumpClock() { pumpClockArmed_ = false; }
+  void resetDiagnostics() {
+    snapshot_.diagnostics = Diagnostics{};
+    diagnosticSampled_ = minimumInputArmed_ = false;
+    diagnosticsAt_ = 0;
+    resetPumpClock();
+    portENTER_CRITICAL(&signalMux);
+    largestPcmGapMs = 0;
+    portEXIT_CRITICAL(&signalMux);
+  }
+  void pumpAudio() {
+    const uint32_t now = millis();
+    if (pumpClockArmed_) {
+      const uint32_t gap = now - lastPumpAt_;
+      if (gap > snapshot_.diagnostics.maxPumpGapMs) snapshot_.diagnostics.maxPumpGapMs = gap;
+    }
+    lastPumpAt_ = now;
+    pumpClockArmed_ = true;
+    audio_.loop();
+  }
+  void sampleDiagnostics() {
+    uint32_t generation, frameGeneration, peakGap;
+    portENTER_CRITICAL(&signalMux);
+    generation = activeGeneration;
+    frameGeneration = decodedGeneration;
+    peakGap = largestPcmGapMs;
+    portEXIT_CRITICAL(&signalMux);
+    const bool currentPcm = generation && generation == snapshot_.generation && frameGeneration == generation;
+    if (currentPcm && peakGap > snapshot_.diagnostics.maxPcmGapMs)
+      snapshot_.diagnostics.maxPcmGapMs = peakGap;
+    const uint32_t now = millis();
+    if (diagnosticSampled_ && now - diagnosticsAt_ < 100) return;
+    diagnosticSampled_ = true;
+    diagnosticsAt_ = now;
+    Diagnostics& diagnostics = snapshot_.diagnostics;
+    diagnostics.inputCapacityBytes = inputBufferCapacity(audio_, 0);
+    diagnostics.inputFilledBytes = audio_.inBufferFilled();
+    // Empty startup and stopped/reconnecting buffers are expected. Arm the
+    // low-water mark only after real PCM, and retain it across automatic retry.
+    if (currentPcm && diagnostics.inputCapacityBytes) {
+      if (!minimumInputArmed_ || diagnostics.inputFilledBytes < diagnostics.minInputFilledBytes)
+        diagnostics.minInputFilledBytes = diagnostics.inputFilledBytes;
+      minimumInputArmed_ = true;
+      diagnostics.sampleRateHz = audio_.getSampleRate();
+      diagnostics.channels = audio_.getChannels();
+    }
+    diagnostics.hasBufferSample = minimumInputArmed_;
+  }
   void deactivate() {
     portENTER_CRITICAL(&signalMux);
     activeGeneration = decodedGeneration = lastFrameMs = activeMetadataEpoch = 0;
     portEXIT_CRITICAL(&signalMux);
   }
   void stopPlayback() {
+    resetPumpClock(); // Deliberate stop/flush latency is not pump starvation.
     // In pinned audioI2S 928c420, raw stopSong() does not lock the decoder
     // mutex. The public null-host path acquires that mutex before stopSong(),
     // keeping buffer clearing serialized with the library's decoder task.
@@ -145,6 +214,7 @@ class AudioService {
   void reset(const StartRequest& request) {
     deactivate();
     stopPlayback();
+    resetDiagnostics();
     desired_ = request.station;
     fallback_ = request.fallback;
     snapshot_.requested = desired_;
@@ -187,6 +257,7 @@ class AudioService {
     publish();
   }
   void connect() {
+    resetPumpClock(); // Resolver/socket setup deliberately blocks this owner.
     ++attempts_;
     Serial.printf("audio: connecting %u/3 to %s\n", attempts_, desired_.name);
     snapshot_.state = State::Connecting;
@@ -239,7 +310,17 @@ class AudioService {
       else {
         String info(event.text);
         info.toLowerCase();
-        if (info.indexOf("error") >= 0 || info.indexOf("fail") >= 0 || info.indexOf("timeout") >= 0)
+        const bool slow = info.indexOf("slow stream") >= 0;
+        const bool lost = info.indexOf("stream lost") >= 0;
+        const bool current = acceptedGeneration && event.generation == snapshot_.generation &&
+            event.generation == acceptedGeneration && event.epoch && event.epoch == acceptedEpoch;
+        if (current && slow && snapshot_.diagnostics.slowStreamEvents != UINT32_MAX)
+          ++snapshot_.diagnostics.slowStreamEvents;
+        if (current && lost && snapshot_.diagnostics.streamLostEvents != UINT32_MAX)
+          ++snapshot_.diagnostics.streamLostEvents;
+        if (slow || lost || info.indexOf("underrun") >= 0 || info.indexOf("underflow") >= 0 ||
+            info.indexOf("partial write") >= 0 || info.indexOf("error") >= 0 ||
+            info.indexOf("fail") >= 0 || info.indexOf("timeout") >= 0)
           Serial.printf("audio: %s\n", event.text);
       }
     }
@@ -279,8 +360,9 @@ class AudioService {
       uint32_t now = millis();
       if (online_ && RadioModel::validStation(desired_) && snapshot_.state == State::Retrying &&
           static_cast<int32_t>(now - retryAt_) >= 0) connect();
-      audio_.loop();
+      pumpAudio();
       drainMetadata();
+      sampleDiagnostics();
       uint32_t frameGeneration, frameAt;
       portENTER_CRITICAL(&signalMux);
       frameGeneration = decodedGeneration;
