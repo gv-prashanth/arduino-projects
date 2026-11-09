@@ -89,7 +89,7 @@ template<class AudioType>
 auto inputBufferCapacity(AudioType& audio, long) -> decltype(audio.inBufferSize()) {
   return audio.inBufferSize();
 }
-// Optional, version-checked 4.0.0 library patch. Unpatched/legacy libraries keep
+// Optional, version-checked 4.0.x library patch. Unpatched/legacy libraries keep
 // their existing behavior; no access to private buffers or cross-task control.
 template<class AudioType, typename = void>
 struct StreamReserve {
@@ -386,7 +386,7 @@ class AudioService {
     Serial.printf("audio: %s; %s metadata callbacks\n", pcmApiName(),
                   MetadataCallbacks<Audio>::modern ? "event" : "legacy");
     Serial.printf("audio: MP3 reserve %s\n", StreamReserve<Audio>::supported ? "enabled (up to 2 s)" :
-                  "unavailable; see README for the audioI2S 4.0.0 patch");
+                  "unavailable; see README for the audioI2S 4.0.x patch");
     if (!audio_.setPinout(RadioConfig::I2sBclk, RadioConfig::I2sLrck, RadioConfig::I2sData)) {
       snapshot_.state = State::Failed;
       snapshot_.fatal = true;

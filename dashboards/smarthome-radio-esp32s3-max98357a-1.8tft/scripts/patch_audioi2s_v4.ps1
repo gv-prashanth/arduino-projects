@@ -15,8 +15,10 @@ function Get-BytesHash([byte[]]$Bytes) {
 
 try {
     $specRoot = Join-Path $PSScriptRoot 'audioi2s_v4'
-    $spec = [IO.File]::ReadAllText((Join-Path $specRoot 'patch.json'), $utf8) | ConvertFrom-Json
-    if ($spec.schema_version -ne 1) { throw 'Unsupported patch manifest' }
+    $catalog = [IO.File]::ReadAllText((Join-Path $specRoot 'catalog.json'), $utf8) | ConvertFrom-Json
+    if ($catalog.schema_version -ne 1) { throw 'Unsupported patch catalog; refusing to patch' }
+    $supportedVersions = @($catalog.profiles.PSObject.Properties.Name)
+    if (-not $supportedVersions.Count) { throw 'Empty patch catalog; refusing to patch' }
     $root = (Resolve-Path -LiteralPath $LibraryPath).Path
     if ((Split-Path $root -Leaf) -eq 'src') { $root = Split-Path $root -Parent }
     $propertiesPath = Join-Path $root 'library.properties'
@@ -25,15 +27,21 @@ try {
     # next property. Tolerate indentation and a BOM before the version key.
     $versionMatches = [regex]::Matches($properties, '(?m)^[ \t\uFEFF]*version[ \t]*=[ \t]*([^\r\n]*)')
     $versions = @($versionMatches | ForEach-Object { $_.Groups[1].Value.Trim() })
-    if ($versions.Count -ne 1 -or $versions[0] -ne $spec.library_version) {
+    if ($versions.Count -ne 1 -or -not ($supportedVersions -ccontains $versions[0])) {
         $found = '<missing>'
         if ($versions.Count) {
             $found = (@($versions | ForEach-Object {
                 if ($_.Length) { "'" + $_ + "'" } else { '<empty>' }
             })) -join ', '
         }
-        throw ('Expected ESP32-audioI2S version ' + $spec.library_version + '; found ' + $found +
+        throw ('Expected ESP32-audioI2S version ' + ($supportedVersions -join ' or ') + '; found ' + $found +
                ' in ' + $propertiesPath + '; refusing to patch')
+    }
+    $selectedVersion = $versions[0]
+    $profileFile = [string]$catalog.profiles.PSObject.Properties[$selectedVersion].Value
+    $spec = [IO.File]::ReadAllText((Join-Path $specRoot $profileFile), $utf8) | ConvertFrom-Json
+    if ($spec.schema_version -ne 1 -or $spec.library_version -cne $selectedVersion) {
+        throw ('Catalog/profile version mismatch for ' + $selectedVersion + '; refusing to patch')
     }
     $helperBytes = [IO.File]::ReadAllBytes((Join-Path $specRoot $spec.helper.source))
     if ((Get-BytesHash $helperBytes) -ne $spec.helper.sha256) { throw 'Patch helper checksum mismatch' }
@@ -59,10 +67,14 @@ try {
         if ((Get-BytesHash ([IO.File]::ReadAllBytes($helperPath))) -ne $spec.helper.sha256) {
             throw 'Installed helper mismatch'
         }
-        Write-Output 'ESP32-audioI2S 4.0.0 reserve patch: already patched'
+        Write-Output ('ESP32-audioI2S ' + $selectedVersion + ' reserve patch: already patched')
         exit 0
     }
-    if (-not $pristine) { throw 'Unknown or partial source modification; refusing to patch' }
+    if (-not $pristine) {
+        $sourceHashes = (@($entries | ForEach-Object { $_.Name + '=' + $_.Hash })) -join ', '
+        throw ('Unknown or partial source modification for version ' + $selectedVersion + '; ' +
+               $sourceHashes + '; refusing to patch')
+    }
     if (Test-Path -LiteralPath $helperPath) { throw 'Helper already exists beside pristine sources; refusing a partial installation' }
     foreach ($entry in $entries) {
         if (Test-Path -LiteralPath $entry.Backup) { throw ('Backup already exists: ' + $entry.Backup) }
@@ -79,7 +91,7 @@ try {
         }
     }
     if ($Check) {
-        Write-Output 'ESP32-audioI2S 4.0.0 reserve patch: pristine (check only)'
+        Write-Output ('ESP32-audioI2S ' + $selectedVersion + ' reserve patch: pristine (check only)')
         exit 0
     }
     # Verify everything before changing anything. Keep exact originals beside
@@ -102,7 +114,7 @@ try {
         if ($helperWritten -and (Test-Path -LiteralPath $helperPath)) { Remove-Item -LiteralPath $helperPath }
         throw
     }
-    Write-Output 'ESP32-audioI2S 4.0.0 reserve patch: patched; restart Arduino IDE and rebuild'
+    Write-Output ('ESP32-audioI2S ' + $selectedVersion + ' reserve patch: patched; restart Arduino IDE and rebuild')
 } catch {
     [Console]::Error.WriteLine(('ESP32-audioI2S reserve patch: ' + $_.Exception.Message))
     exit 1

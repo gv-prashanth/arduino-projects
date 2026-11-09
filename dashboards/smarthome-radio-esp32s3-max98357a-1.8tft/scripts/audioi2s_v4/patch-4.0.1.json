@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "library_version": "4.0.1",
+  "upstream_commit": "5bf339285bf681d8be2cc84a5f7529a12f2f7514",
+  "backup_suffix": ".gts-radio-original",
+  "helper": {
+    "source": "RadioStreamReserve.h",
+    "destination": "src/RadioStreamReserve.h",
+    "sha256": "eb659ab90896ed6fd4dea512eb1d10ece70c17cf6a5903729701fe2f8b8340c3"
+  },
+  "files": {
+    "Audio.h": {
+      "path": "src/Audio.h",
+      "original_sha256": "119d69420fbc6d68d8f1fc8c10db2d11f18abc10cb19450a4d65f1741d512c09",
+      "patched_sha256": "924865e38f25ab520af2e4b11abbcf969eb541e775f574f976fb39a08195ee21",
+      "replacements": [
+        {
+          "old": "#include \"audiolib_structs.hpp\"\n",
+          "new": "#include \"audiolib_structs.hpp\"\n#include \"RadioStreamReserve.h\"\n#define RADIO_AUDIOI2S_STREAM_RESERVE_API 1\n"
+        },
+        {
+          "old": "    std::atomic<uint32_t> m_dmaFreeDesc = 0;\n",
+          "new": "    // GTS Radio live-MP3 reserve extension (ESP32-audioI2S 4.0.1).\n    static constexpr uint32_t radioStreamMaxWaitMs = radio_audio::RadioStreamReserve::MaxWaitMs;\n    bool radioStreamBuffering() const { return m_radioStreamBuffering.load(std::memory_order_relaxed); }\n    uint32_t radioStreamBufferTarget() const { return m_radioStreamBufferTarget.load(std::memory_order_relaxed); }\n    uint32_t radioStreamRefillCount() const { return m_radioStreamRefillCount.load(std::memory_order_relaxed); }\n\n    std::atomic<uint32_t> m_dmaFreeDesc = 0;\n"
+        },
+        {
+          "old": "  private:\n    File                m_audiofile;\n",
+          "new": "  private:\n    radio_audio::RadioStreamReserve m_radioStreamReserve; // decoder task only\n    std::atomic<bool> m_radioStreamTerminal{false}; // network task publishes\n    std::atomic<uint32_t> m_radioStreamAdvertisedBitrate{0}; // icy-br, reserve policy only\n    std::atomic<bool> m_radioStreamBuffering{false};\n    std::atomic<uint32_t> m_radioStreamBufferTarget{0};\n    std::atomic<uint32_t> m_radioStreamRefillCount{0};\n    File                m_audiofile;\n"
+        }
+      ]
+    },
+    "Audio.cpp": {
+      "path": "src/Audio.cpp",
+      "original_sha256": "08481cdff892d4bb05f9a9bcc5dd76c20a8526f0bcdbf8f4b42a9f586f1bddad",
+      "patched_sha256": "434c599898a44d807e9b9378ff3140cdb72a182ee11c780c3b7e2e1e43616671",
+      "replacements": [
+        {
+          "old": "void Audio::setDefaults() {\n    stopSong();\n",
+          "new": "void Audio::setDefaults() {\n    stopSong();\n    m_radioStreamTerminal.store(false, std::memory_order_relaxed);\n    m_radioStreamAdvertisedBitrate.store(0, std::memory_order_relaxed);\n    m_radioStreamBuffering.store(false, std::memory_order_relaxed);\n    m_radioStreamBufferTarget.store(0, std::memory_order_relaxed);\n    m_radioStreamRefillCount.store(0, std::memory_order_relaxed);\n"
+        },
+        {
+          "old": "        destroy_decoder();\n    }\n    xSemaphoreGive(mutex_audioTaskIsDecoding);\n",
+          "new": "        destroy_decoder();\n        m_radioStreamTerminal.store(true, std::memory_order_relaxed);\n        m_radioStreamAdvertisedBitrate.store(0, std::memory_order_relaxed);\n        m_radioStreamBuffering.store(false, std::memory_order_relaxed);\n        m_radioStreamBufferTarget.store(0, std::memory_order_relaxed);\n        m_radioStreamRefillCount.store(0, std::memory_order_relaxed);\n    }\n    xSemaphoreGive(mutex_audioTaskIsDecoding);\n"
+        },
+        {
+          "old": "    m_pwst.availableBytes = m_client->available(); // available from stream\n",
+          "new": "    m_pwst.availableBytes = m_client->available(); // available from stream\n    // Publish before metadata/chunk early returns; never access the socket from the decoder task.\n    m_radioStreamTerminal.store(!m_pwst.f_clientIsConnected && !m_pwst.availableBytes, std::memory_order_relaxed);\n"
+        },
+        {
+          "old": "    if (m_f_firstPlayCall) {\n        m_f_firstPlayCall = false;\n",
+          "new": "    if (m_f_firstPlayCall) {\n        m_f_firstPlayCall = false;\n        m_radioStreamReserve.reset();\n        m_radioStreamBuffering.store(false, std::memory_order_relaxed);\n        m_radioStreamBufferTarget.store(0, std::memory_order_relaxed);\n        m_radioStreamRefillCount.store(0, std::memory_order_relaxed);\n"
+        },
+        {
+          "old": "        if ((isStream())) {\n            if (m_f_allDataReceived) { // Google TTS, OpenAI\n",
+          "new": "        if ((isStream())) {\n            // Queued PCM and pending m_validSamples have already drained above.\n            // Pause only compressed decoding: keep network intake and decoder state intact.\n            const bool reserveEligible = m_streamType == ST_WEBSTREAM && m_playlistFormat != FORMAT_M3U8 &&\n                                         m_codec == CODEC_MP3 && !m_f_tts && !m_f_eof && !m_f_allDataReceived;\n            uint32_t reserveBitrate = m_radioStreamAdvertisedBitrate.load(std::memory_order_relaxed);\n            if (!reserveBitrate) reserveBitrate = getBitRate();\n            if (reserveEligible && m_decoder) {\n                const uint32_t decodedBitrate = m_decoder->getBitRate();\n                if (decodedBitrate) reserveBitrate = decodedBitrate;\n            }\n            const bool reserveWaiting = m_radioStreamReserve.update(\n                reserveEligible, m_radioStreamTerminal.load(std::memory_order_relaxed), millis(),\n                static_cast<uint32_t>(InBuff.bufferFilled()), static_cast<uint32_t>(InBuff.getBufsize()),\n                static_cast<uint32_t>(InBuff.getMaxBlockSize()), reserveBitrate);\n            m_radioStreamBufferTarget.store(m_radioStreamReserve.targetBytes(), std::memory_order_relaxed);\n            m_radioStreamRefillCount.store(m_radioStreamReserve.refillCount(), std::memory_order_relaxed);\n            m_radioStreamBuffering.store(reserveWaiting, std::memory_order_relaxed);\n            if (reserveWaiting) goto exit; // release the mutex; the audio task yields normally\n\n            if (m_f_allDataReceived) { // Google TTS, OpenAI\n"
+        },
+        {
+          "old": "        //    if (name.equals_icase(\"icy-br\")) { m_nominal_bitrate = value.to_uint32() * 1000; }\n",
+          "new": "        //    if (name.equals_icase(\"icy-br\")) { m_nominal_bitrate = value.to_uint32() * 1000; }\n        // Keep upstream bitrate accounting unchanged; use advertised bitrate only for startup reserve.\n        if (name.equals_icase(\"icy-br\")) {\n            const uint32_t advertisedKbps = value.to_uint32();\n            m_radioStreamAdvertisedBitrate.store(\n                advertisedKbps <= UINT32_MAX / 1000U ? advertisedKbps * 1000U : 0U, std::memory_order_relaxed);\n        }\n"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "4.0.0": "patch.json",
+    "4.0.1": "patch-4.0.1.json"
+  }
+}

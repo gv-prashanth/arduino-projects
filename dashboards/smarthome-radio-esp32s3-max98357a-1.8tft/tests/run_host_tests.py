@@ -94,7 +94,7 @@ def main():
             raise RuntimeError("Unsupported PCM API did not fail with the intended diagnostic:\n" + result.stderr)
     print("Checking Arduino IDE copied headers and library configuration", flush=True)
     subprocess.run([sys.executable, str(root / "tests" / "header_include_test.py")], check=True, cwd=root)
-    print("Checking audioI2S 4.0.0 reserve patch manifest/installer", flush=True)
+    print("Checking audioI2S 4.0.x reserve patch manifests/installers", flush=True)
     subprocess.run([sys.executable, str(root / "tests" / "audio_v4_patch_test.py")], check=True, cwd=root)
     subprocess.run([sys.executable, str(root / "tests" / "audio_v4_powershell_test.py")], check=True, cwd=root)
     audio_source = root / ".pio" / "libdeps" / "esp32s3-n16r8" / "ESP32-audioI2S" / "src" / "Audio.cpp"

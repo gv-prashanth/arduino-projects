@@ -85,7 +85,7 @@ The encoder defaults to four quadrature transitions per detent, 25 ms button deb
 | TFT_eSPI (both display drivers) | 2.5.43 |
 | SD | Arduino-ESP32's bundled 3.0.7 |
 
-The audio library is pinned by Git commit because its release's package manifest reports an older version. This remains the default reproducible build; the callback adapter also supports the ESP32-audioI2S **4.0.0** API used by Arduino IDE installations. The platform release's manifest identifies itself as `51.3.6`, but downloads Arduino-ESP32 **3.0.7**; the release URL is intentional.
+The audio library is pinned by Git commit because its release's package manifest reports an older version. This remains the default reproducible build; the callback adapter also supports the ESP32-audioI2S **4.0.0 and 4.0.1** APIs used by Arduino IDE installations. The platform release's manifest identifies itself as `51.3.6`, but downloads Arduino-ESP32 **3.0.7**; the release URL is intentional.
 
 The explicit SD dependency selects the pinned framework's ESP32 filesystem API.
 
@@ -249,9 +249,9 @@ At **115200 baud**, send **`?`** after hearing a gap. The report includes Wi-Fi 
 
 Without the optional reserve patch below, the display can remain Playing through a short audible dropout: it switches to Buffering after three seconds without PCM. With the patch, an intentional reserve refill also shows Buffering immediately. At 128 kbps, a stream consumes about 16,000 compressed bytes/second; at 256 kbps, about 32,000. The bitrate shown by a directory entry is not a guarantee of the live stream's format.
 
-In audioI2S **4.0.0**, the input buffer already has 655,350 bytes of main capacity. Direct MP3 starts just above an 18,000-byte decode floor and stops decoding below that same floor. Allocated capacity therefore does not imply a filled jitter reserve. Increasing the allocation alone cannot fix slow or bursty delivery. For example, Different Drumz supplies 192 kbps MP3 (24,000 bytes/second); a fill of 18,746 bytes leaves only 31 ms above that floor. Near-floor readings alongside a 247 ms maximum PCM gap are consistent with repeated starvation, even with strong Wi-Fi.
+In audioI2S **4.0.0 and 4.0.1**, the input buffer already has 655,350 bytes of main capacity. Direct MP3 starts just above an 18,000-byte decode floor and stops decoding below that same floor. Allocated capacity therefore does not imply a filled jitter reserve. Increasing the allocation alone cannot fix slow or bursty delivery. For example, Different Drumz supplies 192 kbps MP3 (24,000 bytes/second); a fill of 18,746 bytes leaves only 31 ms above that floor. Near-floor readings alongside a 247 ms maximum PCM gap are consistent with repeated starvation, even with strong Wi-Fi.
 
-### MP3 startup and refill reserve (Arduino IDE / audioI2S 4.0.0)
+### MP3 startup and refill reserve (Arduino IDE / audioI2S 4.0.0 or 4.0.1)
 
 The repository includes an optional, exact-version library patch. Live direct MP3 streams build approximately two seconds of compressed audio **above** the decode floor before starting; after depletion they refill that reserve before decoding continues. The network pump keeps running and queued PCM can drain. The patch preserves decoder state and does not mute, discard audio, or reconnect to refill. A 192 kbps stream targets about **66,000 bytes** including the 18,000-byte floor. AAC, HLS, TTS, finite files and terminated streams bypass this reserve gate.
 
@@ -263,7 +263,16 @@ Close Arduino IDE, then run this from this project's directory in Windows PowerS
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\patch_audioi2s_v4.ps1 -LibraryPath "C:\Users\rajag\Documents\Arduino\libraries\ESP32-audioI2S-master"
 ```
 
-The installer requires the exact reviewed 4.0.0 source files from upstream commit `490ff729eca344f06581f3e9bda9cfba948fd5a1`, checks SHA-256 hashes before writing, and saves `src/Audio.h.gts-radio-original` and `src/Audio.cpp.gts-radio-original`. Unknown versions, modified files or partial installations fail without guessing. Add `-Check` to validate without installing. It is safe to run again on the exact patched installation. Restart Arduino IDE, rebuild/upload, and check Serial for **`MP3 reserve enabled (up to 2 s)`**.
+The installer selects the exact reviewed patch using `library.properties`, then checks **both** source hashes before writing. Supported upstream revisions are:
+
+| Version | Reviewed upstream commit |
+| --- | --- |
+| 4.0.0 | [490ff729eca344f06581f3e9bda9cfba948fd5a1](https://github.com/schreibfaul1/ESP32-audioI2S/commit/490ff729eca344f06581f3e9bda9cfba948fd5a1) |
+| 4.0.1 | [5bf339285bf681d8be2cc84a5f7529a12f2f7514](https://github.com/schreibfaul1/ESP32-audioI2S/commit/5bf339285bf681d8be2cc84a5f7529a12f2f7514) |
+
+The original files are saved as `src/Audio.h.gts-radio-original` and `src/Audio.cpp.gts-radio-original`. Unknown versions, mismatched source revisions or partial installations fail before writing. Add `-Check` to validate without installing. It is safe to run again on the exact patched installation, including an existing 4.0.0 patch. Restart Arduino IDE, rebuild/upload, and check Serial for **`MP3 reserve enabled (up to 2 s)`**.
+
+In 4.0.1, upstream no longer uses the advertised `icy-br` value for public bitrate accounting. Its patch captures that value in a separate atomic field for startup reserve sizing, then prefers the decoder's bitrate after decoding starts. The field resets on stop/new connection and survives first-play initialization. This preserves upstream's bitrate reporting while letting a 192 kbps stream prime toward 66,000 bytes.
 
 If the installer rejects the version, its error reports the value found and the full `library.properties` path. Share that value and the SHA-256 hashes of `src/Audio.h` and `src/Audio.cpp` to identify the installed revision. Windows line endings, a UTF-8 BOM and whitespace around the version property are accepted; the exact version and reviewed source hashes are still required.
 
@@ -273,7 +282,7 @@ On macOS/Linux, or Windows with Python installed, the equivalent is:
 python3 scripts/patch_audioi2s_v4.py --library /path/to/ESP32-audioI2S
 ```
 
-Library Manager updates can replace this patch; recheck Serial afterward. To restore the original library, close Arduino IDE, copy the two `.gts-radio-original` backups over their matching source files, then remove the backups and `src/RadioStreamReserve.h`. The pinned legacy PlatformIO dependency remains compatible and retains its existing behavior; this patch targets 4.0.0 only.
+Library Manager updates can replace this patch; recheck Serial afterward. To restore the original library, close Arduino IDE, copy the two `.gts-radio-original` backups over their matching source files, then remove the backups and `src/RadioStreamReserve.h`. The pinned legacy PlatformIO dependency remains compatible and retains its existing behavior; the reserve patch targets the two reviewed 4.0.x revisions above.
 
 A reserve absorbs delivery jitter; it cannot sustain a stream whose average arrival rate stays below its encoded bitrate. Frequent refill counts after patching warrant a different stream endpoint/network route or further transport investigation. No manually configured station entries or station-specific URL substitutions are added.
 
@@ -301,7 +310,7 @@ A successful build and host tests cannot verify wiring, amplifier output, exact 
 | Read a long or non-ASCII station/title | A long player name fits its two-line area; messages remain clipped to their rows; unsupported glyphs use a safe replacement |
 | Listen for a minute, mute, open/close Settings and Stations, and interrupt a long warning | Branded headers and footers stay fixed; Vol and mute remain clear; state/errors override titles; no inactivity timeout closes browsing |
 
-The USB serial startup log and `?` command report detected heap and PSRAM. Confirm the expected 8 MB PSRAM on the actual N16R8 board; with audioI2S 4.0.0, also confirm `32-bit PCM (3-argument)` and `event metadata callbacks`.
+The USB serial startup log and `?` command report detected heap and PSRAM. Confirm the expected 8 MB PSRAM on the actual N16R8 board; with audioI2S 4.0.0/4.0.1, also confirm `32-bit PCM (3-argument)` and `event metadata callbacks`.
 
 ## Host tests
 
@@ -313,7 +322,7 @@ python3 tests/run_host_tests.py --sanitize
 
 This requires a C++17-capable compiler. Omit `--sanitize` if the compiler does not provide AddressSanitizer and UndefinedBehaviorSanitizer. Set `CXX` to select another compiler. The network JSON and dependency-patch tests run when the pinned libraries have been installed by `pio run`; otherwise the runner explicitly reports those skips.
 
-Reserve-policy tests include a 192 kbps / 48 kHz jitter simulation, startup/refill deadlines, bitrate/capacity limits and rollover. Set `AUDIOI2S_V4_LIBRARY` to an exact 4.0.0 library (pristine or patched with verified backups) to run installer/source integration tests too. Native PowerShell installer tests additionally need `pwsh`/`powershell` on PATH, or `POWERSHELL` set to that executable. Installers are exercised only in temporary copies, including unknown-source rejection, read-only checks, idempotence and byte equivalence. Missing optional fixtures/runtimes are explicitly reported as skips.
+Reserve-policy tests include a 192 kbps / 48 kHz jitter simulation, startup/refill deadlines, bitrate/capacity limits and rollover. Set `AUDIOI2S_V4_LIBRARY` to a supported exact 4.0.0 or 4.0.1 library (pristine or patched with verified backups) to run installer/source integration tests too. Run each fixture separately to cover both profiles. Native PowerShell installer tests additionally need `pwsh`/`powershell` on PATH, or `POWERSHELL` set to that executable. Installers are exercised only in temporary copies, including metadata/source mismatches, unknown-source rejection, read-only checks, idempotence and byte equivalence. Missing optional fixtures/runtimes are explicitly reported as skips.
 
 The application integration suite runs the real `RadioApp.h` input handlers and drawing code against simulated service boundaries for **both display selections**. It covers filter rollback, cancellation and late results, held gestures across loading, automatic next-page entry, and reconnects while editing. Rendering checks exercise five station rows, Settings, filter values, Wi-Fi setup/restart, startup failure, empty results, and every playback state without drawing outside the selected display. Unsupported display selections must fail compilation. To export actual screen renders for visual review:
 

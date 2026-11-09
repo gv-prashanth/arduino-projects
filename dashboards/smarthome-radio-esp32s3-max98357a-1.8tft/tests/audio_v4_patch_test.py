@@ -1,4 +1,4 @@
-"""Test manifest integrity and patch real 4.0.0 fixtures in temporary directories.
+"""Test manifest integrity and patch supported audioI2S fixtures in temporary directories.
 
 Run with --library PATH or AUDIOI2S_V4_LIBRARY=PATH to exercise the exact upstream
 source. Without that optional installed dependency, source integration tests skip.
@@ -35,6 +35,21 @@ class ManifestTests(unittest.TestCase):
             self.assertNotEqual(item["original_sha256"], item["patched_sha256"])
             self.assertTrue(item["replacements"])
 
+    def test_supported_profiles_have_independent_exact_hashes(self):
+        self.assertEqual(set(patch.MANIFESTS), {"4.0.0", "4.0.1"})
+        profile = patch.MANIFESTS["4.0.1"]
+        self.assertEqual(profile["upstream_commit"], "5bf339285bf681d8be2cc84a5f7529a12f2f7514")
+        self.assertEqual(profile["files"]["Audio.h"]["original_sha256"],
+                         "119d69420fbc6d68d8f1fc8c10db2d11f18abc10cb19450a4d65f1741d512c09")
+        self.assertEqual(profile["files"]["Audio.cpp"]["original_sha256"],
+                         "08481cdff892d4bb05f9a9bcc5dd76c20a8526f0bcdbf8f4b42a9f586f1bddad")
+        for version, profile in patch.MANIFESTS.items():
+            self.assertEqual(profile["schema_version"], 1)
+            self.assertEqual(profile["library_version"], version)
+            helper = patch.MANIFEST_PATH.parent / profile["helper"]["source"]
+            self.assertEqual(patch.digest(helper.read_bytes()), profile["helper"]["sha256"])
+            self.assertEqual(set(profile["files"]), {"Audio.h", "Audio.cpp"})
+
     def test_cli_rejects_a_missing_library(self):
         with tempfile.TemporaryDirectory() as directory:
             result = subprocess.run([sys.executable, str(SCRIPT), "--library", directory, "--check"], capture_output=True, text=True)
@@ -47,22 +62,25 @@ class SourcePatchTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if not LIBRARY:
-            raise unittest.SkipTest("Pass --library PATH or AUDIOI2S_V4_LIBRARY for exact 4.0.0 source tests")
-        _, source_dir = patch.library_paths(LIBRARY)
+            raise unittest.SkipTest("Pass --library PATH or AUDIOI2S_V4_LIBRARY for exact supported source tests")
+        _, source_dir, cls.manifest = patch.library_info(LIBRARY)
+        cls.version = cls.manifest["library_version"]
+        cls.original_hashes = {name: item["original_sha256"] for name, item in cls.manifest["files"].items()}
+        cls.patched_hashes = {name: item["patched_sha256"] for name, item in cls.manifest["files"].items()}
         cls.originals = {}
-        for name, expected in patch.ORIGINAL_SHA256.items():
+        for name, expected in cls.original_hashes.items():
             data = (source_dir / name).read_bytes()
             if patch.digest(data) != expected:
                 data = (source_dir / (name + patch.BACKUP_SUFFIX)).read_bytes()
             if patch.digest(data) != expected:
-                raise RuntimeError("Source fixture does not match reviewed upstream 4.0.0: " + name)
+                raise RuntimeError("Source fixture does not match reviewed upstream " + cls.version + ": " + name)
             cls.originals[name] = data
 
     def fixture(self, directory):
         root = Path(directory) / "ESP32-audioI2S-master"
         source = root / "src"
         source.mkdir(parents=True)
-        (root / "library.properties").write_text("name=ESP32-audioI2S-master\nversion=4.0.0\n")
+        (root / "library.properties").write_text("name=ESP32-audioI2S-master\nversion=" + self.version + "\n")
         for name, data in self.originals.items():
             (source / name).write_bytes(data)
         return root, source
@@ -77,7 +95,7 @@ class SourcePatchTests(unittest.TestCase):
             self.assertEqual(patch.patch_library(root), "patched")
             for name, original in self.originals.items():
                 self.assertEqual((source / (name + patch.BACKUP_SUFFIX)).read_bytes(), original)
-                self.assertEqual(patch.digest((source / name).read_bytes()), patch.PATCHED_SHA256[name])
+                self.assertEqual(patch.digest((source / name).read_bytes()), self.patched_hashes[name])
             self.assertEqual((source / patch.HELPER_NAME).read_bytes(), patch.HELPER.read_bytes())
             before = self.snapshot(root)
             self.assertEqual(patch.patch_library(root), "already patched")
@@ -99,7 +117,7 @@ class SourcePatchTests(unittest.TestCase):
             with self.subTest(modified=modified), tempfile.TemporaryDirectory() as directory:
                 root, source = self.fixture(directory)
                 if modified == "version":
-                    (root / "library.properties").write_text("version=4.0.1\n")
+                    (root / "library.properties").write_text("version=4.0.2\n")
                 else:
                     with (source / modified).open("ab") as handle:
                         handle.write(b"\n// unreviewed edit\n")
@@ -114,6 +132,7 @@ class SourcePatchTests(unittest.TestCase):
                            b"name=ESP32-audioI2S-master\n \tversion \t= \t4.0.0 \t\n"]:
             with self.subTest(properties=properties), tempfile.TemporaryDirectory() as directory:
                 root, _ = self.fixture(directory)
+                properties = properties.replace(b"4.0.0", self.version.encode())
                 (root / "library.properties").write_bytes(properties)
                 before = self.snapshot(root)
                 self.assertEqual(patch.patch_library(root, check=True), "pristine")
@@ -122,7 +141,7 @@ class SourcePatchTests(unittest.TestCase):
                 self.assertEqual((root / "library.properties").read_bytes(), properties)
 
     def test_version_errors_report_actual_value_and_path_without_writing(self):
-        for properties, found in [(b"version=4.0.1\n", "'4.0.1'"),
+        for properties, found in [(b"version=4.0.2\n", "'4.0.2'"),
                                   (b"name=ESP32-audioI2S-master\n", "<missing>"),
                                   (b"version=\nname=ESP32-audioI2S-master\n", "''"),
                                   (b"version=4.0.0\nversion=4.0.1\n", "'4.0.0', '4.0.1'")]:
@@ -136,6 +155,34 @@ class SourcePatchTests(unittest.TestCase):
                     self.assertIn("found " + found, str(error.exception))
                     self.assertIn(str(root / "library.properties"), str(error.exception))
                     self.assertIn("refusing to patch", str(error.exception))
+                    self.assertEqual(self.snapshot(root), before)
+
+    def test_declared_profile_must_match_both_sources_and_original_backups(self):
+        other_version = next(version for version in patch.MANIFESTS if version != self.version)
+        for installed in [False, True]:
+            with self.subTest(installed=installed), tempfile.TemporaryDirectory() as directory:
+                root, _ = self.fixture(directory)
+                if installed:
+                    patch.patch_library(root)
+                (root / "library.properties").write_text("version=" + other_version + "\n")
+                before = self.snapshot(root)
+                for check in [True, False]:
+                    with self.assertRaises(RuntimeError) as error:
+                        patch.patch_library(root, check=check)
+                    self.assertIn("declared version " + other_version, str(error.exception))
+                    self.assertIn("Audio.h SHA256=", str(error.exception))
+                    self.assertIn("Audio.cpp SHA256=", str(error.exception))
+                    self.assertEqual(self.snapshot(root), before)
+
+    def test_mixed_pristine_and_patched_files_are_rejected(self):
+        for name in self.originals:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root, source = self.fixture(directory)
+                (source / name).write_bytes(patch.patched_source(name, self.originals[name], self.manifest))
+                before = self.snapshot(root)
+                for check in [True, False]:
+                    with self.assertRaisesRegex(RuntimeError, "refusing to patch"):
+                        patch.patch_library(root, check=check)
                     self.assertEqual(self.snapshot(root), before)
 
     def test_partial_install_and_tampered_backups_or_helper_are_rejected(self):
@@ -188,7 +235,7 @@ class SourcePatchTests(unittest.TestCase):
                 self.assertEqual(patch.patch_library(root, check=True), "pristine")
 
     def test_gate_preserves_network_pump_decoder_lock_and_pcm_drain_order(self):
-        cpp = patch.patched_source("Audio.cpp", self.originals["Audio.cpp"]).decode()
+        cpp = patch.patched_source("Audio.cpp", self.originals["Audio.cpp"], self.manifest).decode()
         play = cpp[cpp.index("void Audio::playAudioData() {"):cpp.index("std::vector<ps_ptr<char>> Audio::readHeader()")]
         self.assertLess(play.index("if (m_validSamples)"), play.index("m_radioStreamReserve.update("))
         self.assertLess(play.index("xSemaphoreTake(mutex_audioTaskIsDecoding"), play.index("m_radioStreamReserve.update("))
@@ -197,12 +244,24 @@ class SourcePatchTests(unittest.TestCase):
         self.assertIn("if (reserveWaiting) goto exit", play)
         self.assertIn("xSemaphoreGive(mutex_audioTaskIsDecoding)", play)
         # Added code never changes the pump-enabling stream flag or resets the decoder.
-        additions = "\n".join(item["new"].replace(item["old"], "") for item in patch.MANIFEST["files"]["Audio.cpp"]["replacements"])
+        additions = "\n".join(item["new"].replace(item["old"], "") for item in self.manifest["files"]["Audio.cpp"]["replacements"])
         self.assertNotIn("m_f_stream =", additions)
         self.assertNotIn("m_decoder->clear", additions)
         self.assertNotIn("vTaskDelay", additions)
         process = cpp[cpp.index("void Audio::processWebStream() {"):cpp.index("void Audio::processWebFile() {")]
         self.assertLess(process.index("m_radioStreamTerminal.store"), process.index("if (m_f_chunked"))
+
+    def test_v401_advertised_bitrate_is_private_and_preserved_at_first_play(self):
+        if self.version != "4.0.1":
+            self.skipTest("4.0.1-specific bitrate accounting")
+        cpp = patch.patched_source("Audio.cpp", self.originals["Audio.cpp"], self.manifest).decode()
+        first_play = cpp[cpp.index("if (m_f_firstPlayCall)"):cpp.index("if (!isFile() && !isStream())")]
+        self.assertNotIn("m_radioStreamAdvertisedBitrate", first_play)
+        # Preserve upstream's public bitrate accounting while capturing the
+        # advertised rate independently for the compressed reserve target.
+        self.assertIn('//    if (name.equals_icase("icy-br")) { m_nominal_bitrate', cpp)
+        self.assertIn("UINT32_MAX / 1000", cpp)
+        self.assertIn("m_radioStreamAdvertisedBitrate.load", cpp)
 
 
 if __name__ == "__main__":
