@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 
 
@@ -52,10 +53,15 @@ def library_paths(library):
     properties = root / "library.properties"
     if not properties.is_file():
         raise RuntimeError("Expected an ESP32-audioI2S library containing library.properties: " + str(root))
-    versions = [line.split("=", 1)[1].strip() for line in properties.read_text().splitlines()
-                if line.startswith("version=")]
+    # Match horizontal whitespace only: an empty version must not swallow the
+    # next property line. UTF-8 BOMs and Windows line endings are harmless.
+    versions = [value.strip() for value in re.findall(
+        r"^[ \t\ufeff]*version[ \t]*=[ \t]*([^\r\n]*)",
+        properties.read_text(encoding="utf-8-sig"), re.MULTILINE)]
     if versions != [MANIFEST["library_version"]]:
-        raise RuntimeError("Expected ESP32-audioI2S version 4.0.0; refusing to patch " + repr(versions))
+        found = ", ".join(repr(value) for value in versions) if versions else "<missing>"
+        raise RuntimeError("Expected ESP32-audioI2S version " + MANIFEST["library_version"]
+                           + "; found " + found + " in " + str(properties) + "; refusing to patch")
     return root, root / "src"
 
 

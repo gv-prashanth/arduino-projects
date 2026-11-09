@@ -95,6 +95,47 @@ class PowerShellInstallerTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual(self.snapshot(native), self.snapshot(python))
 
+    def test_version_formatting_variants_are_accepted_without_writing(self):
+        cases = {
+            "CRLF": b"name=test\r\nversion=4.0.0\r\n",
+            "UTF8 BOM": b"\xef\xbb\xbfversion=4.0.0\r\nname=test\r\n",
+            "BOM before version": b"name=test\r\n\xef\xbb\xbfversion=4.0.0\r\n",
+            "leading spaces": b"  version=4.0.0\r\n",
+            "leading tab": b"\tversion=4.0.0\r\n",
+            "spaces around equals": b"version \t= \t4.0.0 \t\r\n",
+            "no final newline": b"version=4.0.0",
+        }
+        for name, properties in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory(prefix="gts powershell ") as directory:
+                root = self.fixture(directory)
+                (root / "library.properties").write_bytes(properties)
+                before = self.snapshot(root)
+                self.assertIn("pristine (check only)", self.run_installer(root, check=True).stdout)
+                self.assertEqual(self.snapshot(root), before)
+
+    def test_version_errors_report_found_value_and_full_properties_path_without_writing(self):
+        cases = {
+            "missing": (b"name=test\r\n", "<missing>"),
+            "empty": (b"version=\r\nname=test\r\n", "<empty>"),
+            "whitespace only": (b" \tversion \t= \t \r\n", "<empty>"),
+            "duplicate": (b"version=4.0.0\r\nversion=4.0.1\r\n", "'4.0.0', '4.0.1'"),
+            "different": (b"version=3.4.4\r\n", "'3.4.4'"),
+            "suffix": (b"version=4.0.0-master\r\n", "'4.0.0-master'"),
+        }
+        for name, (properties, found) in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory(prefix="gts powershell ") as directory:
+                root = self.fixture(directory)
+                properties_path = root / "library.properties"
+                properties_path.write_bytes(properties)
+                before = self.snapshot(root)
+                for check in (True, False):
+                    error = self.run_installer(root, check=check, expected=1).stderr
+                    self.assertIn("Expected ESP32-audioI2S version 4.0.0", error)
+                    self.assertIn("found " + found, error)
+                    self.assertIn(str(properties_path), error)
+                    self.assertIn("refusing to patch", error)
+                    self.assertEqual(self.snapshot(root), before)
+
     def test_wrong_version_and_unknown_or_partial_installations_are_read_only(self):
         cases = ["version", "source", "partial source", "unexpected helper", "unexpected backup",
                  "installed helper", "original backup", "missing backup"]

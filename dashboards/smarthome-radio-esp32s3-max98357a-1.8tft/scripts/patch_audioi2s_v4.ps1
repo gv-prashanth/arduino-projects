@@ -19,10 +19,21 @@ try {
     if ($spec.schema_version -ne 1) { throw 'Unsupported patch manifest' }
     $root = (Resolve-Path -LiteralPath $LibraryPath).Path
     if ((Split-Path $root -Leaf) -eq 'src') { $root = Split-Path $root -Parent }
-    $properties = [IO.File]::ReadAllText((Join-Path $root 'library.properties'), $utf8)
-    $versions = [regex]::Matches($properties, '(?m)^version\s*=\s*([^\r\n]+)')
-    if ($versions.Count -ne 1 -or $versions[0].Groups[1].Value.Trim() -ne $spec.library_version) {
-        throw 'Expected ESP32-audioI2S version 4.0.0'
+    $propertiesPath = Join-Path $root 'library.properties'
+    $properties = [IO.File]::ReadAllText($propertiesPath, $utf8)
+    # Limit spacing to the current line: an empty value must not consume the
+    # next property. Tolerate indentation and a BOM before the version key.
+    $versionMatches = [regex]::Matches($properties, '(?m)^[ \t\uFEFF]*version[ \t]*=[ \t]*([^\r\n]*)')
+    $versions = @($versionMatches | ForEach-Object { $_.Groups[1].Value.Trim() })
+    if ($versions.Count -ne 1 -or $versions[0] -ne $spec.library_version) {
+        $found = '<missing>'
+        if ($versions.Count) {
+            $found = (@($versions | ForEach-Object {
+                if ($_.Length) { "'" + $_ + "'" } else { '<empty>' }
+            })) -join ', '
+        }
+        throw ('Expected ESP32-audioI2S version ' + $spec.library_version + '; found ' + $found +
+               ' in ' + $propertiesPath + '; refusing to patch')
     }
     $helperBytes = [IO.File]::ReadAllBytes((Join-Path $specRoot $spec.helper.source))
     if ((Get-BytesHash $helperBytes) -ne $spec.helper.sha256) { throw 'Patch helper checksum mismatch' }

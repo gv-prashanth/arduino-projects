@@ -265,6 +265,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\patch_audioi2s_v4.
 
 The installer requires the exact reviewed 4.0.0 source files from upstream commit `490ff729eca344f06581f3e9bda9cfba948fd5a1`, checks SHA-256 hashes before writing, and saves `src/Audio.h.gts-radio-original` and `src/Audio.cpp.gts-radio-original`. Unknown versions, modified files or partial installations fail without guessing. Add `-Check` to validate without installing. It is safe to run again on the exact patched installation. Restart Arduino IDE, rebuild/upload, and check Serial for **`MP3 reserve enabled (up to 2 s)`**.
 
+If the installer rejects the version, its error reports the value found and the full `library.properties` path. Share that value and the SHA-256 hashes of `src/Audio.h` and `src/Audio.cpp` to identify the installed revision. Windows line endings, a UTF-8 BOM and whitespace around the version property are accepted; the exact version and reviewed source hashes are still required.
+
 On macOS/Linux, or Windows with Python installed, the equivalent is:
 
 ```sh

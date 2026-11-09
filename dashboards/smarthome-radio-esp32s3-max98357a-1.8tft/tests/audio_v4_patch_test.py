@@ -108,6 +108,36 @@ class SourcePatchTests(unittest.TestCase):
                     patch.patch_library(root)
                 self.assertEqual(self.snapshot(root), before)
 
+    def test_version_formatting_is_accepted_without_changing_properties(self):
+        for properties in [b"name=ESP32-audioI2S-master\r\nversion=4.0.0\r\n",
+                           b"\xef\xbb\xbfversion=4.0.0\r\n",
+                           b"name=ESP32-audioI2S-master\n \tversion \t= \t4.0.0 \t\n"]:
+            with self.subTest(properties=properties), tempfile.TemporaryDirectory() as directory:
+                root, _ = self.fixture(directory)
+                (root / "library.properties").write_bytes(properties)
+                before = self.snapshot(root)
+                self.assertEqual(patch.patch_library(root, check=True), "pristine")
+                self.assertEqual(self.snapshot(root), before)
+                self.assertEqual(patch.patch_library(root), "patched")
+                self.assertEqual((root / "library.properties").read_bytes(), properties)
+
+    def test_version_errors_report_actual_value_and_path_without_writing(self):
+        for properties, found in [(b"version=4.0.1\n", "'4.0.1'"),
+                                  (b"name=ESP32-audioI2S-master\n", "<missing>"),
+                                  (b"version=\nname=ESP32-audioI2S-master\n", "''"),
+                                  (b"version=4.0.0\nversion=4.0.1\n", "'4.0.0', '4.0.1'")]:
+            with self.subTest(properties=properties), tempfile.TemporaryDirectory() as directory:
+                root, _ = self.fixture(directory)
+                (root / "library.properties").write_bytes(properties)
+                before = self.snapshot(root)
+                for check in [True, False]:
+                    with self.assertRaises(RuntimeError) as error:
+                        patch.patch_library(root, check=check)
+                    self.assertIn("found " + found, str(error.exception))
+                    self.assertIn(str(root / "library.properties"), str(error.exception))
+                    self.assertIn("refusing to patch", str(error.exception))
+                    self.assertEqual(self.snapshot(root), before)
+
     def test_partial_install_and_tampered_backups_or_helper_are_rejected(self):
         for modified in ["partial", "Audio.h", "Audio.cpp", "backup", "helper", "missing backup"]:
             with self.subTest(modified=modified), tempfile.TemporaryDirectory() as directory:
