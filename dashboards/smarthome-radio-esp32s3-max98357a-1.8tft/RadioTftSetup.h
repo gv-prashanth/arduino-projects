@@ -1,4 +1,5 @@
-#pragma once
+#ifndef GTS_RADIO_TFT_SETUP_H
+#define GTS_RADIO_TFT_SETUP_H
 
 // Forced into every C++ translation unit by build_opt.h (Arduino IDE) and the
 // PlatformIO build flags. TFT_eSPI.cpp must see the same display selection as
@@ -48,3 +49,5 @@
 #define SPI_FREQUENCY 32000000 // Matches the former Adafruit_ST77xx default.
 #endif
 #endif // __cplusplus
+
+#endif // GTS_RADIO_TFT_SETUP_H

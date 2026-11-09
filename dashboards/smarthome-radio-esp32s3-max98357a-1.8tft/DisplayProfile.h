@@ -1,4 +1,8 @@
-#pragma once
+#ifndef GTS_RADIO_DISPLAY_PROFILE_H
+#define GTS_RADIO_DISPLAY_PROFILE_H
+
+// Arduino IDE can include both the sketch's original header and its build
+// copy. A shared macro guard covers both paths; #pragma once alone does not.
 
 // Select the attached display here before uploading. The parallel 2.4-inch
 // shield is the default; choose RADIO_DISPLAY_ST7735_18 for the original TFT.
@@ -36,3 +40,5 @@ constexpr int PlayerStatusTop = LargeDisplay ? 158 : 80;
 constexpr int PlayerMessageTop = LargeDisplay ? 187 : 97;
 } // namespace RadioDisplay
 #endif
+
+#endif // GTS_RADIO_DISPLAY_PROFILE_H

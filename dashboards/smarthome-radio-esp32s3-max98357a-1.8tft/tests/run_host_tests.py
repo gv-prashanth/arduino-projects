@@ -85,6 +85,8 @@ def main():
         result = subprocess.run(unsupported, text=True, capture_output=True, cwd=root)
         if result.returncode == 0 or "Unsupported ESP32-audioI2S PCM callback API" not in result.stderr:
             raise RuntimeError("Unsupported PCM API did not fail with the intended diagnostic:\n" + result.stderr)
+    print("Checking Arduino IDE copied headers and library configuration", flush=True)
+    subprocess.run([sys.executable, str(root / "tests" / "header_include_test.py")], check=True, cwd=root)
     audio_source = root / ".pio" / "libdeps" / "esp32s3-n16r8" / "ESP32-audioI2S" / "src" / "Audio.cpp"
     if audio_source.exists():
         subprocess.run([sys.executable, str(root / "tests" / "audio_patch_test.py")], check=True, cwd=root)
