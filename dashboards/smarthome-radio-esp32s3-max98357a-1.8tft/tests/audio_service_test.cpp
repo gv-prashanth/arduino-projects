@@ -452,7 +452,7 @@ struct AudioServiceTestAccess {
     RadioAudioHost::frameSamples = 0;
     service.network(true);
     assert(service.start(station("https://example.org/zero-count"), RadioModel::Station{}, 1));
-    runUntil(service, 16000, true);
+    runUntil(service, 16000 + StreamReserve<Audio>::startupGrace(service.audio_), true);
     assert(service.audio_.pcmCallbacks > 0 && service.audio_.positivePcmCallbacks == 0);
     assert(!RadioModel::validStation(service.snapshot_.confirmed));
     assert(service.snapshot_.state == State::Retrying && service.attempts_ == 1);
@@ -463,7 +463,7 @@ struct AudioServiceTestAccess {
     RadioAudioHost::frameSamples = -100;
     negative.network(true);
     assert(negative.start(station("https://example.org/negative-count"), RadioModel::Station{}, 1));
-    runUntil(negative, 16000, true);
+    runUntil(negative, 16000 + StreamReserve<Audio>::startupGrace(negative.audio_), true);
     assert(negative.audio_.pcmCallbacks > 0 && negative.audio_.positivePcmCallbacks == 0);
     assert(!RadioModel::validStation(negative.snapshot_.confirmed));
     assert(negative.snapshot_.state == State::Retrying && negative.attempts_ == 1);
@@ -588,6 +588,8 @@ struct AudioServiceTestAccess {
     other.diagnostics.maxPcmGapMs = 170; other.diagnostics.maxPumpGapMs = 4;
     other.diagnostics.slowStreamEvents = 2; other.diagnostics.streamLostEvents = 1;
     other.diagnostics.channels = 2; other.diagnostics.hasBufferSample = true;
+    other.diagnostics.reserveSupported = other.diagnostics.reserveBuffering = true;
+    other.diagnostics.reserveTargetBytes = 66000; other.diagnostics.reserveRefills = 1;
     assert(samePresentation(base, other));
     other = base; other.state = State::Buffering; assert(!samePresentation(base, other));
     other = base; other.fatal = true; assert(!samePresentation(base, other));
@@ -611,6 +613,61 @@ struct AudioServiceTestAccess {
       assert(!samePresentation(base, other));
     }
   }
+
+  static void testStreamReserveHealth() {
+    AudioService service;
+    assert(service.begin());
+    service.online_ = true;
+    StartRequest request{station("https://example.org/a"), RadioModel::Station{}, 71};
+    service.reset(request);
+    service.connect();
+    const uint32_t started = service.connectAt_;
+#if defined(RADIO_TEST_STREAM_RESERVE)
+    static_assert(StreamReserve<Audio>::supported, "Patched API must be detected");
+    // The decoder core may not have published its first reserve target yet.
+    service.updatePlaybackHealth(started + 15001, 0, 0);
+    assert(service.snapshot_.state == State::Connecting && service.attempts_ == 1);
+    service.audio_.reserveWaiting = true;
+    service.audio_.reserveTarget = 66000;
+    service.audio_.reserveRefills = 2;
+    service.updatePlaybackHealth(started + 15001, 0, 0);
+    assert(service.snapshot_.state == State::Connecting && service.attempts_ == 1);
+    assert(!RadioModel::validStation(service.snapshot_.confirmed));
+    assert(std::strcmp(service.snapshot_.detail, "Buffering audio") == 0);
+    service.sampleDiagnostics();
+    assert(service.snapshot_.diagnostics.reserveSupported && service.snapshot_.diagnostics.reserveBuffering);
+    assert(service.snapshot_.diagnostics.reserveTargetBytes == 66000 && service.snapshot_.diagnostics.reserveRefills == 2);
+    service.updatePlaybackHealth(started + 16000, request.generation, started + 15999);
+    assert(service.snapshot_.state == State::Buffering && !service.stablePlaying_);
+    assert(!RadioModel::validStation(service.snapshot_.confirmed));
+    service.audio_.reserveWaiting = false;
+    service.updatePlaybackHealth(started + 16001, request.generation, started + 16000);
+    assert(service.snapshot_.state == State::Playing && !service.connecting_);
+    assert(RadioModel::validStation(service.snapshot_.confirmed));
+    // Intentional refill may not hide a permanently stalled decoder.
+    service.audio_.reserveWaiting = true;
+    service.updatePlaybackHealth(started + 28000, request.generation, started + 16000);
+    assert(service.snapshot_.state == State::Retrying);
+    service.connect();
+    service.updatePlaybackHealth(service.connectAt_ + 17001, 0, 0);
+    assert(service.snapshot_.state == State::Retrying);
+    // The bounded deadline also applies before a target has been published.
+    service.connect();
+    service.audio_.reserveTarget = 0;
+    service.audio_.reserveWaiting = false;
+    service.updatePlaybackHealth(service.connectAt_ + 15001, 0, 0);
+    assert(service.snapshot_.state == State::Connecting);
+    service.updatePlaybackHealth(service.connectAt_ + 17001, 0, 0);
+    assert(service.snapshot_.state == State::Failed);
+#else
+    static_assert(!StreamReserve<Audio>::supported, "Stock library must retain its deadline");
+    assert(StreamReserve<Audio>::target(service.audio_) == 0);
+    assert(StreamReserve<Audio>::refills(service.audio_) == 0);
+    service.updatePlaybackHealth(started + 15001, 0, 0);
+    assert(service.snapshot_.state == State::Retrying);
+#endif
+    cleanup(service);
+  }
 };
 
 }  // namespace RadioAudio
@@ -632,5 +689,6 @@ int main() {
   RadioAudio::AudioServiceTestAccess::testDiagnosticsSamplingAndPcmGaps();
   RadioAudio::AudioServiceTestAccess::testDiagnosticPumpGapsAndMetadata();
   RadioAudio::AudioServiceTestAccess::testDiagnosticsDoNotChangePresentation();
+  RadioAudio::AudioServiceTestAccess::testStreamReserveHealth();
   std::printf("AudioService tests passed (callback API %d)\n", RADIO_TEST_AUDIO_API);
 }

@@ -48,6 +48,14 @@ class Audio {
   int nullStops = 0, rawStops = 0, connections = 0, frameBudget = 0;
   unsigned pcmCallbacks = 0, positivePcmCallbacks = 0, silentPcmCallbacks = 0;
   bool running = false, startupMetadataPending = false;
+#if defined(RADIO_TEST_STREAM_RESERVE)
+  static constexpr uint32_t radioStreamMaxWaitMs = 2000;
+  bool reserveWaiting = false;
+  uint32_t reserveTarget = 0, reserveRefills = 0;
+  bool radioStreamBuffering() const { return reserveWaiting; }
+  uint32_t radioStreamBufferTarget() const { return reserveTarget; }
+  uint32_t radioStreamRefillCount() const { return reserveRefills; }
+#endif
   uint8_t volumeValue = 0;
   uint32_t inputFilledBytes = 64000, inputCapacityBytes = 655350, sampleRateHz = 44100;
   uint8_t channelCount = 2;

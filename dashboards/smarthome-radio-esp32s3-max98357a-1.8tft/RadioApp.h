@@ -874,6 +874,9 @@ inline void printDiagnostics() {
   Serial.printf("audio health: max PCM gap=%u ms; max pump gap=%u ms; slow=%u lost=%u\n",
                 unsigned(health.maxPcmGapMs), unsigned(health.maxPumpGapMs),
                 unsigned(health.slowStreamEvents), unsigned(health.streamLostEvents));
+  Serial.printf("audio reserve: %s; waiting=%s target=%u B refills=%u\n",
+                health.reserveSupported ? "enabled" : "unavailable", health.reserveBuffering ? "yes" : "no",
+                unsigned(health.reserveTargetBytes), unsigned(health.reserveRefills));
   const int powerSave = wifi.powerSaveMode();
   const char* sleepMode = powerSave == 0 ? "off" : powerSave == 1 ? "minimum" : powerSave == 2 ? "maximum" : "unknown";
   Serial.printf("Wi-Fi radio: RSSI=%ld dBm; modem sleep=%s\n", static_cast<long>(wifi.rssi()), sleepMode);

@@ -14,8 +14,10 @@ struct Diagnostics {
   std::uint32_t inputFilledBytes = 0, inputCapacityBytes = 0, minInputFilledBytes = 0;
   std::uint32_t sampleRateHz = 0, maxPcmGapMs = 0, maxPumpGapMs = 0;
   std::uint32_t slowStreamEvents = 0, streamLostEvents = 0;
+  std::uint32_t reserveTargetBytes = 0, reserveRefills = 0;
   std::uint8_t channels = 0;
   bool hasBufferSample = false; // A post-PCM input low-water mark has been observed.
+  bool reserveSupported = false, reserveBuffering = false;
 };
 
 struct Snapshot {

@@ -247,11 +247,35 @@ The radio disables Wi-Fi modem sleep after each station/AP mode change to reduce
 
 At **115200 baud**, send **`?`** after hearing a gap. The report includes Wi-Fi RSSI and modem-sleep mode, input-buffer fill/capacity/minimum, sample rate/channels, largest observed PCM/pump gaps, and counts of library `slow stream` / `Stream lost` events. Minimum fill starts after real PCM begins, so an expected empty startup buffer does not poison that measurement. Peaks reset when selecting a station and survive automatic retries. Only the audio-owner task queries the Audio library; telemetry changes do not trigger full-screen redraws.
 
-The display can remain Playing through a short audible dropout: it switches to Buffering after three seconds without PCM. Buffer telemetry and the retained library messages are more useful for diagnosing shorter gaps. At 128 kbps, a stream consumes about 16,000 compressed bytes/second; at 256 kbps, about 32,000. The bitrate shown by a directory entry is not a guarantee of the live stream's format.
+Without the optional reserve patch below, the display can remain Playing through a short audible dropout: it switches to Buffering after three seconds without PCM. With the patch, an intentional reserve refill also shows Buffering immediately. At 128 kbps, a stream consumes about 16,000 compressed bytes/second; at 256 kbps, about 32,000. The bitrate shown by a directory entry is not a guarantee of the live stream's format.
 
-In audioI2S **4.0.0**, the input buffer already has 655,350 bytes of main capacity. Direct MP3 starts just above an 18,000-byte decode floor and stops decoding below that same floor. Allocated capacity therefore does not imply a filled jitter reserve. Increasing the allocation alone cannot fix slow or bursty delivery. If no-sleep operation still exhibits input depletion, a further library change needs separate startup/refill thresholds that keep downloading while decoding waits; `pauseResume()` stops the network pump too, and mute still consumes audio. Such a patch also needs to respect the firmware's bounded no-PCM connection deadline on low-bitrate stations.
+In audioI2S **4.0.0**, the input buffer already has 655,350 bytes of main capacity. Direct MP3 starts just above an 18,000-byte decode floor and stops decoding below that same floor. Allocated capacity therefore does not imply a filled jitter reserve. Increasing the allocation alone cannot fix slow or bursty delivery. For example, Different Drumz supplies 192 kbps MP3 (24,000 bytes/second); a fill of 18,746 bytes leaves only 31 ms above that floor. Near-floor readings alongside a 247 ms maximum PCM gap are consistent with repeated starvation, even with strong Wi-Fi.
 
-These diagnostics identify likely causes but do not certify a fix on the assembled radio. A healthy input reserve with continued PCM gaps calls for investigating decoder/I2S scheduling or sample-rate behavior instead of assuming a network fault.
+### MP3 startup and refill reserve (Arduino IDE / audioI2S 4.0.0)
+
+The repository includes an optional, exact-version library patch. Live direct MP3 streams build approximately two seconds of compressed audio **above** the decode floor before starting; after depletion they refill that reserve before decoding continues. The network pump keeps running and queued PCM can drain. The patch preserves decoder state and does not mute, discard audio, or reconnect to refill. A 192 kbps stream targets about **66,000 bytes** including the 18,000-byte floor. AAC, HLS, TTS, finite files and terminated streams bypass this reserve gate.
+
+The reserve follows compressed bitrate, with a 32 KiB fallback when unknown, an 8 KiB minimum, a 128 KiB maximum, and a buffer-capacity limit. Added waiting is capped at two seconds once the decode floor is reached; startup may therefore take a little longer. The patched application allows at most 17 seconds for first PCM rather than 15, and retains its 12-second stalled-audio watchdog. Buffering is reported while the gate waits; `?` also reports whether the patch is enabled, its target and refill count. Updating the sketch alone leaves this feature **unavailable** until the installed library is patched.
+
+Close Arduino IDE, then run this from this project's directory in Windows PowerShell (the command uses the supplied library path):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\patch_audioi2s_v4.ps1 -LibraryPath "C:\Users\rajag\Documents\Arduino\libraries\ESP32-audioI2S-master"
+```
+
+The installer requires the exact reviewed 4.0.0 source files from upstream commit `490ff729eca344f06581f3e9bda9cfba948fd5a1`, checks SHA-256 hashes before writing, and saves `src/Audio.h.gts-radio-original` and `src/Audio.cpp.gts-radio-original`. Unknown versions, modified files or partial installations fail without guessing. Add `-Check` to validate without installing. It is safe to run again on the exact patched installation. Restart Arduino IDE, rebuild/upload, and check Serial for **`MP3 reserve enabled (up to 2 s)`**.
+
+On macOS/Linux, or Windows with Python installed, the equivalent is:
+
+```sh
+python3 scripts/patch_audioi2s_v4.py --library /path/to/ESP32-audioI2S
+```
+
+Library Manager updates can replace this patch; recheck Serial afterward. To restore the original library, close Arduino IDE, copy the two `.gts-radio-original` backups over their matching source files, then remove the backups and `src/RadioStreamReserve.h`. The pinned legacy PlatformIO dependency remains compatible and retains its existing behavior; this patch targets 4.0.0 only.
+
+A reserve absorbs delivery jitter; it cannot sustain a stream whose average arrival rate stays below its encoded bitrate. Frequent refill counts after patching warrant a different stream endpoint/network route or further transport investigation. No manually configured station entries or station-specific URL substitutions are added.
+
+These diagnostics identify likely causes but do not certify a fix on the assembled radio. A healthy input reserve with continued PCM gaps calls for investigating decoder/I2S scheduling or sample-rate behavior instead of assuming a network fault. Reserve waits themselves contribute to the recorded maximum PCM gap; compare that value with refill counts and current fill.
 
 ## Validation on the physical radio
 
@@ -286,6 +310,8 @@ python3 tests/run_host_tests.py --sanitize
 ```
 
 This requires a C++17-capable compiler. Omit `--sanitize` if the compiler does not provide AddressSanitizer and UndefinedBehaviorSanitizer. Set `CXX` to select another compiler. The network JSON and dependency-patch tests run when the pinned libraries have been installed by `pio run`; otherwise the runner explicitly reports those skips.
+
+Reserve-policy tests include a 192 kbps / 48 kHz jitter simulation, startup/refill deadlines, bitrate/capacity limits and rollover. Set `AUDIOI2S_V4_LIBRARY` to an exact 4.0.0 library (pristine or patched with verified backups) to run installer/source integration tests too. Native PowerShell installer tests additionally need `pwsh`/`powershell` on PATH, or `POWERSHELL` set to that executable. Installers are exercised only in temporary copies, including unknown-source rejection, read-only checks, idempotence and byte equivalence. Missing optional fixtures/runtimes are explicitly reported as skips.
 
 The application integration suite runs the real `RadioApp.h` input handlers and drawing code against simulated service boundaries for **both display selections**. It covers filter rollback, cancellation and late results, held gestures across loading, automatic next-page entry, and reconnects while editing. Rendering checks exercise five station rows, Settings, filter values, Wi-Fi setup/restart, startup failure, empty results, and every playback state without drawing outside the selected display. Unsupported display selections must fail compilation. To export actual screen renders for visual review:
 

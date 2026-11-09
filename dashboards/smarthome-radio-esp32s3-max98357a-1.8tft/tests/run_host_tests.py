@@ -23,6 +23,7 @@ def main():
         ("catalog_state", "c++11", []),
         ("navigation_state", "c++11", []),
         ("settings_restore", "c++11", []),
+        ("stream_reserve", "c++11", []),
         ("akashvani_catalog", "c++11", []),
         ("akashvani_page", "c++11", []),
         ("hls_redirect", "c++11", []),
@@ -47,6 +48,12 @@ def main():
             str(root / "tests" / "audio_stubs" / "Audio.cpp"),
             str(root / "AudioCallbacks.cpp"),
         ]))
+    tests.append(("audio_service_reserve", "c++17", [
+        "-I", str(root / "tests" / "audio_stubs"),
+        "-DRADIO_TEST_AUDIO_API=3", "-DRADIO_TEST_STREAM_RESERVE=1",
+        str(root / "tests" / "audio_stubs" / "Audio.cpp"),
+        str(root / "AudioCallbacks.cpp"),
+    ]))
     json_headers = root / ".pio" / "libdeps" / "esp32s3-n16r8" / "ArduinoJson" / "src"
     if (json_headers / "ArduinoJson.h").exists():
         tests.append(("network_json", "c++11", ["-I", str(json_headers)]))
@@ -59,7 +66,7 @@ def main():
             command = compiler + ["-std=" + standard, "-Wall", "-Wextra", "-Werror", "-pedantic"]
             if args.sanitize:
                 command += ["-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
-            if name.startswith("audio_service_api"):
+            if name.startswith("audio_service_"):
                 source_name = "audio_service"
             elif name.startswith("display_hardware"):
                 source_name = "display_hardware"
@@ -87,6 +94,9 @@ def main():
             raise RuntimeError("Unsupported PCM API did not fail with the intended diagnostic:\n" + result.stderr)
     print("Checking Arduino IDE copied headers and library configuration", flush=True)
     subprocess.run([sys.executable, str(root / "tests" / "header_include_test.py")], check=True, cwd=root)
+    print("Checking audioI2S 4.0.0 reserve patch manifest/installer", flush=True)
+    subprocess.run([sys.executable, str(root / "tests" / "audio_v4_patch_test.py")], check=True, cwd=root)
+    subprocess.run([sys.executable, str(root / "tests" / "audio_v4_powershell_test.py")], check=True, cwd=root)
     audio_source = root / ".pio" / "libdeps" / "esp32s3-n16r8" / "ESP32-audioI2S" / "src" / "Audio.cpp"
     if audio_source.exists():
         subprocess.run([sys.executable, str(root / "tests" / "audio_patch_test.py")], check=True, cwd=root)

@@ -89,6 +89,29 @@ template<class AudioType>
 auto inputBufferCapacity(AudioType& audio, long) -> decltype(audio.inBufferSize()) {
   return audio.inBufferSize();
 }
+// Optional, version-checked 4.0.0 library patch. Unpatched/legacy libraries keep
+// their existing behavior; no access to private buffers or cross-task control.
+template<class AudioType, typename = void>
+struct StreamReserve {
+  static constexpr bool supported = false;
+  static bool buffering(const AudioType&) { return false; }
+  static uint32_t target(const AudioType&) { return 0; }
+  static uint32_t refills(const AudioType&) { return 0; }
+  static uint32_t startupGrace(const AudioType&) { return 0; }
+};
+template<class AudioType>
+struct StreamReserve<AudioType, decltype((void)&AudioType::radioStreamBuffering,
+    (void)&AudioType::radioStreamBufferTarget, (void)&AudioType::radioStreamRefillCount)> {
+  static constexpr bool supported = true;
+  static bool buffering(const AudioType& audio) { return audio.radioStreamBuffering(); }
+  static uint32_t target(const AudioType& audio) { return audio.radioStreamBufferTarget(); }
+  static uint32_t refills(const AudioType& audio) { return audio.radioStreamRefillCount(); }
+  static uint32_t startupGrace(const AudioType&) {
+    // The owner may see the decode floor before the other core publishes its
+    // first target. A fixed bounded allowance avoids a deadline race there.
+    return AudioType::radioStreamMaxWaitMs;
+  }
+};
 inline const char* stateName(State state) {
   switch (state) {
     case State::Idle: return "Choose a station";
@@ -177,6 +200,10 @@ class AudioService {
     Diagnostics& diagnostics = snapshot_.diagnostics;
     diagnostics.inputCapacityBytes = inputBufferCapacity(audio_, 0);
     diagnostics.inputFilledBytes = audio_.inBufferFilled();
+    diagnostics.reserveSupported = StreamReserve<Audio>::supported;
+    diagnostics.reserveBuffering = StreamReserve<Audio>::buffering(audio_);
+    diagnostics.reserveTargetBytes = StreamReserve<Audio>::target(audio_);
+    diagnostics.reserveRefills = StreamReserve<Audio>::refills(audio_);
     // Empty startup and stopped/reconnecting buffers are expected. Arm the
     // low-water mark only after real PCM, and retain it across automatic retry.
     if (currentPcm && diagnostics.inputCapacityBytes) {
@@ -325,10 +352,41 @@ class AudioService {
       }
     }
   }
+  void updatePlaybackHealth(uint32_t now, uint32_t frameGeneration, uint32_t frameAt) {
+    if (!online_ || !(connecting_ || snapshot_.state == State::Playing || snapshot_.state == State::Buffering)) return;
+    const bool refilling = StreamReserve<Audio>::buffering(audio_);
+    if (frameGeneration == snapshot_.generation && frameAt) {
+      const uint32_t age = now - frameAt;
+      if (age >= 12000) { failed("Audio stalled"); return; }
+      if (refilling || age >= 3000) {
+        stablePlaying_ = false;
+        snapshot_.state = State::Buffering;
+        strlcpy(snapshot_.detail, refilling ? "Refilling audio buffer" : "Waiting for audio data", sizeof(snapshot_.detail));
+      } else {
+        if (!stablePlaying_) { stablePlaying_ = true; playingSince_ = now; }
+        // A flapping stream cannot reset its retry budget with one frame.
+        if (now - playingSince_ >= 20000) attempts_ = 0;
+        if (snapshot_.state != State::Playing)
+          Serial.printf("audio: Playing %s; decoded PCM confirmed\n", desired_.name);
+        snapshot_.state = State::Playing;
+        snapshot_.confirmed = desired_;
+        strlcpy(snapshot_.detail, fallbackUsed_ ? "Previous station restored" : "Decoded audio ready", sizeof(snapshot_.detail));
+        connecting_ = false;
+      }
+    } else if (now - connectAt_ > 15000 + StreamReserve<Audio>::startupGrace(audio_)) {
+      failed("No decodable audio");
+    } else if (refilling) {
+      strlcpy(snapshot_.detail, "Buffering audio", sizeof(snapshot_.detail));
+    }
+    if ((connecting_ || snapshot_.state == State::Playing || snapshot_.state == State::Buffering) && !audio_.isRunning())
+      failed("Stream stopped");
+  }
   void run() {
     MetadataCallbacks<Audio>::install();
     Serial.printf("audio: %s; %s metadata callbacks\n", pcmApiName(),
                   MetadataCallbacks<Audio>::modern ? "event" : "legacy");
+    Serial.printf("audio: MP3 reserve %s\n", StreamReserve<Audio>::supported ? "enabled (up to 2 s)" :
+                  "unavailable; see README for the audioI2S 4.0.0 patch");
     if (!audio_.setPinout(RadioConfig::I2sBclk, RadioConfig::I2sLrck, RadioConfig::I2sData)) {
       snapshot_.state = State::Failed;
       snapshot_.fatal = true;
@@ -371,28 +429,7 @@ class AudioService {
       // Sample time after the decoder timestamp: a new frame on the other core
       // must not appear to be in the future and underflow the unsigned age.
       now = millis();
-      if (online_ && (connecting_ || snapshot_.state == State::Playing || snapshot_.state == State::Buffering)) {
-        if (frameGeneration == snapshot_.generation && frameAt) {
-          if (now - frameAt < 3000) {
-            if (!stablePlaying_) { stablePlaying_ = true; playingSince_ = now; }
-            // Restore the outage retry budget only after stable playback, so a
-            // flapping stream cannot reset it by decoding a single frame.
-            if (now - playingSince_ >= 20000) attempts_ = 0;
-            if (snapshot_.state != State::Playing)
-              Serial.printf("audio: Playing %s; decoded PCM confirmed\n", desired_.name);
-            snapshot_.state = State::Playing;
-            snapshot_.confirmed = desired_;
-            strlcpy(snapshot_.detail, fallbackUsed_ ? "Previous station restored" : "Decoded audio ready", sizeof(snapshot_.detail));
-            connecting_ = false;
-          } else if (now - frameAt < 12000) {
-            stablePlaying_ = false;
-            snapshot_.state = State::Buffering;
-            strlcpy(snapshot_.detail, "Waiting for audio data", sizeof(snapshot_.detail));
-          } else failed("Audio stalled");
-        } else if (now - connectAt_ > 15000) failed("No decodable audio");
-        if ((connecting_ || snapshot_.state == State::Playing || snapshot_.state == State::Buffering) && !audio_.isRunning())
-          failed("Stream stopped");
-      }
+      updatePlaybackHealth(now, frameGeneration, frameAt);
       if (now - metadataAt_ >= 500) {
         metadataAt_ = now;
         strlcpy(snapshot_.codec, audio_.getCodecname(), sizeof(snapshot_.codec));
