@@ -27,8 +27,15 @@ void reset() {
   audioReady = directoryReady = storageReady = inputReady = true;
   radioDisplay = RadioDisplay::DisplayHardware{};
   displayReady = radioDisplay.begin();
+  touchReady = false; touchContact = TouchContact{}; touchInputRevision = touchViewRevision = 0;
+  touchHardwareReady = touchPolled = touchSavePending = touchSaveAttempted = false;
+  touchPollAt = touchSessionRevision = touchSaveAt = touchReadErrors = 0;
+  touchPanel = RadioTouch::TouchHardware{};
+  touchStore = RadioTouch::CalibrationStore{};
+  touchSession = RadioTouch::Session{};
+  Serial.incoming.clear();
   dirty = true; animate = settingsDirty = false; online = true; autoStartFirst = false;
-  portalWasActive = eventButtonDown = false;
+  portalWasActive = eventButtonDown = gestureArmed = false;
   gestureView = View::Listening; gestureState = RadioNavigation::State{};
   gestureSearch = 0; gesturePending = gestureFailed = false;
   audioGeneration = 0; dirtySince = lastDrawAt = viewEnteredAt = lastActionAt = 0;
@@ -77,6 +84,11 @@ void event(EventType type, int delta = 0) {
 }
 void click() { event(EventType::ButtonDown); event(EventType::ButtonUp); event(EventType::ShortPress); }
 void hold() { event(EventType::ButtonDown); RadioHost::now += 700; event(EventType::LongPress); event(EventType::ButtonUp); }
+void touchDown(int x, int y) { handleTouchEvent({RadioTouch::Type::Down, int16_t(x), int16_t(y)}); }
+void touchTap(int x, int y) {
+  touchDown(x, y);
+  handleTouchEvent({RadioTouch::Type::Tap, int16_t(x), int16_t(y)});
+}
 void deliver(RadioCatalog::Result* result) { directory.results.push_back(result); serviceDirectory(); }
 void succeed(unsigned count = 8, bool next = true) {
   RadioCatalog::Result* result = page(count, next, search.request.offset, search.request.filter.source);
@@ -345,6 +357,232 @@ void testAudioDiagnosticsDoNotRepaintUnchangedScreen() {
   serviceAudio();
   assert(dirty && !std::strcmp(playback.title, "New programme title"));
 }
+void testTouchGestureDebounceAndRelease() {
+  RadioTouch::Gesture gesture; RadioTouch::Event result;
+  assert(!gesture.sample(true, 100, 80, 0, result));
+  assert(!gesture.sample(true, 100, 80, 19, result));
+  assert(gesture.sample(true, 100, 80, 20, result) && result.type == RadioTouch::Type::Down);
+  assert(!gesture.sample(true, 100, 80, 5000, result)); // No repeat while held.
+  assert(!gesture.sample(false, 0, 0, 5010, result));
+  assert(!gesture.sample(false, 0, 0, 5029, result));
+  assert(gesture.sample(false, 0, 0, 5030, result) && result.type == RadioTouch::Type::Tap);
+  assert(result.x == 100 && result.y == 80);
+  assert(!gesture.sample(false, 0, 0, 5100, result));
+
+  assert(!gesture.sample(true, 100, 100, 6000, result));
+  assert(gesture.sample(true, 100, 100, 6020, result));
+  assert(!gesture.sample(true, 101, 60, 6040, result));
+  assert(!gesture.sample(false, 0, 0, 6060, result));
+  assert(gesture.sample(false, 0, 0, 6080, result) && result.type == RadioTouch::Type::SwipeUp);
+  assert(result.x == 100 && result.y == 100); // Swipes retain the contact origin.
+
+  assert(!gesture.sample(true, 100, 100, 7000, result));
+  assert(gesture.sample(true, 100, 100, 7020, result));
+  assert(!gesture.sample(true, 120, 100, 7040, result));
+  assert(!gesture.sample(true, 100, 100, 7060, result)); // Leaving and returning is not a tap.
+  assert(!gesture.sample(false, 0, 0, 7080, result));
+  assert(gesture.sample(false, 0, 0, 7100, result) && result.type == RadioTouch::Type::Cancel);
+
+  assert(!gesture.sample(true, 10, 10, UINT32_MAX - 10, result));
+  assert(gesture.sample(true, 10, 10, 9, result) && result.type == RadioTouch::Type::Down);
+  gesture.cancel();
+  assert(!gesture.sample(true, 10, 10, 20, result));
+  assert(!gesture.sample(false, 0, 0, 30, result));
+  assert(gesture.sample(false, 0, 0, 50, result) && result.type == RadioTouch::Type::Cancel);
+  assert(!gesture.sample(true, 10, 10, 100, result));
+  assert(!gesture.sample(false, 0, 0, 110, result)); // Noise shorter than debounce is ignored.
+  assert(!gesture.sample(false, 0, 0, 200, result));
+}
+void testTouchPlayerSettingsAndGates() {
+  reset(); installPage(); playing(catalog->stations[0]);
+  touchTap(60, 225); assert(view == View::Listening); // Hardware not ready.
+  touchReady = true;
+  if (!RadioDisplay::LargeDisplay) { touchTap(60, 120); assert(view == View::Listening); return; }
+  touchTap(60, 225);
+  assert(view == View::Stations && stationCursor == 2 && audio.startCalls == 0);
+  touchTap(150, 225); assert(view == View::Listening);
+  touchTap(250, 225); assert(view == View::Settings && ui.setting == 0);
+  render();
+  touchTap(100, 140); assert(settings.muted && audio.lastVolume == 0 && view == View::Settings);
+  handleTouchEvent({RadioTouch::Type::Tap, 100, 140}); // Duplicate release does not toggle back.
+  assert(settings.muted);
+  touchTap(100, 60); assert(view == View::Wifi && wifi.portalActive());
+  render();
+  touchTap(150, 225); assert(view == View::Settings && wifi.portalActive());
+  touchTap(100, 100); assert(view == View::Listening && audio.startCalls == 1);
+  const int oldVolume = settings.volume;
+  event(EventType::Rotate, 1); assert(settings.volume == oldVolume + 1 && !settings.muted);
+  hold(); assert(view == View::Settings); // Knob hold behavior remains intact.
+  click(); assert(view == View::Wifi); // Current setting starts at Wi-Fi.
+  hold(); assert(view == View::Settings);
+  hold(); assert(view == View::Listening);
+  RadioModel::copyText(initializationError, "Startup failed");
+  touchTap(250, 225); assert(view == View::Listening);
+}
+void testTouchStationViewportAndBoundaries() {
+  if (!RadioDisplay::LargeDisplay) return;
+  reset(); touchReady = true; installPage(20); enter(View::Stations);
+  stationCursor = 9; ui.lastStation = 8;
+  render();
+  assert(firstVisibleStation(false, stationAction()) == 7);
+  const Station visibleFirst = catalog->stations[7];
+  touchTap(100, 80);
+  assert(view == View::Listening && audio.startCalls == 1 &&
+         !std::strcmp(audio.lastStation.id, visibleFirst.id));
+
+  reset(); touchReady = true; installPage(20, false); enter(View::Stations);
+  touchTap(30, 225); touchTap(280, 225); // Both page controls disabled.
+  touchTap(94, 225); touchTap(100, 211); // Footer gap and list/footer gap.
+  touchTap(317, 80); // A scrollbar tap does not play the station underneath it.
+  assert(!search.pending && audio.startCalls == 0 && view == View::Stations);
+  touchDown(100, 97); // Last pixel of first hit row.
+  handleTouchEvent({RadioTouch::Type::Tap, 100, 98}); // Release in a different row.
+  assert(audio.startCalls == 0);
+  touchTap(100, 202); assert(audio.startCalls == 0); // Below fifth row.
+  touchTap(100, 201); assert(audio.startCalls == 1); // Last pixel of fifth row.
+}
+void testTouchFilterDraftAndCancellation() {
+  if (!RadioDisplay::LargeDisplay) return;
+  reset(); touchReady = true; installPage(20); enter(View::Stations);
+  touchTap(150, 50); assert(ui.mode == FilterMode::Fields);
+  touchTap(300, 50); assert(ui.fieldCursor == 1);
+  render();
+  touchTap(150, 50); assert(ui.mode == FilterMode::Value && editItem == Field::Location && draft == 0);
+  touchTap(300, 50); assert(draft == 1);
+  touchTap(20, 50); assert(draft == 0);
+  touchTap(300, 50); assert(draft == 1);
+  render();
+  touchTap(30, 225); // Back is distinct from Set.
+  assert(ui.mode == FilterMode::Fields && settings.country == 0 && directory.requests.empty());
+  touchTap(150, 50); assert(draft == 0);
+  touchTap(300, 50); touchTap(150, 225);
+  assert(search.pending && search.request.filter.country == 1 && settings.country == 0);
+  succeed(); assert(settings.country == 1 && ui.mode == FilterMode::Browse && audio.startCalls == 0);
+  touchTap(150, 50); touchTap(150, 50); // Source field, then its value.
+  touchTap(150, 225); // Same value preserves accepted page without refresh.
+  assert(ui.mode == FilterMode::Browse && !search.pending && directory.requests.size() == 1);
+}
+void testTouchLoadingRetryAndContextChanges() {
+  if (!RadioDisplay::LargeDisplay) return;
+  reset(); touchReady = true; installPage(20); enter(View::Stations);
+  const auto* accepted = catalog;
+  touchTap(280, 225); assert(search.pending && search.request.offset == 20);
+  const auto request = search.request;
+  touchTap(100, 80); touchTap(150, 50); // Old rows/filter are inert while loading.
+  assert(search.pending && audio.startCalls == 0 && directory.requests.size() == 1);
+  render();
+  touchTap(150, 225);
+  assert(!search.pending && catalog == accepted && view == View::Stations);
+  auto* late = page(20); late->request = request; deliver(late);
+  assert(catalog == accepted && audio.startCalls == 0);
+  touchTap(280, 225); fail(); render();
+  assert(search.failed);
+  touchTap(60, 225); assert(search.pending); // Visible Retry footer.
+  touchDown(150, 225); succeed();
+  handleTouchEvent({RadioTouch::Type::Tap, 150, 225}); // Loading Back cannot target the new page.
+  assert(view == View::Stations && !search.pending && catalog != accepted);
+
+  touchDown(100, 80); ++catalog->request.generation;
+  handleTouchEvent({RadioTouch::Type::Tap, 100, 80}); assert(audio.startCalls == 0);
+  enter(View::Listening);
+  touchDown(250, 225); event(EventType::Rotate, 1);
+  handleTouchEvent({RadioTouch::Type::Tap, 250, 225}); assert(view == View::Listening);
+  touchDown(250, 225); enter(View::Settings); enter(View::Listening);
+  handleTouchEvent({RadioTouch::Type::Tap, 250, 225}); assert(view == View::Listening);
+  event(EventType::ButtonDown); touchTap(250, 225);
+  assert(view == View::Listening); event(EventType::ButtonUp);
+  touchDown(250, 225); handleTouchEvent({RadioTouch::Type::Cancel, 250, 225});
+  handleTouchEvent({RadioTouch::Type::Tap, 250, 225}); assert(view == View::Listening);
+}
+void testTouchSwipesStayWithinCurrentPage() {
+  if (!RadioDisplay::LargeDisplay) return;
+  reset(); touchReady = true; installPage(20); enter(View::Stations);
+  touchDown(100, 80); handleTouchEvent({RadioTouch::Type::SwipeUp, 100, 80});
+  assert(stationCursor == 6 && firstVisibleStation(false, stationAction()) == 4);
+  assert(audio.startCalls == 0 && directory.requests.empty());
+  touchDown(100, 80); handleTouchEvent({RadioTouch::Type::SwipeDown, 100, 80});
+  assert(stationCursor == 1);
+  stationCursor = 20; ui.lastStation = 19;
+  touchDown(100, 80); handleTouchEvent({RadioTouch::Type::SwipeUp, 100, 80});
+  assert(stationCursor == 20 && directory.requests.empty()); // No wrap to Next/Filters.
+  touchDown(100, 50); handleTouchEvent({RadioTouch::Type::SwipeDown, 100, 50});
+  assert(stationCursor == 20); // Swipes must begin within the station list.
+  render();
+}
+
+RadioTouch::RawPoint rawTouchAt(int x, int y) { return RadioTouch::RawPoint{200 + x * 10, 300 + y * 14}; }
+void sampleTouch(bool down, RadioTouch::RawPoint raw = RadioTouch::RawPoint{0, 0}, bool valid = true) {
+  RadioHost::now += 20;
+  touchPanel.samples.push_back({raw, down, valid});
+  serviceTouch();
+}
+void releaseTouch() { for (int i = 0; i < 4; ++i) sampleTouch(false); }
+void calibratePanel(bool failSave = false) {
+  assert(calibratingTouch());
+  touchStore.writeOK = !failSave;
+  releaseTouch();
+  for (unsigned index = 0; index < 5; ++index) {
+    assert(touchSession.targetIndex() == index);
+    render();
+    const auto target = RadioTouch::calibrationTarget(index, 320, 240);
+    for (int i = 0; i < 8; ++i) sampleTouch(true, rawTouchAt(target.x, target.y));
+    releaseTouch();
+  }
+  assert(touchReady && !calibratingTouch());
+  releaseTouch();
+}
+void testTouchHardwareSessionStorageAndLoop() {
+  reset(); beginTouch();
+  if (!RadioDisplay::LargeDisplay) {
+    assert(!touchReady && !touchHardwareReady && !calibratingTouch()); return;
+  }
+  installPage(20); playing(catalog->stations[0]);
+  const Station playingBefore = playback.requested;
+  assert(calibratingTouch() && !touchReady);
+  const int volume = settings.volume;
+  event(EventType::Rotate, 3); click();
+  assert(calibratingTouch() && settings.volume == volume && audio.startCalls == 0);
+  calibratePanel(true);
+  assert(touchSavePending && !touchStore.hasSaved && touchStore.saveCalls == 1);
+  assert(view == View::Listening && audio.startCalls == 0 &&
+         !std::strcmp(playback.requested.id, playingBefore.id));
+  touchStore.writeOK = true; RadioHost::now += 5000; sampleTouch(false);
+  assert(!touchSavePending && touchStore.hasSaved && touchStore.saveCalls == 2);
+  const auto saved = touchStore.saved;
+  // Actual raw polling -> calibration transform -> gesture -> existing action.
+  sampleTouch(true, rawTouchAt(250, 225)); sampleTouch(true, rawTouchAt(250, 225));
+  sampleTouch(false); sampleTouch(false);
+  assert(view == View::Settings);
+  const unsigned reads = touchPanel.reads;
+  serviceTouch(); assert(touchPanel.reads == reads); // Never sample every 2 ms UI iteration.
+  hold(); assert(view == View::Listening);
+  event(EventType::Rotate, 1); assert(settings.volume == volume + 1);
+  // An ADC failure during a tap may not release/click the old target.
+  sampleTouch(true, rawTouchAt(250, 225)); sampleTouch(true, rawTouchAt(250, 225));
+  sampleTouch(true, rawTouchAt(250, 225), false);
+  releaseTouch(); assert(view == View::Listening && !touchContact.active);
+  // Saved calibration is loaded at startup without another setup overlay.
+  beginTouch(); assert(touchReady && !calibratingTouch());
+  releaseTouch();
+  event(EventType::ButtonDown); assert(eventButtonDown && gestureArmed);
+  Serial.incoming.push_back('t'); loop();
+  assert(calibratingTouch() && !touchReady && !touchContact.active);
+  event(EventType::ButtonUp); assert(!eventButtonDown && !gestureArmed);
+  render(); hold(); assert(touchReady && !calibratingTouch() && view == View::Listening);
+  assert(touchStore.saved.checksum == saved.checksum);
+  requestTouchCalibration();
+  event(EventType::ButtonDown); // This press belongs to the calibration overlay.
+  calibratePanel();
+  event(EventType::ButtonUp); event(EventType::ShortPress);
+  assert(view == View::Listening); // Releasing it cannot open Stations afterward.
+  click(); assert(view == View::Stations); hold(); assert(view == View::Listening);
+  reset(); beginTouch(); assert(calibratingTouch()); hold();
+  assert(!calibratingTouch() && !touchReady && view == View::Listening);
+  event(EventType::Rotate, 1); assert(settings.volume == 11); // Knob remains usable after skip.
+  reset(); touchPanel.beginOK = false; beginTouch();
+  assert(!touchHardwareReady && !touchReady && !calibratingTouch());
+  hold(); assert(view == View::Settings);
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -361,6 +599,13 @@ int main(int argc, char** argv) {
   testDisplayStartupFailureStopsRendering();
   testReconnectDefersWhileEditing();
   testAudioDiagnosticsDoNotRepaintUnchangedScreen();
+  testTouchGestureDebounceAndRelease();
+  testTouchPlayerSettingsAndGates();
+  testTouchStationViewportAndBoundaries();
+  testTouchFilterDraftAndCancellation();
+  testTouchLoadingRetryAndContextChanges();
+  testTouchSwipesStayWithinCurrentPage();
+  testTouchHardwareSessionStorageAndLoop();
   reset();
   std::puts("RadioApp integration and pixel tests passed");
 }

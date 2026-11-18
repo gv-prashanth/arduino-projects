@@ -19,6 +19,11 @@ def main():
     tests = [
         ("model", "c++11", []),
         ("input", "c++11", []),
+        ("touch_calibration", "c++11", []),
+        ("touch_session", "c++11", []),
+        ("touch_hardware", "c++11", ["-I", str(root / "tests" / "touch_hardware_stubs")]),
+        ("touch_hardware_compact", "c++11", ["-DRADIO_DISPLAY=2", "-I", str(root / "tests" / "touch_hardware_stubs")]),
+        ("touch_hardware_disabled", "c++11", ["-DRADIO_TOUCH_ENABLED=0", "-I", str(root / "tests" / "touch_hardware_stubs")]),
         ("wifi_portal", "c++11", []),
         ("catalog_state", "c++11", []),
         ("navigation_state", "c++11", []),
@@ -70,6 +75,8 @@ def main():
                 source_name = "audio_service"
             elif name.startswith("display_hardware"):
                 source_name = "display_hardware"
+            elif name.startswith("touch_hardware"):
+                source_name = "touch_hardware"
             elif name.startswith("frame_canvas"):
                 source_name = "frame_canvas"
             else:

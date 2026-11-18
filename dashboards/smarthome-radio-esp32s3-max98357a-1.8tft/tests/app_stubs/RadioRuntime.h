@@ -20,6 +20,7 @@
 #include "../../SettingsRestore.h"
 #include "../../RadioFonts.h"
 #include "../../ProportionalText.h"
+#include "../../TouchCalibration.h"
 #define RADIO_INPUT_HOST_TEST
 #include "../../RotaryInput.h"
 
@@ -54,10 +55,11 @@ inline uint32_t millis() { return RadioHost::now; }
 inline void delay(uint32_t ms) { RadioHost::now += ms; }
 struct SerialStub {
   void begin(unsigned) {}
-  int available() const { return 0; }
-  int read() const { return -1; }
+  int available() const { return int(incoming.size()); }
+  int read() { if (incoming.empty()) return -1; const int value = incoming.front(); incoming.pop_front(); return value; }
   template<class... Args> void printf(const char*, Args...) {}
   void println(const char*) {}
+  std::deque<char> incoming;
 };
 inline SerialStub Serial;
 struct SpiStub { void begin(int, int, int, int) {} };
@@ -275,5 +277,39 @@ class RotaryInput {
   std::deque<Event> events;
   bool down = false;
   uint32_t since = 0;
+};
+}
+namespace RadioTouch {
+class TouchHardware {
+ public:
+  struct Sample { RawPoint point; bool pressed, valid; };
+  bool begin() { return beginOK && RadioDisplay::LargeDisplay; }
+  bool read(RawPoint& raw, bool& pressed) {
+    ++reads;
+    if (samples.empty()) { raw = RawPoint{0, 0}; pressed = false; return true; }
+    const Sample sample = samples.front(); samples.pop_front();
+    if (!sample.valid) return false;
+    raw = sample.point; pressed = sample.pressed; return true;
+  }
+  uint32_t signature() const { return 0x654321; }
+  const char* error() const { return "Touch panel unavailable"; }
+  bool beginOK = true;
+  unsigned reads = 0;
+  std::deque<Sample> samples;
+};
+class CalibrationStore {
+ public:
+  bool load(uint32_t signature, unsigned width, unsigned height, Calibration& out) {
+    if (!hasSaved || !saved.valid(signature, width, height)) return false;
+    out = saved; return true;
+  }
+  bool save(const Calibration& value) {
+    ++saveCalls;
+    if (!writeOK) return false;
+    saved = value; hasSaved = true; return true;
+  }
+  Calibration saved;
+  bool hasSaved = false, writeOK = true;
+  unsigned saveCalls = 0;
 };
 }

@@ -11,9 +11,13 @@
 #include "SettingsService.h"
 #include "WifiPortal.h"
 #include "RotaryInput.h"
+#include "TouchHardware.h"
+#include "TouchStorage.h"
 #endif
 #include "ListeningScreen.h"
 #include "NavigationState.h"
+#include "TouchInteraction.h"
+#include "TouchSession.h"
 
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -46,6 +50,9 @@ RadioCatalog::CatalogService directory;
 RadioStorage::SettingsService storage;
 RadioWifi::WifiManager wifi;
 RadioInput::RotaryInput input;
+RadioTouch::TouchHardware touchPanel;
+RadioTouch::CalibrationStore touchStore;
+RadioTouch::Session touchSession;
 Settings settings;
 Settings editSettings;
 Station lastGood, confirmationCandidate;
@@ -66,11 +73,16 @@ uint8_t airLocationCount = 0;
 char airLocations[64][64] = {};
 bool audioReady = false, directoryReady = false, storageReady = false, inputReady = false;
 bool displayReady = false;
+bool touchReady = false;
+bool touchHardwareReady = false, touchPolled = false, touchSavePending = false, touchSaveAttempted = false;
+uint32_t touchPollAt = 0, touchSessionRevision = 0, touchSaveAt = 0;
+uint32_t touchReadErrors = 0;
 bool dirty = true, animate = false, settingsDirty = false;
 bool online = false, autoStartFirst = true;
 bool backgroundRefreshDue = false;
 bool portalWasActive = false;
 bool eventButtonDown = false;
+bool gestureArmed = false;
 View gestureView = View::Listening;
 RadioNavigation::State gestureState;
 uint32_t gestureSearch = 0;
@@ -78,6 +90,7 @@ bool gesturePending = false, gestureFailed = false;
 uint32_t audioGeneration = 0;
 uint32_t dirtySince = 0, lastDrawAt = 0, viewEnteredAt = 0, lastActionAt = 0;
 uint32_t candidateSince = 0, lastOverflow = 0;
+uint32_t touchInputRevision = 0, touchViewRevision = 0;
 RadioUi::NoticeCenter notices, restorationNotice;
 RadioDisplay::ListeningMotion listeningMotion;
 RadioDisplay::RowMotion filterValueMotion, wifiStatusMotion;
@@ -86,6 +99,7 @@ char initializationError[80] = {};
 char lastWifiStatus[80] = {};
 
 inline bool due(uint32_t now, uint32_t deadline) { return static_cast<int32_t>(now - deadline) >= 0; }
+inline bool calibratingTouch() { return touchHardwareReady && touchSession.calibrating(); }
 inline String displayText(const char* raw);
 inline void notify(const char* message, uint32_t duration = 5000,
                    RadioUi::NoticePriority priority = RadioUi::NoticePriority::Warning) {
@@ -99,6 +113,7 @@ inline void notify(const char* message, uint32_t duration = 5000,
 }
 inline void markSettingsDirty() { settingsDirty = true; dirtySince = millis(); }
 inline void enter(View next) {
+  ++touchViewRevision;
   if (next == View::Listening) listeningMotion = RadioDisplay::ListeningMotion{};
   view = next; viewEnteredAt = lastActionAt = millis(); dirty = true;
 }
@@ -230,6 +245,7 @@ inline void drawListening() {
   RadioDisplay::ListeningFrame frame{settings, displayed, playback, name.c_str(), messageText.c_str(), message.tone, now};
   frame.stationLocation = location.c_str();
   frame.online = online;
+  frame.touchAvailable = touchReady;
   frame.buttonDown = inputReady && input.buttonDown();
   frame.heldMs = frame.buttonDown ? now - input.pressedAt() : 0;
   animate |= RadioDisplay::drawListeningScreen(canvas, frame, listeningMotion);
@@ -255,7 +271,7 @@ inline void drawSettings() {
                                   settings.muted ? "Restore listening volume" : "Keep volume; silence audio"};
     label(12, 184, 296, descriptions[ui.setting], RadioDisplay::MutedInk, RadioDisplay::ChromeFont);
   }
-  RadioDisplay::footer(canvas, Icon::Check, "Select", Icon::Back, "Back");
+  RadioDisplay::footer(canvas, Icon::Check, "Select", Icon::Back, "Back", touchReady);
 }
 inline const char* draftLabel(String& scratch) {
   if(editItem == Field::Source) return sourceLabel(static_cast<RadioModel::Source>(draft));
@@ -278,6 +294,12 @@ inline String fieldValue(Field field) {
   if(field == Field::Codec) return settings.codec ? RadioConfig::Codecs[settings.codec] : "All";
   return settings.bitrateCap ? String(settings.bitrateCap) + " kbps" : String("No cap");
 }
+inline int firstVisibleStation(bool editing, Action action) {
+  if (!catalog || !catalog->count) return 0;
+  const int shown = min<int>(RadioDisplay::VisibleStationRows, catalog->count);
+  const int selected = !editing && action == Action::Station ? stationCursor - 1 : ui.lastStation;
+  return constrain(selected - 1, 0, max(0, catalog->count - shown));
+}
 inline void drawLargeStations(bool busy, bool problem, bool editing, const Filter& filter,
                               uint16_t offset, Action action) {
   using namespace RadioDisplay;
@@ -286,25 +308,28 @@ inline void drawLargeStations(bool busy, bool problem, bool editing, const Filte
     String scratch;
     drawIcon(canvas, Icon::Prev, 12, 43, 16, Cyan);
     const String value = displayText(draftLabel(scratch));
-    animate |= drawText(canvas, *ChromeFont, 36, FilterTop, 246, value.c_str(), Cyan, true,
+    animate |= drawText(canvas, *ChromeFont, touchReady ? 48 : 36, FilterTop, touchReady ? 224 : 246, value.c_str(), Cyan, true,
                         filterValueMotion.elapsed(value.c_str(), millis()));
     drawIcon(canvas, Icon::Next, 292, 43, 16, Cyan);
   } else {
     static const Icon fieldIcons[] = {Icon::Source, Icon::Location, Icon::Genre, Icon::Codec, Icon::Bitrate};
-    drawIcon(canvas, editing ? fieldIcons[ui.fieldCursor] : Icon::Filters, 14, 42, 16, Green);
+    drawIcon(canvas, editing && touchReady ? Icon::Prev : editing ? fieldIcons[ui.fieldCursor] : Icon::Filters,
+             14, 42, 16, Green);
     const String summary = editing ? String(FieldLabels[ui.fieldCursor]) + ": " +
         fieldValue(static_cast<Field>(ui.fieldCursor)) : filterLabel(filter);
     const String value = displayText(summary.c_str());
-    animate |= drawText(canvas, *ChromeFont, 40, FilterTop, 244, value.c_str(), Green, editing,
+    animate |= drawText(canvas, *ChromeFont, touchReady && editing ? 48 : 40, FilterTop,
+                        touchReady && editing ? 224 : 244, value.c_str(), Green, editing,
                         filterValueMotion.elapsed(value.c_str(), millis()));
-    drawIcon(canvas, editing ? Icon::ChevronUpDown : Icon::ChevronDown, 292, 43, 16, Green);
+    drawIcon(canvas, editing && touchReady ? Icon::Next : editing ? Icon::ChevronUpDown : Icon::ChevronDown,
+             292, 43, 16, Green);
   }
   if (busy) {
     drawIcon(canvas, Icon::Spinner, 142, 88, 36, Cyan, millis());
     animate = true;
     char loading[32]; std::snprintf(loading, sizeof(loading), "Loading page %u", offset / RadioModel::kPageSize + 1);
     centeredLabel(145, loading);
-    footer("Hold Back");
+    footer(touchReady ? "Back" : "Hold Back");
     return;
   }
   if (problem) {
@@ -313,7 +338,7 @@ inline void drawLargeStations(bool busy, bool problem, bool editing, const Filte
     centeredLabel(174, catalog ? "Previous page kept" : "Change filters or retry", MutedInk, DetailFont);
     if (action == Action::Retry) canvas.fillRect(8, FooterControlTop, 150, FooterControlHeight, FocusBackground);
     RadioDisplay::footer(canvas, action == Action::Filters ? Icon::Filters : Icon::Retry,
-                         action == Action::Filters ? "Filters" : "Retry", Icon::Back, "Back");
+                         action == Action::Filters ? "Filters" : "Retry", Icon::Back, "Back", touchReady);
     return;
   }
   if (!catalog || !catalog->count) {
@@ -322,9 +347,8 @@ inline void drawLargeStations(bool busy, bool problem, bool editing, const Filte
     if (catalog && catalog->hasNext) centeredLabel(174, "Try next page", Cyan, DetailFont);
   } else {
     if (!editing && action == Action::Station) ui.lastStation = stationCursor - 1;
-    const int selected = !editing && action == Action::Station ? stationCursor - 1 : ui.lastStation;
     const int shown = min<int>(VisibleStationRows, catalog->count);
-    const int first = constrain(selected - 1, 0, max(0, catalog->count - shown));
+    const int first = firstVisibleStation(editing, action);
     for (int row = 0; row < shown; ++row) {
       const int index = first + row, y = FirstStationTop + row * StationRowHeight;
       if (!editing && action == Action::Station && stationCursor - 1 == index) focusRow(canvas, y - 2);
@@ -343,8 +367,9 @@ inline void drawLargeStations(bool busy, bool problem, bool editing, const Filte
     }
   }
   canvas.drawFastHLine(ContentLeft, FooterTop, ContentWidth, RuleColor);
-  navButton(canvas, false, Icon::Prev, "Prev", !editing && action == Action::Previous,
-            editing || !catalog || !catalog->request.offset);
+  if (touchReady && editing) navButton(canvas, false, Icon::Back, "Back", false, false);
+  else navButton(canvas, false, Icon::Prev, "Prev", !editing && action == Action::Previous,
+                 editing || !catalog || !catalog->request.offset);
   navButton(canvas, true, Icon::Next, "Next", !editing && action == Action::Next,
             editing || !catalog || !catalog->hasNext);
   if (editing && ui.mode == FilterMode::Value) {
@@ -353,7 +378,8 @@ inline void drawLargeStations(bool busy, bool problem, bool editing, const Filte
     label(148, FooterLabelTop, 65, "Set", Green, ChromeFont);
   } else {
     const bool filters = !editing && action == Action::Filters;
-    label(108, FooterLabelTop, 112, filters ? "Edit filters" : "Hold Back", filters ? Green : MutedInk, ChromeFont);
+    label(108, FooterLabelTop, 112, touchReady ? "Back" : filters ? "Edit filters" : "Hold Back",
+          touchReady ? Cyan : filters ? Green : MutedInk, ChromeFont);
   }
 }
 inline void drawStations() {
@@ -414,9 +440,8 @@ inline void drawStations() {
     if(catalog && catalog->hasNext) label(30, 83, 125, "Try next page", RadioDisplay::Cyan, RadioDisplay::ChromeFont);
   } else {
     if(!editing && action == Action::Station) ui.lastStation = stationCursor - 1;
-    const int selected = !editing && action == Action::Station ? stationCursor - 1 : ui.lastStation;
     const int shown = min<int>(5, catalog->count);
-    const int first = constrain(selected - 1, 0, max(0, catalog->count - shown));
+    const int first = firstVisibleStation(editing, action);
     for(int row = 0; row < shown; ++row) {
       const int index = first + row, y = 34 + row * 15;
       if(!editing && action == Action::Station && stationCursor - 1 == index)
@@ -464,7 +489,7 @@ inline void drawWifi() {
       animate = true;
       centeredLabel(142, "Setup AP is restarting");
       centeredLabel(177, "Retries within 60 seconds", Cyan, ChromeFont);
-      footer("Hold Back");
+      footer(touchReady ? "Back" : "Hold Back");
       return;
     }
     label(12, 78, 296, "Connect phone to", MutedInk, ChromeFont);
@@ -474,7 +499,7 @@ inline void drawWifi() {
     const String address = "Open " + wifi.portalAddress();
     label(12, 163, 296, address.c_str(), Green, DetailFont);
     label(12, 191, 296, "Enter home Wi-Fi there", MutedInk, ChromeFont);
-    footer("Hold Back");
+    footer(touchReady ? "Back" : "Hold Back");
     return;
   }
   text(4, 22, 152, wifi.status(), LegacyYellow, 1, true);
@@ -493,6 +518,26 @@ inline void drawWifi() {
   text(4, 96, 152, "Enter home Wi-Fi there");
   footer("Hold:back");
 }
+inline void drawTouchCalibration() {
+  using namespace RadioDisplay;
+  header("Touch setup");
+  const unsigned target = touchSession.targetIndex();
+  const RadioTouch::ScreenPoint point = RadioTouch::calibrationTarget(target, ScreenWidth, ScreenHeight);
+  const bool centre = target == 4;
+  const int headingY = centre ? 58 : 86;
+  char progress[40]; std::snprintf(progress, sizeof(progress), "Touch target %u of 5", target + 1);
+  centeredLabel(headingY, progress, White);
+  const auto status = touchSession.status();
+  const char* hint = status == RadioTouch::SessionStatus::Release ? "Lift your finger" :
+      status == RadioTouch::SessionStatus::HoldStill ? "Hold still briefly" :
+      status == RadioTouch::SessionStatus::Retry ? "Calibration mismatch; retry" : "Press the cross, then release";
+  centeredLabel(headingY + 27, hint, status == RadioTouch::SessionStatus::Retry ? Yellow : Cyan, DetailFont);
+  const uint16_t color = status == RadioTouch::SessionStatus::Release ? Yellow : Green;
+  canvas.drawFastHLine(point.x - 12, point.y, 25, color);
+  canvas.drawLine(point.x, point.y - 12, point.x, point.y + 12, color);
+  canvas.fillRect(point.x - 2, point.y - 2, 5, 5, color);
+  footer("Hold knob: skip calibration");
+}
 inline void draw() {
   if (!canvas.getBuffer()) return;
   animate = false;
@@ -510,7 +555,8 @@ inline void draw() {
       text(4, 60, 152, "See USB serial log");
     }
     footer("Restart after correction");
-  } else switch (view) {
+  } else if (calibratingTouch()) drawTouchCalibration();
+  else switch (view) {
     case View::Listening: drawListening(); break;
     case View::Settings: drawSettings(); break;
     case View::Stations: drawStations(); break;
@@ -684,66 +730,310 @@ inline void chooseStationOption() {
 inline int wrap(int current, int delta, int count) {
   return count > 0 ? ((current + delta) % count + count) % count : 0;
 }
+inline void openSettings() { autoStartFirst = false; ui.setting = 0; enter(View::Settings); }
+inline void navigateBack() {
+  if(view == View::Listening) openSettings();
+  else if(view == View::Settings) enter(View::Listening);
+  else if(view == View::Wifi) enter(View::Settings);
+  else if(search.pending || search.failed) cancelDirectoryToOrigin();
+  else if(ui.mode == FilterMode::Value) ui.mode = FilterMode::Fields;
+  else if(ui.mode == FilterMode::Fields) { ui.mode = FilterMode::Browse; stationCursor = 0; }
+  else enter(View::Listening);
+}
+inline void moveSelection(int delta) {
+  if(view == View::Listening) {
+    Settings previous = settings;
+    RadioModel::adjustVolume(settings, delta);
+    if(previous.volume != settings.volume || previous.muted != settings.muted) {
+      audio.volume(RadioModel::outputVolume(settings)); markSettingsDirty();
+    }
+  } else if(view == View::Settings) ui.setting = wrap(ui.setting, delta, 3);
+  else if(view == View::Stations && !search.pending) {
+    if(ui.mode == FilterMode::Fields)
+      ui.fieldCursor = wrap(ui.fieldCursor, delta, RadioNavigation::fieldCount(settings.source));
+    else if(ui.mode == FilterMode::Value) {
+      const int count = editItem == Field::Source ? 2 : editItem == Field::Location ?
+          (editSettings.source == RadioModel::Source::Akashvani ? airLocationCount + 1 : RadioModel::kCountryCount) :
+          editItem == Field::Genre ? RadioModel::kGenreCount : editItem == Field::Codec ? RadioModel::kCodecCount : RadioConfig::BitrateCapCount;
+      draft = wrap(draft, delta, count);
+    } else stationCursor = wrap(stationCursor, delta, stationOptions());
+  }
+}
+inline void activateSetting(int setting) {
+  ui.setting = constrain(setting, 0, 2);
+  if(ui.setting == 0) { wifi.startPortal(); enter(View::Wifi); }
+  else if(ui.setting == 1) {
+    const Station& station = displayedStation();
+    if(RadioModel::validStation(station)) startStation(station);
+    else notify("Choose a station first", 5000, RadioUi::NoticePriority::Info);
+    enter(View::Listening);
+  } else {
+    RadioModel::toggleMute(settings);
+    audio.volume(RadioModel::outputVolume(settings));
+    markSettingsDirty();
+  }
+}
+inline void activateCurrent() {
+  if(view == View::Listening) showStations();
+  else if(view == View::Stations) chooseStationOption();
+  else if(view == View::Settings) activateSetting(ui.setting);
+}
 inline void handleInput(const RadioInput::Event& event) {
+  ++touchInputRevision; // A physical gesture invalidates any in-progress tap.
+  if (calibratingTouch()) {
+    gestureArmed = false; eventButtonDown = false;
+    if (event.type == RadioInput::EventType::LongPress) {
+      touchSession.cancelCalibration(); touchReady = touchSession.ready();
+      eventButtonDown = false;
+      dirty = true;
+    }
+    return;
+  }
   lastActionAt = millis();
   dirty = true;
   using RadioInput::EventType;
   if(event.type == EventType::ButtonDown) {
-    eventButtonDown = true; gestureView = view; gestureState = ui;
+    eventButtonDown = gestureArmed = true; gestureView = view; gestureState = ui;
     gestureSearch = search.generation; gesturePending = search.pending; gestureFailed = search.failed;
     return;
   }
   if(event.type == EventType::ButtonUp) { eventButtonDown = false; return; }
   const bool press = event.type == EventType::ShortPress || event.type == EventType::LongPress;
+  if (press) {
+    if (!gestureArmed) return;
+    gestureArmed = false;
+  }
   if(press && (!RadioNavigation::sameControlContext(gestureState, ui) || gestureView != view ||
       (view == View::Stations && (gestureSearch != search.generation ||
         gesturePending != search.pending || gestureFailed != search.failed)))) return;
   if(event.type == EventType::LongPress) {
-    if(view == View::Listening) { autoStartFirst = false; ui.setting = 0; enter(View::Settings); }
-    else if(view == View::Settings) enter(View::Listening);
-    else if(view == View::Wifi) enter(View::Settings);
-    else if(search.pending || search.failed) cancelDirectoryToOrigin();
-    else if(ui.mode == FilterMode::Value) { ui.mode = FilterMode::Fields; }
-    else if(ui.mode == FilterMode::Fields) { ui.mode = FilterMode::Browse; stationCursor = 0; }
-    else enter(View::Listening);
+    navigateBack();
     return;
   }
   if(event.type == EventType::Rotate) {
     if(eventButtonDown) return;
-    if(view == View::Listening) {
-      Settings previous = settings;
-      RadioModel::adjustVolume(settings, event.delta);
-      if(previous.volume != settings.volume || previous.muted != settings.muted) {
-        audio.volume(RadioModel::outputVolume(settings)); markSettingsDirty();
-      }
-    } else if(view == View::Settings) ui.setting = wrap(ui.setting, event.delta, 3);
-    else if(view == View::Stations && !search.pending) {
-      if(ui.mode == FilterMode::Fields)
-        ui.fieldCursor = wrap(ui.fieldCursor, event.delta, RadioNavigation::fieldCount(settings.source));
-      else if(ui.mode == FilterMode::Value) {
-        const int count = editItem == Field::Source ? 2 : editItem == Field::Location ?
-            (editSettings.source == RadioModel::Source::Akashvani ? airLocationCount + 1 : RadioModel::kCountryCount) :
-            editItem == Field::Genre ? RadioModel::kGenreCount : editItem == Field::Codec ? RadioModel::kCodecCount : RadioConfig::BitrateCapCount;
-        draft = wrap(draft, event.delta, count);
-      } else stationCursor = wrap(stationCursor, event.delta, stationOptions());
-    }
+    moveSelection(event.delta);
     return;
   }
   if(event.type != EventType::ShortPress) return;
-  if(view == View::Listening) showStations();
-  else if(view == View::Stations) chooseStationOption();
-  else if(view == View::Settings) {
-    if(ui.setting == 0) { wifi.startPortal(); enter(View::Wifi); }
-    else if(ui.setting == 1) {
-      const Station& station = displayedStation();
-      if(RadioModel::validStation(station)) startStation(station);
-      else notify("Choose a station first", 5000, RadioUi::NoticePriority::Info);
-      enter(View::Listening);
-    } else {
-      RadioModel::toggleMute(settings);
-      audio.volume(RadioModel::outputVolume(settings));
-      markSettingsDirty();
+  activateCurrent();
+}
+
+enum class TouchAction : uint8_t {
+  None, Stations, Settings, Back, SelectSetting, SettingRow, Filters,
+  FieldPrevious, FieldNext, EditField, ValuePrevious, ValueNext, SetValue,
+  Station, PreviousPage, NextPage, Retry
+};
+struct TouchTarget {
+  TouchAction action;
+  int index;
+  TouchTarget(TouchAction selected = TouchAction::None, int value = -1) : action(selected), index(value) {}
+};
+inline bool operator==(const TouchTarget& a, const TouchTarget& b) {
+  return a.action == b.action && a.index == b.index;
+}
+struct TouchContact {
+  bool active = false, pending = false, failed = false;
+  RadioNavigation::State state;
+  uint32_t inputRevision = 0, viewRevision = 0, searchGeneration = 0, catalogGeneration = 0;
+  const RadioCatalog::Result* page = nullptr;
+  int firstStation = 0;
+  int16_t x = 0, y = 0;
+  TouchTarget target;
+};
+TouchContact touchContact;
+
+inline bool touchInStationList(int x, int y) {
+  return x >= 8 && x < RadioDisplay::ScreenWidth && y >= RadioDisplay::FirstStationTop - 2 &&
+      y < RadioDisplay::FirstStationTop - 2 + RadioDisplay::VisibleStationRows * RadioDisplay::StationRowHeight;
+}
+inline TouchTarget touchTargetAt(int x, int y) {
+  using namespace RadioDisplay;
+  if (x < 0 || x >= ScreenWidth || y < 0 || y >= ScreenHeight) return {};
+  const bool footerHit = y >= FooterTop;
+  if (view == View::Listening) {
+    if (footerHit) return TouchTarget(x < ScreenWidth / 2 ? TouchAction::Stations : TouchAction::Settings);
+    return {};
+  }
+  if (view == View::Wifi) return footerHit ? TouchTarget(TouchAction::Back) : TouchTarget();
+  if (view == View::Settings) {
+    if (footerHit) return TouchTarget(x < ScreenWidth / 2 ? TouchAction::SelectSetting : TouchAction::Back);
+    if (x >= 8 && x < ScreenWidth - 8)
+      for (int row = 0; row < 3; ++row)
+        if (y >= 50 + row * 40 && y < 84 + row * 40) return TouchTarget(TouchAction::SettingRow, row);
+    return {};
+  }
+  if (search.pending) return footerHit ? TouchTarget(TouchAction::Back) : TouchTarget();
+  if (y >= FilterFocusTop && y < FilterFocusTop + FilterHeight && x >= ContentLeft && x < ScreenWidth - ContentLeft) {
+    if (search.failed || ui.mode == FilterMode::Browse) return TouchTarget(TouchAction::Filters);
+    if (ui.mode == FilterMode::Fields)
+      return TouchTarget(x < 48 ? TouchAction::FieldPrevious : x >= 272 ? TouchAction::FieldNext : TouchAction::EditField);
+    return TouchTarget(x < 48 ? TouchAction::ValuePrevious : x >= 272 ? TouchAction::ValueNext : TouchAction::SetValue);
+  }
+  if (search.failed) {
+    if (!footerHit) return {};
+    return TouchTarget(x >= ScreenWidth / 2 ? TouchAction::Back :
+                       stationAction() == Action::Filters ? TouchAction::Filters : TouchAction::Retry);
+  }
+  if (footerHit) {
+    if (x >= 8 && x < 92) {
+      if (ui.mode != FilterMode::Browse) return TouchTarget(TouchAction::Back);
+      if (catalog && catalog->request.offset) return TouchTarget(TouchAction::PreviousPage);
+    } else if (x >= 96 && x < 224) {
+      return TouchTarget(ui.mode == FilterMode::Value ? TouchAction::SetValue : TouchAction::Back);
+    } else if (x >= 228 && x < 312 && ui.mode == FilterMode::Browse && catalog && catalog->hasNext)
+      return TouchTarget(TouchAction::NextPage);
+    return {};
+  }
+  if (ui.mode == FilterMode::Browse && catalog && x < ScreenWidth - 8 && touchInStationList(x, y)) {
+    const int row = (y - (FirstStationTop - 2)) / StationRowHeight;
+    const int index = firstVisibleStation(false, stationAction()) + row;
+    if (row < min<int>(VisibleStationRows, catalog->count) && index < catalog->count)
+      return TouchTarget(TouchAction::Station, index);
+  }
+  return {};
+}
+inline bool sameTouchContext() {
+  return touchContact.active && touchContact.inputRevision == touchInputRevision &&
+      touchContact.viewRevision == touchViewRevision &&
+      RadioNavigation::sameControlContext(touchContact.state, ui) &&
+      touchContact.searchGeneration == search.generation && touchContact.pending == search.pending &&
+      touchContact.failed == search.failed && touchContact.page == catalog &&
+      touchContact.catalogGeneration == (catalog ? catalog->request.generation : 0) &&
+      (view != View::Stations || touchContact.firstStation == firstVisibleStation(ui.mode != FilterMode::Browse, stationAction()));
+}
+inline void handleTouchEvent(const RadioTouch::Event& event) {
+  using RadioTouch::Type;
+  if (event.type == Type::Cancel) { touchContact.active = false; return; }
+  if (!RadioDisplay::LargeDisplay || !touchReady || initializationError[0] || eventButtonDown ||
+      (inputReady && input.buttonDown())) { touchContact.active = false; return; }
+  if (event.type == Type::Down) {
+    touchContact = TouchContact{};
+    touchContact.active = true; touchContact.state = ui;
+    touchContact.inputRevision = touchInputRevision;
+    touchContact.viewRevision = touchViewRevision;
+    touchContact.searchGeneration = search.generation;
+    touchContact.pending = search.pending; touchContact.failed = search.failed;
+    touchContact.page = catalog;
+    touchContact.catalogGeneration = catalog ? catalog->request.generation : 0;
+    touchContact.firstStation = firstVisibleStation(ui.mode != FilterMode::Browse, stationAction());
+    touchContact.x = event.x; touchContact.y = event.y;
+    touchContact.target = touchTargetAt(event.x, event.y);
+    return;
+  }
+  const bool valid = sameTouchContext();
+  const TouchTarget target = touchContact.target;
+  const bool listContact = touchInStationList(touchContact.x, touchContact.y);
+  touchContact.active = false;
+  if (!valid) return;
+  if (event.type == Type::SwipeUp || event.type == Type::SwipeDown) {
+    if (view != View::Stations || ui.mode != FilterMode::Browse || search.pending || search.failed ||
+        !listContact || !catalog || catalog->count <= RadioDisplay::VisibleStationRows) return;
+    const int selected = stationAction() == Action::Station ? stationCursor - 1 : ui.lastStation;
+    const int next = constrain(selected + (event.type == Type::SwipeUp ? 1 : -1) * RadioDisplay::VisibleStationRows,
+                               0, catalog->count - 1);
+    stationCursor = next + 1; ui.lastStation = next;
+    lastActionAt = millis(); dirty = true;
+    return;
+  }
+  if (event.type != Type::Tap || !(target == touchTargetAt(event.x, event.y)) || target.action == TouchAction::None) return;
+  lastActionAt = millis(); dirty = true;
+  switch (target.action) {
+    case TouchAction::Stations: showStations(); break;
+    case TouchAction::Settings: openSettings(); break;
+    case TouchAction::Back: navigateBack(); break;
+    case TouchAction::SelectSetting: activateSetting(ui.setting); break;
+    case TouchAction::SettingRow: activateSetting(target.index); break;
+    case TouchAction::Filters: beginFields(); break;
+    case TouchAction::FieldPrevious: case TouchAction::ValuePrevious: moveSelection(-1); break;
+    case TouchAction::FieldNext: case TouchAction::ValueNext: moveSelection(1); break;
+    case TouchAction::EditField: beginEdit(static_cast<Field>(ui.fieldCursor)); break;
+    case TouchAction::SetValue: applyDraft(); break;
+    case TouchAction::Station:
+      stationCursor = target.index + 1; ui.lastStation = target.index; chooseStationOption(); break;
+    case TouchAction::PreviousPage: case TouchAction::NextPage: case TouchAction::Retry: {
+      const Action action = target.action == TouchAction::PreviousPage ? Action::Previous :
+                            target.action == TouchAction::NextPage ? Action::Next : Action::Retry;
+      const int cursor = RadioNavigation::cursorFor(action, catalog, search.failed);
+      if (cursor >= 0) { stationCursor = cursor; chooseStationOption(); }
+      break;
     }
+    case TouchAction::None: break;
+  }
+}
+
+inline void beginTouch() {
+  touchReady = touchHardwareReady = false;
+  touchPolled = touchSavePending = touchSaveAttempted = false;
+  touchReadErrors = 0;
+  touchContact = TouchContact{};
+  gestureArmed = eventButtonDown = false;
+  if (!RadioDisplay::LargeDisplay) return;
+  touchHardwareReady = touchPanel.begin();
+  if (!touchHardwareReady) {
+    Serial.printf("touch: unavailable; %s; knob controls remain available\n", touchPanel.error());
+    return;
+  }
+  RadioTouch::Calibration saved;
+  const bool loaded = touchStore.load(touchPanel.signature(), RadioDisplay::ScreenWidth,
+                                      RadioDisplay::ScreenHeight, saved);
+  touchSession.begin(touchPanel.signature(), RadioDisplay::ScreenWidth, RadioDisplay::ScreenHeight,
+                     loaded ? &saved : nullptr);
+  touchReady = touchSession.ready();
+  touchSessionRevision = touchSession.revision();
+  dirty = true;
+  Serial.printf("touch: shared-pin resistive panel; %s; send t to calibrate\n",
+                touchReady ? "saved calibration loaded" : "follow the five calibration targets");
+}
+inline void requestTouchCalibration() {
+  if (initializationError[0]) return;
+  if (!touchHardwareReady) { beginTouch(); return; }
+  if (!touchPanel.begin()) {
+    touchHardwareReady = touchReady = false;
+    Serial.printf("touch: unavailable; %s\n", touchPanel.error());
+    return;
+  }
+  touchContact = TouchContact{};
+  gestureArmed = eventButtonDown = false;
+  touchSession.requestCalibration();
+  touchReady = false; touchPolled = false;
+  dirty = true;
+}
+inline void serviceTouch() {
+  if (!touchHardwareReady || initializationError[0]) return;
+  const uint32_t now = millis();
+  if (touchPolled && now - touchPollAt < 20) return;
+  touchPolled = true; touchPollAt = now;
+  RadioTouch::RawPoint raw{0, 0};
+  bool pressed = false;
+  if (!touchPanel.read(raw, pressed)) {
+    if (touchReadErrors != UINT32_MAX) ++touchReadErrors;
+    // Unknown contact state may not release/click a previous touch target.
+    touchSession.cancelContact();
+    touchContact = TouchContact{};
+    if (touchSessionRevision != touchSession.revision()) {
+      touchSessionRevision = touchSession.revision(); dirty = true;
+    }
+    return;
+  }
+  RadioTouch::Event event;
+  const bool emitted = touchSession.sample(pressed, raw, now, event);
+  touchReady = touchSession.ready();
+  if (emitted) handleTouchEvent(event);
+  if (touchSessionRevision != touchSession.revision()) {
+    touchSessionRevision = touchSession.revision();
+    dirty = true;
+  }
+  if (touchSession.takeCalibrationChanged()) {
+    touchSavePending = true; touchSaveAttempted = false;
+    Serial.printf("touch: calibration accepted\n");
+  }
+  if (touchSavePending && touchReady && (!touchSaveAttempted || now - touchSaveAt >= 5000)) {
+    touchSaveAttempted = true; touchSaveAt = now;
+    if (touchStore.save(touchSession.calibration())) {
+      touchSavePending = false;
+      Serial.printf("touch: calibration saved\n");
+    } else Serial.printf("touch: calibration active in RAM; storage unavailable; retrying\n");
   }
 }
 
@@ -864,6 +1154,10 @@ inline void printDiagnostics() {
   Serial.printf("display: %s%s%s; startup: %s\n", displayReady ? "ready" : "unavailable",
                 radioDisplay.error()[0] ? "; " : "", radioDisplay.error(),
                 initializationError[0] ? initializationError : "OK");
+  Serial.printf("touch: %s%s; read errors=%lu; send t to calibrate\n", touchHardwareReady ?
+                (calibratingTouch() ? "calibrating" : touchReady ? "ready" : "skipped") : "unavailable",
+                touchSavePending ? "; calibration save pending" : "", static_cast<unsigned long>(touchReadErrors));
+  if (touchPanel.error()[0]) Serial.printf("touch: %s\n", touchPanel.error());
   Serial.printf("audio: %s; %s metadata callbacks\n", RadioAudio::pcmApiName(),
                 RadioAudio::MetadataCallbacks<Audio>::modern ? "event" : "legacy");
   const auto& health = playback.diagnostics;
@@ -923,6 +1217,7 @@ inline void setup() {
     audio.volume(RadioModel::outputVolume(settings));
     if (RadioModel::validStation(lastGood)) startStation(lastGood);
   }
+  if (!initializationError[0]) beginTouch();
   markSettingsDirty(); // Persist validated defaults or migrated data once, outside startup.
   printDiagnostics();
   draw();
@@ -933,8 +1228,13 @@ inline void loop() {
   // report per second so serial transmission cannot dominate UI handling.
   static bool diagnosticsPending = false;
   static uint32_t diagnosticsAt = 0;
-  for (int i = 0; i < 16 && Serial.available(); ++i)
-    if (Serial.read() == '?') diagnosticsPending = true;
+  bool calibrateTouch = false;
+  for (int i = 0; i < 16 && Serial.available(); ++i) {
+    const int character = Serial.read();
+    if (character == '?') diagnosticsPending = true;
+    if (character == 't' || character == 'T') calibrateTouch = true;
+  }
+  if (calibrateTouch) requestTouchCalibration();
   if (diagnosticsPending && millis() - diagnosticsAt >= 1000) {
     diagnosticsPending = false;
     diagnosticsAt = millis();
@@ -973,6 +1273,7 @@ inline void loop() {
   }
   RadioInput::Event event;
   for (int i = 0; inputReady && i < 8 && input.poll(event); ++i) handleInput(event);
+  serviceTouch(); // Same UI task as TFT transfers: shared pins never overlap.
   if (inputReady && input.overflowCount() != lastOverflow) {
     lastOverflow = input.overflowCount();
     notify("Input overflow; slow rotation");
@@ -995,8 +1296,8 @@ inline void loop() {
   // Hidden warnings/restoration feedback keep their remaining visible time.
   const RadioUi::Message message = RadioUi::messageFor(playback, online, wifi.status(), settings.muted,
                                                       notices, restorationNotice.active(), settings.volume == 0);
-  if (notices.update(now, view == View::Listening && !initializationError[0] && message.usesNotice)) dirty = true;
-  if (restorationNotice.update(now, view == View::Listening && !initializationError[0] && message.usesFallback)) dirty = true;
+  if (notices.update(now, view == View::Listening && !calibratingTouch() && !initializationError[0] && message.usesNotice)) dirty = true;
+  if (restorationNotice.update(now, view == View::Listening && !calibratingTouch() && !initializationError[0] && message.usesFallback)) dirty = true;
   const uint32_t interval = inputReady && input.buttonDown() ? 50 : 250;
   if ((dirty && now - lastDrawAt >= 40) || (animate && now - lastDrawAt >= interval)) draw();
   delay(2);

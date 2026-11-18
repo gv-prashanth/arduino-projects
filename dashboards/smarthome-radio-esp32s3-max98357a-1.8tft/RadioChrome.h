@@ -177,15 +177,15 @@ inline void focusRow(Canvas& canvas, int y, int height = StationRowHeight) {
 
 template<class Canvas>
 inline void footer(Canvas& canvas, Icon leftIcon, const char* leftLabel,
-                   Icon rightIcon, const char* rightLabel) {
+                   Icon rightIcon, const char* rightLabel, bool tappable = false) {
   if (LargeDisplay) {
     canvas.drawFastHLine(ContentLeft, FooterTop, ContentWidth, RuleColor);
     drawIcon(canvas, leftIcon, 12, 219, 14, Cyan);
     drawIcon(canvas, rightIcon, 172, 219, 14, Cyan);
     char caption[64];
-    std::snprintf(caption, sizeof(caption), "Click %s", leftLabel ? leftLabel : "");
+    std::snprintf(caption, sizeof(caption), "%s%s", tappable ? "" : "Click ", leftLabel ? leftLabel : "");
     drawText(canvas, *ChromeFont, 34, FooterLabelTop, 126, caption, Cyan, false, 0);
-    std::snprintf(caption, sizeof(caption), "Hold %s", rightLabel ? rightLabel : "");
+    std::snprintf(caption, sizeof(caption), "%s%s", tappable ? "" : "Hold ", rightLabel ? rightLabel : "");
     drawText(canvas, *ChromeFont, 194, FooterLabelTop, 118, caption, Cyan, false, 0);
     return;
   }

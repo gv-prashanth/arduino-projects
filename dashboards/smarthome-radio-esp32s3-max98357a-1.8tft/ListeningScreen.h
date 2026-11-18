@@ -17,7 +17,7 @@ struct ListeningFrame {
   RadioUi::Tone messageTone;
   uint32_t now;
   const char* stationLocation = nullptr;
-  bool online = true, buttonDown = false;
+  bool online = true, buttonDown = false, touchAvailable = false;
   uint32_t heldMs = 0;
   ListeningFrame(const RadioModel::Settings& volume, const RadioModel::Station& selected,
                  const RadioAudio::Snapshot& audio, const char* name, const char* message,
@@ -161,7 +161,7 @@ inline bool drawListeningScreen(Canvas& canvas, const ListeningFrame& frame, Lis
   animated |= drawText(canvas, *DetailFont, ContentLeft, PlayerMessageTop, ContentWidth, message, messageColor, true,
                        motion.message.elapsed(message, frame.now));
 
-  footer(canvas, Icon::Stations, "Stations", Icon::Settings, "Settings");
+  footer(canvas, Icon::Stations, "Stations", Icon::Settings, "Settings", frame.touchAvailable);
   if (frame.buttonDown) {
     const uint32_t progress = frame.heldMs >= 700 ? ScreenWidth : frame.heldMs * ScreenWidth / 700;
     canvas.fillRect(0, ScreenHeight - 2, progress, 2, Green);
