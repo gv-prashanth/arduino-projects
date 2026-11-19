@@ -557,7 +557,7 @@ void testTouchHardwareSessionStorageAndLoop() {
   serviceTouch(); assert(touchPanel.reads == reads); // Never sample every 2 ms UI iteration.
   hold(); assert(view == View::Listening);
   event(EventType::Rotate, 1); assert(settings.volume == volume + 1);
-  // An ADC failure during a tap may not release/click the old target.
+  // An SPI read failure during a tap may not release/click the old target.
   sampleTouch(true, rawTouchAt(250, 225)); sampleTouch(true, rawTouchAt(250, 225));
   sampleTouch(true, rawTouchAt(250, 225), false);
   releaseTouch(); assert(view == View::Listening && !touchContact.active);

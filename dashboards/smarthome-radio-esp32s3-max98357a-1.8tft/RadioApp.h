@@ -982,7 +982,7 @@ inline void beginTouch() {
   touchReady = touchSession.ready();
   touchSessionRevision = touchSession.revision();
   dirty = true;
-  Serial.printf("touch: shared-pin resistive panel; %s; send t to calibrate\n",
+  Serial.printf("touch: XPT2046 SPI controller; %s; send t to calibrate\n",
                 touchReady ? "saved calibration loaded" : "follow the five calibration targets");
 }
 inline void requestTouchCalibration() {
@@ -1008,7 +1008,7 @@ inline void serviceTouch() {
   bool pressed = false;
   if (!touchPanel.read(raw, pressed)) {
     if (touchReadErrors != UINT32_MAX) ++touchReadErrors;
-    // Unknown contact state may not release/click a previous touch target.
+    // Unknown SPI/contact state may not release/click a previous touch target.
     touchSession.cancelContact();
     touchContact = TouchContact{};
     if (touchSessionRevision != touchSession.revision()) {
@@ -1273,7 +1273,7 @@ inline void loop() {
   }
   RadioInput::Event event;
   for (int i = 0; inputReady && i < 8 && input.poll(event); ++i) handleInput(event);
-  serviceTouch(); // Same UI task as TFT transfers: shared pins never overlap.
+  serviceTouch(); // Same UI task as TFT transfers; existing navigation stays shared.
   if (inputReady && input.overflowCount() != lastOverflow) {
     lastOverflow = input.overflowCount();
     notify("Input overflow; slow rotation");

@@ -9,144 +9,169 @@ using RadioTouch::TouchHardware;
 using RadioTouch::RawPoint;
 
 #if RADIO_TOUCH_ENABLED
-static_assert(!std::is_copy_constructible<TouchHardware>::value, "ADC handle must have one owner");
-static uint64_t pinMask(int pin) { return uint64_t(1) << pin; }
-static void setup(TouchHardware::Pins pins = TouchHardware::Pins()) {
-  FakeTouch::reset();
-  auto& s = FakeTouch::state();
-  s.allowed = pinMask(TFT_D0) | pinMask(TFT_D1) | pinMask(TFT_D2) | pinMask(TFT_D3) | pinMask(TFT_D4) |
-      pinMask(TFT_D5) | pinMask(TFT_D6) | pinMask(TFT_D7) | pinMask(TFT_WR) | pinMask(TFT_DC) | pinMask(TFT_RD) | pinMask(TFT_CS);
-  s.cs = TFT_CS; s.xp = pins.xp; s.xm = pins.xm; s.yp = pins.yp; s.ym = pins.ym;
-  s.pins[TFT_CS].level = s.pins[TFT_RD].level = s.pins[TFT_WR].level = s.pins[TFT_DC].level = 1;
+static_assert(!std::is_copy_constructible<TouchHardware>::value, "SPI bus must have one owner");
+static TouchHardware::Pins knownPins() { return TouchHardware::Pins(47, 41, 39, 40); }
+static uint16_t wire(unsigned raw) { return uint16_t(raw << 3); }
+static void finished() {
+  const auto& s = FakeTouch::state();
+  assert(!s.transaction && s.transactions == s.transactionEnds);
+  assert(s.levels[16] == HIGH && s.levels[38] == HIGH && s.levels[47] == HIGH);
+  assert(!s.commands.empty() && s.commands.back() == 0xD0);
+  for (int pin : s.changedPins) assert(pin == 16 || pin == 38 || pin == 47);
 }
-static void restored(TouchHardware::Pins pins = TouchHardware::Pins()) {
-  auto& s = FakeTouch::state();
-  for (const int pin : {pins.xp, pins.xm, pins.yp, pins.ym, TFT_CS, TFT_RD, TFT_WR, TFT_DC}) {
-    assert(s.pins[pin].mode == FakeTouch::Output);
-    assert(!s.pins[pin].pullup);
+static void pressureWords(std::deque<uint16_t>& words, unsigned z1, unsigned z2) {
+  words.push_back(0); words.push_back(wire(z1));
+  words.push_back(0); words.push_back(wire(z2));
+}
+static void sampleWords(unsigned z1After = 1000, unsigned z2After = 3000, bool unstable = false) {
+  auto& words = FakeTouch::state().words;
+  words.clear(); pressureWords(words, 1000, 3000);
+  const unsigned xs[] = {1010, 1000, unstable ? 1400U : 1020U};
+  const unsigned ys[] = {3010, 3000, 3020};
+  for (unsigned i = 0; i < 3; ++i) {
+    words.push_back(0); words.push_back(wire(xs[i]));
+    words.push_back(wire(4095)); words.push_back(wire(ys[i]));
   }
-  for (const int pin : {TFT_CS, TFT_RD, TFT_WR, TFT_DC}) assert(s.pins[pin].level == 1);
-  assert(s.pins[TFT_RST].level == 0); // Unrelated pins never touched.
-  for (const int pin : {1, 2, 4, 5, 6, 19, 20, 38, 39, 40, 41, 42})
-    assert(s.pins[pin].level == 0);
+  pressureWords(words, z1After, z2After); words.push_back(0); // Final power-down conversion.
 }
-static void contactsAndMedian() {
-  setup();
+static void defaultConfigurationAndInvalidPins() {
+  FakeTouch::reset();
   {
     TouchHardware reader;
-    assert(reader.begin() && reader.begin());
-    assert(FakeTouch::state().newCalls == 1);
-    RawPoint point{11, 22}; bool pressed = true;
-    FakeTouch::state().contacts = {false};
-    assert(reader.read(point, pressed) && !pressed);
-    assert(point.x == 11 && point.y == 22 && FakeTouch::state().readCalls == 0);
-    restored();
-    FakeTouch::state().contacts = {true, true};
-    FakeTouch::state().samples = {0, 1010, 1000, 1020, 4095, 3000, 3020, 3010};
-    assert(reader.read(point, pressed) && pressed);
-    assert(point.x == 1010 && point.y == 3010);
-    assert(FakeTouch::state().configuredPins == std::vector<int>({7, 10}));
-    restored();
-    assert(reader.read(point, pressed) && pressed);
-    assert(FakeTouch::state().newCalls == 1 && FakeTouch::state().configureCalls == 4);
-    assert(FakeTouch::state().delayTotal < 4000);
-    restored();
-    FakeTouch::state().contacts = {true, false};
-    assert(reader.read(point, pressed) && !pressed); // Release during sampling.
-    restored();
+#if RADIO_TOUCH_XPT2046_CS < 0 || RADIO_TOUCH_SPI_SCLK < 0 || RADIO_TOUCH_SPI_MOSI < 0 || RADIO_TOUCH_SPI_MISO < 0
+    assert(!reader.begin() && std::strstr(reader.error(), "Configure"));
+    assert(FakeTouch::state().gpioCalls == 0 && FakeTouch::state().begins == 0);
+#else
+    assert(reader.begin()); finished();
+#endif
   }
-  assert(FakeTouch::state().delCalls == 1);
+  for (const auto& pins : {
+      TouchHardware::Pins(-1, 41, 39, 40), TouchHardware::Pins(47, -1, 39, 40),
+      TouchHardware::Pins(47, 41, -1, 40), TouchHardware::Pins(47, 41, 39, -1),
+      TouchHardware::Pins(16, 41, 39, 40), TouchHardware::Pins(38, 41, 39, 40),
+      TouchHardware::Pins(47, 41, 39, 41), TouchHardware::Pins(47, 41, 39, 40, 47),
+      TouchHardware::Pins(47, 3, 39, 40), TouchHardware::Pins(47, 41, 4, 40),
+      TouchHardware::Pins(47, 41, 39, 19), TouchHardware::Pins(47, 41, 39, 26),
+      TouchHardware::Pins(47, 41, 39, 22), TouchHardware::Pins(48, 41, 39, 40),
+      TouchHardware::Pins(43, 41, 39, 40), TouchHardware::Pins(45, 41, 39, 40)}) {
+    FakeTouch::reset();
+    TouchHardware reader(pins);
+    RawPoint point{1, 2}; bool pressed = true;
+    assert(!reader.begin() && reader.error()[0] && !reader.read(point, pressed));
+    assert(point.x == 1 && point.y == 2 && pressed);
+    const auto& s = FakeTouch::state();
+    assert(s.gpioCalls == 0 && s.begins == 0 && s.transactions == 0);
+  }
 }
-static void samplesFailWithoutFabricatingRelease() {
-  for (unsigned failAt = 1; failAt <= 8; ++failAt) {
-    setup(); TouchHardware reader; assert(reader.begin());
-    auto& s = FakeTouch::state(); s.readFailAt = failAt;
+static void successfulPollsUseOneBusAndLeaveItIdle() {
+  FakeTouch::reset();
+  {
+    TouchHardware reader(knownPins());
+    assert(reader.begin());
+    const auto count = FakeTouch::state().transactions;
+    assert(reader.begin() && FakeTouch::state().transactions == count);
+    auto& s = FakeTouch::state();
+    const std::vector<uint8_t> expected = {0xB1, 0xB1, 0xC1, 0xC1, 0xD0};
+    assert(s.commands == expected); finished();
     RawPoint point{23, 24}; bool pressed = true;
-    assert(!reader.read(point, pressed) && pressed && point.x == 23 && point.y == 24);
-    restored();
-    s.readFailAt = 0; assert(reader.read(point, pressed) && pressed);
-    assert(s.newCalls == 1); restored();
+    assert(reader.read(point, pressed) && !pressed && point.x == 23 && point.y == 24);
+    finished();
+    s.down = true;
+    const unsigned before = s.reads;
+    assert(reader.read(point, pressed) && pressed && point.x == 1200 && point.y == 2400);
+    assert(s.reads - before == 21 && s.begins == 1); // Bounded conversions, no reinitialization.
+    finished();
+    sampleWords();
+    assert(reader.read(point, pressed) && pressed && point.x == 1010 && point.y == 3010);
+    assert(s.words.empty()); finished();
+    sampleWords(0, 4095);
+    assert(reader.read(point, pressed) && !pressed && point.x == 1010 && point.y == 3010);
+    finished();
+    s.down = false;
+    assert(reader.read(point, pressed) && !pressed);
+    assert(s.begins == 1 && s.delayTotal < 2000);
   }
-  for (unsigned failAt = 1; failAt <= 2; ++failAt) {
-    setup(); TouchHardware reader; assert(reader.begin());
-    FakeTouch::state().configureFailAt = failAt;
-    RawPoint point{23, 24}; bool pressed = false;
-    assert(!reader.read(point, pressed) && !pressed && point.x == 23);
-    restored();
-  }
-  for (const auto& values : {std::deque<int>{0, 1000, 1200, 1000},
-                             std::deque<int>{0, -1, 1000, 1000},
-                             std::deque<int>{0, 4096, 1000, 1000}}) {
-    setup(); TouchHardware reader; assert(reader.begin());
-    FakeTouch::state().samples = values;
-    RawPoint point{2, 3}; bool pressed = true;
-    assert(!reader.read(point, pressed) && pressed && point.x == 2 && point.y == 3);
-    restored();
-  }
+  assert(FakeTouch::state().ends == 1);
 }
-static void gpioFailuresRestoreDisplay() {
-  for (unsigned offset = 1; offset <= 10; ++offset) {
-    setup(); TouchHardware reader; assert(reader.begin());
-    auto& s = FakeTouch::state(); s.gpioFailAt = s.gpioCalls + offset;
+static void failedInitializationCanRetryWithoutADeadCalibration() {
+  FakeTouch::reset();
+  {
+    auto& s = FakeTouch::state(); s.failBegin = true;
+    TouchHardware reader(knownPins());
+    assert(!reader.begin() && std::strstr(reader.error(), "SPI bus"));
+    assert(s.transactions == 0 && s.commands.empty() && s.levels[47] == HIGH);
+    s.failBegin = false;
+    assert(reader.begin() && s.begins == 2); finished();
+  }
+  for (const auto response : {FakeTouch::Response::FloatingHigh, FakeTouch::Response::ShortedLow,
+                              FakeTouch::Response::AllMaximum}) {
+    FakeTouch::reset();
+    auto& s = FakeTouch::state(); s.response = response;
+    TouchHardware reader(knownPins());
+    assert(!reader.begin() && reader.error()[0]); finished();
     RawPoint point{2, 3}; bool pressed = true;
     assert(!reader.read(point, pressed) && pressed && point.x == 2);
-    restored();
+    s.response = FakeTouch::Response::Healthy;
+    assert(reader.begin() && s.begins == 1); finished();
   }
-  setup();
-  TouchHardware reader; assert(reader.begin());
-  auto& s = FakeTouch::state();
-  s.gpioFailAt = s.gpioCalls + 11; // The restore operation itself fails.
-  RawPoint point{2, 3}; bool pressed = true;
-  assert(!reader.read(point, pressed) && pressed && point.x == 2);
-  const unsigned failedCalls = s.gpioCalls;
-  assert(!reader.read(point, pressed) && s.gpioCalls == failedCalls);
-  assert(std::strstr(reader.error(), "restore") != nullptr);
-  s.gpioFailAt = 0;
-  assert(reader.begin() && s.newCalls == 1); // Recover using the same ADC owner.
-  restored();
 }
-static void alternateElectrodesAndInvalidMaps() {
-  const TouchHardware::Pins alternate(15, 10, 12, 9);
-  setup(alternate);
-  {
-    TouchHardware reader(alternate); assert(reader.begin());
-    RawPoint point{}; bool pressed = false;
+static void rejectedSamplesNeverFabricateARelease() {
+  for (unsigned bad = 1; bad <= 20; ++bad) {
+    FakeTouch::reset(); TouchHardware reader(knownPins()); assert(reader.begin());
+    auto& s = FakeTouch::state(); s.down = true; s.failReadAt = s.reads + bad;
+    RawPoint point{23, 24}; bool pressed = true;
+    assert(!reader.read(point, pressed) && point.x == 23 && point.y == 24 && pressed);
+    assert(reader.error()[0]); finished();
+    s.failReadAt = 0;
     assert(reader.read(point, pressed) && pressed);
-    assert(FakeTouch::state().configuredPins == std::vector<int>({9, 10}));
-    restored(alternate);
+    assert(s.begins == 1); finished();
   }
-  for (const auto& pins : {TouchHardware::Pins(10, 15, 7, 10), TouchHardware::Pins(16, 15, 7, 9),
-                           TouchHardware::Pins(17, 15, 7, 9), TouchHardware::Pins(21, 15, 7, 9),
-                           TouchHardware::Pins(4, 15, 7, 9), TouchHardware::Pins(-1, 15, 7, 9),
-                           TouchHardware::Pins(15, 14, 7, 9)}) {
-    setup(); TouchHardware reader(pins);
-    assert(!reader.begin() && reader.error()[0]);
-    assert(FakeTouch::state().newCalls == 0 && FakeTouch::state().touchedPins.empty());
+  for (const auto response : {FakeTouch::Response::FloatingHigh, FakeTouch::Response::ShortedLow,
+                              FakeTouch::Response::AllMaximum}) {
+    FakeTouch::reset(); TouchHardware reader(knownPins()); assert(reader.begin());
+    FakeTouch::state().response = response;
+    RawPoint point{9, 8}; bool pressed = false;
+    assert(!reader.read(point, pressed) && !pressed && point.x == 9 && point.y == 8);
+    finished();
   }
-  setup();
-  {
-    FakeTouch::state().denyUnit = true;
-    TouchHardware reader;
-    RawPoint point{1, 2}; bool pressed = true;
-    assert(!reader.begin() && !reader.read(point, pressed) && pressed && point.x == 1);
-    assert(FakeTouch::state().touchedPins.empty());
+  FakeTouch::reset(); TouchHardware reader(knownPins()); assert(reader.begin());
+  sampleWords(1000, 3000, true);
+  RawPoint point{3, 4}; bool pressed = true;
+  assert(!reader.read(point, pressed) && point.x == 3 && point.y == 4 && pressed); finished();
+  FakeTouch::state().words.clear();
+  // Equal/near-equal high pressure values are legal, including small ADC noise.
+  std::deque<uint16_t>& words = FakeTouch::state().words;
+  pressureWords(words, 2005, 2000);
+  for (unsigned i = 0; i < 3; ++i) {
+    words.push_back(0); words.push_back(wire(1000));
+    words.push_back(0); words.push_back(wire(2000));
   }
-  assert(FakeTouch::state().delCalls == 0);
-  TouchHardware a, b, c(alternate);
-  assert(a.signature() && a.signature() == b.signature() && a.signature() != c.signature());
+  pressureWords(words, 2001, 2000); words.push_back(0);
+  assert(reader.read(point, pressed) && pressed && point.x == 1000 && point.y == 2000); finished();
+}
+static void controllerAndPinChangesInvalidateOldCalibration() {
+  FakeTouch::reset();
+  TouchHardware a(knownPins()), b(knownPins()), changed(TouchHardware::Pins(47, 39, 41, 40));
+  assert(a.signature() && a.signature() == b.signature() && a.signature() != changed.signature());
+  // Exact signature emitted by the previous GPIO10/15/7/9 raw ADC backend.
+  assert(a.signature() != 0xC63E4A7FUL);
 }
 #endif
 
 int main() {
 #if RADIO_TOUCH_ENABLED
-  contactsAndMedian(); samplesFailWithoutFabricatingRelease();
-  gpioFailuresRestoreDisplay(); alternateElectrodesAndInvalidMaps();
+  defaultConfigurationAndInvalidPins();
+  successfulPollsUseOneBusAndLeaveItIdle();
+  failedInitializationCanRetryWithoutADeadCalibration();
+  rejectedSamplesNeverFabricateARelease();
+  controllerAndPinChangesInvalidateOldCalibration();
 #else
+  FakeTouch::reset();
   TouchHardware reader;
   RawPoint point{1, 2}; bool pressed = true;
-  assert(!reader.begin() && !reader.read(point, pressed) && pressed && point.x == 1);
+  assert(!reader.begin() && !reader.read(point, pressed) && pressed && point.x == 1 && point.y == 2);
   assert(reader.signature() == 0);
-  assert(FakeTouch::state().newCalls == 0 && FakeTouch::state().touchedPins.empty());
+  assert(FakeTouch::state().spiConstructions == 0 && FakeTouch::state().gpioCalls == 0);
 #endif
-  std::cout << "Touch hardware tests passed\n";
+  std::cout << "XPT2046 touch hardware tests passed\n";
 }
