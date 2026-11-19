@@ -21,8 +21,11 @@ def main():
         ("input", "c++11", []),
         ("touch_calibration", "c++11", []),
         ("touch_session", "c++11", []),
-        ("touch_hardware", "c++11", ["-I", str(root / "tests" / "touch_hardware_stubs")]),
-        ("touch_hardware_configured", "c++11", ["-DRADIO_TOUCH_XPT2046_CS=47",
+        ("touch_resistive", "c++11", ["-I", str(root / "tests" / "touch_resistive_stubs")]),
+        ("touch_resistive_compact", "c++11", ["-DRADIO_DISPLAY=2", "-I", str(root / "tests" / "touch_resistive_stubs")]),
+        ("touch_resistive_disabled", "c++11", ["-DRADIO_TOUCH_ENABLED=0", "-I", str(root / "tests" / "touch_resistive_stubs")]),
+        ("touch_hardware", "c++11", ["-DRADIO_TOUCH_BACKEND=2", "-I", str(root / "tests" / "touch_hardware_stubs")]),
+        ("touch_hardware_configured", "c++11", ["-DRADIO_TOUCH_BACKEND=2", "-DRADIO_TOUCH_XPT2046_CS=47",
             "-DRADIO_TOUCH_SPI_SCLK=41", "-DRADIO_TOUCH_SPI_MOSI=39", "-DRADIO_TOUCH_SPI_MISO=40",
             "-I", str(root / "tests" / "touch_hardware_stubs")]),
         ("touch_hardware_compact", "c++11", ["-DRADIO_DISPLAY=2", "-I", str(root / "tests" / "touch_hardware_stubs")]),
@@ -80,6 +83,8 @@ def main():
                 source_name = "display_hardware"
             elif name.startswith("touch_hardware"):
                 source_name = "touch_hardware"
+            elif name.startswith("touch_resistive"):
+                source_name = "touch_resistive"
             elif name.startswith("frame_canvas"):
                 source_name = "frame_canvas"
             else:

@@ -3,23 +3,45 @@
 
 #include "RadioTftSetup.h"
 
-// XPT2046 is a separate SPI touch controller. TFT_eSPI continues to drive the
-// parallel ILI9341 display; no ESP32 ADC or LCD-data-pin probing is used.
-// These four GPIOs must match the XPT2046's actual shield routing. The existing
-// LCD CS and SD CS do not identify touch CS. Leave unknown pins at -1: the
-// radio/knob keep working and calibration does not open on an unconfigured bus.
+// Verified by the user's working MCUFRIEND/TouchScreen Uno keypad sketch:
+// XP=D8 (LCD_D0), XM=A2 (LCD_RS), YP=A3 (LCD_CS), YM=D9 (LCD_D1).
+// This is a directly connected four-wire resistive panel, sharing LCD pins.
+// XPT2046 is a different, explicitly selected SPI controller variant.
+#define RADIO_TOUCH_RESISTIVE 1
+#define RADIO_TOUCH_XPT2046 2
+#ifndef RADIO_TOUCH_BACKEND
+#define RADIO_TOUCH_BACKEND RADIO_TOUCH_RESISTIVE
+#endif
 #ifndef RADIO_TOUCH_ENABLED
 #define RADIO_TOUCH_ENABLED (RADIO_DISPLAY == RADIO_DISPLAY_TFT_SHIELD_24)
 #endif
 
 #if RADIO_TOUCH_ENABLED && RADIO_DISPLAY != RADIO_DISPLAY_TFT_SHIELD_24
-#error "XPT2046 touch is supported only on RADIO_DISPLAY_TFT_SHIELD_24"
+#error "Touch is supported only on RADIO_DISPLAY_TFT_SHIELD_24"
 #endif
 
 #if RADIO_TOUCH_ENABLED
-#if defined(RADIO_TOUCH_XP) || defined(RADIO_TOUCH_XM) || defined(RADIO_TOUCH_YP) || defined(RADIO_TOUCH_YM)
-#error "Raw touch electrodes are obsolete; configure the XPT2046 SPI pins below"
+#if RADIO_TOUCH_BACKEND != RADIO_TOUCH_RESISTIVE && RADIO_TOUCH_BACKEND != RADIO_TOUCH_XPT2046
+#error "Select RADIO_TOUCH_RESISTIVE or RADIO_TOUCH_XPT2046"
 #endif
+#if RADIO_TOUCH_BACKEND == RADIO_TOUCH_RESISTIVE
+// These are ESP32 GPIOs obtained from the existing LCD wiring, not Uno numbers.
+// No extra touch wires or pin-detection scan is needed for this shield.
+#ifndef RADIO_TOUCH_XP
+#define RADIO_TOUCH_XP TFT_D0
+#endif
+#ifndef RADIO_TOUCH_XM
+#define RADIO_TOUCH_XM TFT_DC
+#endif
+#ifndef RADIO_TOUCH_YP
+#define RADIO_TOUCH_YP TFT_CS
+#endif
+#ifndef RADIO_TOUCH_YM
+#define RADIO_TOUCH_YM TFT_D1
+#endif
+#else
+// Set these only for a physically identified XPT2046 and verified SPI routing.
+// LCD CS and SD CS do not identify touch CS. Unknown required pins stay -1.
 #ifndef RADIO_TOUCH_XPT2046_CS
 #define RADIO_TOUCH_XPT2046_CS -1
 #endif
@@ -41,6 +63,7 @@
 #endif
 #ifndef RADIO_TOUCH_PRESSURE_MIN
 #define RADIO_TOUCH_PRESSURE_MIN 300
+#endif
 #endif
 #endif
 

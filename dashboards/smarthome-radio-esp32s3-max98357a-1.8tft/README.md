@@ -52,29 +52,26 @@ The supplied PlatformIO environment targets **16 MB Quad SPI flash and 8 MB Octa
 | SD D0 / MISO | 40 |
 | SD SCK | 41 |
 
-The SD wiring is recorded for the shield; radio playback still uses internet streams and does not mount or read an SD card. The shield uses an XPT2046 SPI touch controller. The rotary encoder and button work with either display.
+The SD wiring is recorded for the shield; radio playback still uses internet streams and does not mount or read an SD card. The shield has a four-wire resistive panel sharing LCD connections. The rotary encoder and button work with either display.
 
 ### Touch input on the 2.4-inch shield
 
-The hardware reader targets the confirmed **XPT2046** controller. TFT_eSPI remains the driver for the parallel ILI9341 display. Touch coordinates and pressure are read over a separate SPI connection using the ESP32 core's bundled SPI API; no extra touch library or ESP32 ADC input is required. The previous raw XP/XM/YP/YM implementation did not match this controller and has been removed.
+The default reader uses the **shared-pin four-wire resistive panel** verified by the working Arduino Uno keypad sketch (`MCUFRIEND_kbv` + `TouchScreen.h`). TFT_eSPI remains the driver for the parallel ILI9341 display; neither of those Uno libraries is needed in the radio firmware. There are no additional touch wires or a separate touch chip-select to connect for this shield.
 
-**The shield's actual touch SPI routing still needs verification.** The available pin list specifies LCD CS 16 and SD CS 38, with SD MOSI/MISO/SCK on GPIO39/40/41. It does not identify the XPT2046 chip select or establish that the controller shares the SD bus. A controller name or a working LCD cannot determine these connections. The [XPT2046 datasheet](https://files.waveshare.com/upload/9/98/XPT2046-EN.pdf) identifies the required digital interface; a shield schematic, clear rear-PCB photo, or continuity mapping is needed to associate it with shield headers.
+The sketch's Uno electrode definitions translate through the existing LCD wiring as follows:
 
-Configure the verified ESP32 GPIOs in `TouchConfig.h` before expecting touch operation:
+| Electrode | Working Uno pin | Shared LCD signal | ESP32-S3 GPIO |
+| --- | --- | --- | --- |
+| XP | D8 | LCD_D0 | 8 |
+| XM | A2 | LCD_RS / DC | 15 |
+| YP | A3 | LCD_CS | 16 |
+| YM | D9 | LCD_D1 | 18 |
 
-| XPT2046 signal | Configuration macro | Default |
-| --- | --- | --- |
-| CS / T_CS / TP_CS | `RADIO_TOUCH_XPT2046_CS` | `-1` (unknown) |
-| DCLK / T_CLK | `RADIO_TOUCH_SPI_SCLK` | `-1` (unknown) |
-| DIN / T_DIN | `RADIO_TOUCH_SPI_MOSI` | `-1` (unknown) |
-| DOUT / T_DO | `RADIO_TOUCH_SPI_MISO` | `-1` (unknown) |
-| PENIRQ / T_IRQ | `RADIO_TOUCH_XPT2046_IRQ` | `-1` (optional; pressure polling needs no IRQ wire) |
+These are the defaults in `TouchConfig.h`. The earlier D6/D7/WR electrode mapping belonged to a different shield layout and explains why it could not advance calibration on this shield. An XPT2046 SPI reader also cannot read this directly connected panel. The supplied working touch sketch establishes the electrode mapping; no automatic pin scan is needed.
 
-Unknown required pins deliberately stay `-1`. The reader returns a clear Serial configuration error before doing GPIO/SPI work, the radio remains usable with the knob, and an unconfigured bus does **not** open the calibration overlay. Do not substitute LCD CS or SD CS for touch CS. If the shield is verified to share the SD clock/data nets, the existing GPIO39/40/41 connections can be entered for those three signals; touch CS still needs its own verified route. This reader validates that configured touch pins do not collide with the parallel LCD, audio, encoder, USB, or SD chip select. Shields with touch signals physically multiplexed onto LCD lines or with CS permanently grounded need an explicit board-specific adaptation.
+Touch and display transfers run in the same UI task. Because LCD CS is also an electrode, the reader parks WR low before varying CS and restores CS high before raising WR, keeping LCD reads/writes inactive. Every sample restores the shared GPIO direction and digital mux before TFT_eSPI draws again, including ADC errors. The reader uses the ESP32-S3 oneshot ADC driver with median filtering and contact checks. One axis can use ADC1 on GPIO8; the other uses ADC2 on GPIO16/18. ADC2 shares hardware with Wi-Fi, so a timeout cancels the contact and retries on a later poll without stopping Wi-Fi or turning an invalid reading into a tap.
 
-Once configured, the reader uses bounded 1 MHz, mode-0 SPI transactions, pressure checks and median filtering. SD and LCD remain deselected while the touch controller is selected. Each transaction powers the controller down afterward, releases CS and ends the SPI transaction, including invalid samples. Floating/invalid data is rejected instead of creating a finger release or tap. A new controller/pin signature prevents reusing the previous raw-panel calibration.
-
-After configuring and connecting the XPT2046, on the first boot press each of the **five calibration crosses**, hold briefly, then lift your finger. The fourth corner and centre validate the fit before touch can activate controls. Calibration is saved separately from station, volume and Wi-Fi settings. A changed pin configuration or invalid record starts calibration again. Hold the knob to skip setup and continue using the encoder; a skipped, uncalibrated panel does not issue taps. Send **`t`** at **115200 baud** to calibrate again. Cancelling recalibration retains the previous valid calibration. Send **`?`** for touch readiness, read-error count and storage status.
+On the first boot, press each of the **five calibration crosses**, hold briefly, then lift your finger. The fourth corner and centre validate the fit before touch can activate controls. Calibration is saved separately from station, volume and Wi-Fi settings. A new reader/pin signature invalidates previous calibration. The Uno sketch's 10-bit calibration constants are not copied to the ESP32's 12-bit readings. Hold the knob to skip setup and continue using the encoder; a skipped, uncalibrated panel does not issue taps. Send **`t`** at **115200 baud** to calibrate again. Cancelling recalibration retains the previous valid calibration. Send **`?`** for the configured GPIOs, touch readiness, read-error count and storage status.
 
 | Screen | Touch action |
 | --- | --- |
@@ -86,7 +83,9 @@ After configuring and connecting the XPT2046, on the first boot press each of th
 
 Volume remains on the knob. Its Click, Hold and rotation actions retain the existing workflow. Taps activate once on release; holding a finger does not repeat an action. Moving away from a tap, changing pages, a directory response, or using the knob during a touch cancels that contact. Calibration is a temporary overlay: audio/network service continues, and calibration touches do not reach the underlying screen.
 
-`TouchConfig.h` contains the enable switch and explicit SPI pin definitions. Set `RADIO_TOUCH_ENABLED` to `0` to use only the knob. The ST7735 profile disables touch and does not initialize the touch SPI hardware. If a configured panel cannot collect five valid targets, use Hold to skip, inspect the Serial diagnostic, and verify the controller routing. The ILI9341 display setting remains the one already proven on this hardware.
+`TouchConfig.h` contains the enable switch, backend selection and four electrode GPIO definitions. Set `RADIO_TOUCH_ENABLED` to `0` to use only the knob. The ST7735 profile disables touch and initializes neither touch ADC nor touch SPI hardware. The ILI9341 display setting remains the one already proven on this hardware.
+
+For a different board with a physically identified **XPT2046**, select `RADIO_TOUCH_BACKEND=RADIO_TOUCH_XPT2046` and explicitly configure `RADIO_TOUCH_XPT2046_CS`, `RADIO_TOUCH_SPI_SCLK`, `RADIO_TOUCH_SPI_MOSI` and `RADIO_TOUCH_SPI_MISO`. Its default pins remain `-1`; unconfigured SPI does not open calibration. IRQ is optional. This alternative is not used by the photographed shield or working Uno sketch.
 
 **1.8-inch ST7735 SPI display:**
 
@@ -230,7 +229,7 @@ UTF-8 is decoded before fitting text, but the display fonts cover printable ASCI
 | `DisplayProfile.h` | Compile-time display selection and native screen geometry |
 | `DisplayHardware.h` | Selected display initialization and framebuffer transfer |
 | `RadioTftSetup.h` | Project-local TFT_eSPI driver and pin configuration |
-| `TouchConfig.h`, `TouchHardware.h` | Explicit XPT2046 SPI wiring and bounded pressure/coordinate sampling |
+| `TouchConfig.h`, `TouchHardware.h`, `TouchResistive.h`, `TouchXpt2046.h` | Verified shared-electrode touch setup, bounded ADC sampling and optional explicit SPI backend |
 | `TouchCalibration.h`, `TouchSession.h`, `TouchStorage.h` | Validated five-point calibration, contact state and independent NVS storage |
 | `TouchInteraction.h` | Debounced tap/swipe events shared with the existing navigation actions |
 | `FrameCanvas.h` | Native RGB565 framebuffer with PSRAM allocation for the shield |
@@ -332,8 +331,8 @@ A successful build and host tests cannot verify wiring, amplifier output, exact 
 | Check | Expected result |
 | --- | --- |
 | Compile/upload the selected display profile with its matching wiring | Shield renders native 320 × 240; ST7735 keeps 160 × 128; landscape orientation, colors, margins, encoder response, and audio remain correct during redraws |
-| First boot with verified XPT2046 SPI wiring; press/release all five calibration targets; restart | Crosses advance once per stable press/release; accepted calibration is saved; restart goes directly to the radio; no calibration tap activates a station |
-| Leave touch SPI pins unconfigured, then boot; separately test Hold to skip an active calibration | Unconfigured pins produce no touch I/O or calibration overlay; normal knob navigation remains available; only validated calibration enables touch |
+| First boot with the default shield wiring; press/release all five calibration targets; restart | Crosses advance once per stable press/release; accepted calibration is saved; restart goes directly to the radio; no calibration tap activates a station |
+| Hold to skip calibration, then navigate with the knob; send `t` to try again | Normal knob navigation remains available; only validated calibration enables touch |
 | Tap visible stations, Settings, filters and page controls; swipe the station list while playing | Each tap acts once on release; the exact visible station plays; swipes scroll the current page without starting audio or paging; volume and Click/Hold still work on the encoder |
 | Start a touch, then rotate the knob or let a new directory page arrive before releasing | The stale touch is cancelled and cannot activate the new row/control |
 | Boot without credentials; complete the displayed setup form | TFT/input work before connection; setup AP appears; valid credentials connect and survive a restart |

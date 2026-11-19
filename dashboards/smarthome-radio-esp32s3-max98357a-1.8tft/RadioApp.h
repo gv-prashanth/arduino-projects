@@ -14,6 +14,7 @@
 #include "TouchHardware.h"
 #include "TouchStorage.h"
 #endif
+#include "TouchConfig.h"
 #include "ListeningScreen.h"
 #include "NavigationState.h"
 #include "TouchInteraction.h"
@@ -982,7 +983,12 @@ inline void beginTouch() {
   touchReady = touchSession.ready();
   touchSessionRevision = touchSession.revision();
   dirty = true;
-  Serial.printf("touch: XPT2046 SPI controller; %s; send t to calibrate\n",
+  Serial.printf("touch: %s; %s; send t to calibrate\n",
+#if RADIO_TOUCH_BACKEND == RADIO_TOUCH_RESISTIVE
+                "shared-pin resistive panel",
+#else
+                "XPT2046 SPI controller",
+#endif
                 touchReady ? "saved calibration loaded" : "follow the five calibration targets");
 }
 inline void requestTouchCalibration() {
@@ -1008,7 +1014,7 @@ inline void serviceTouch() {
   bool pressed = false;
   if (!touchPanel.read(raw, pressed)) {
     if (touchReadErrors != UINT32_MAX) ++touchReadErrors;
-    // Unknown SPI/contact state may not release/click a previous touch target.
+    // Unknown transport/contact state may not release/click a previous target.
     touchSession.cancelContact();
     touchContact = TouchContact{};
     if (touchSessionRevision != touchSession.revision()) {
@@ -1158,6 +1164,13 @@ inline void printDiagnostics() {
                 (calibratingTouch() ? "calibrating" : touchReady ? "ready" : "skipped") : "unavailable",
                 touchSavePending ? "; calibration save pending" : "", static_cast<unsigned long>(touchReadErrors));
   if (touchPanel.error()[0]) Serial.printf("touch: %s\n", touchPanel.error());
+#if !defined(RADIO_APP_HOST_TEST) && RADIO_TOUCH_ENABLED && RADIO_TOUCH_BACKEND == RADIO_TOUCH_RESISTIVE
+  if (touchHardwareReady) {
+    const auto& pins = touchPanel.pins();
+    Serial.printf("touch pins (ESP32 GPIO): XP=%d XM=%d YP=%d YM=%d\n",
+                  pins.xp, pins.xm, pins.yp, pins.ym);
+  }
+#endif
   Serial.printf("audio: %s; %s metadata callbacks\n", RadioAudio::pcmApiName(),
                 RadioAudio::MetadataCallbacks<Audio>::modern ? "event" : "legacy");
   const auto& health = playback.diagnostics;
