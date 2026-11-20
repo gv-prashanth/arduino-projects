@@ -30,9 +30,11 @@ class TouchHardware {
   bool begin() {
     if (ready_) return true;
     if (!validPins()) return fail("Resistive touch needs two separate LCD control/data pairs; CS and WR cannot both be shared");
-    if (!chooseSense(pins_.yp, pins_.ym, senseX_) ||
-        !chooseSense(pins_.xp, pins_.xm, senseY_))
-      return fail("Resistive touch axes need ADC-capable shared pins");
+    // Match TouchScreen::getPoint() in the working Uno sketch exactly. On a
+    // buffered shield the opposite (LCD data) end is not interchangeable with
+    // the control-side ADC input. In particular, keep D0/D1 out of analog mode.
+    if (!chooseSense(pins_.yp, senseX_) || !chooseSense(pins_.xm, senseY_))
+      return fail("Resistive touch YP and XM must be ADC-capable");
     Restore guard(*this);
     if (!guard.finish()) return false;
     ready_ = true; error_ = "";
@@ -61,8 +63,8 @@ class TouchHardware {
   const char* error() const { return error_; }
   uint32_t signature() const {
     uint32_t hash = 2166136261UL;
-    const uint32_t words[] = {0x34575232UL, uint32_t(pins_.xp), uint32_t(pins_.xm),
-        uint32_t(pins_.yp), uint32_t(pins_.ym), 12, 2};
+    const uint32_t words[] = {0x34575233UL, uint32_t(pins_.xp), uint32_t(pins_.xm),
+        uint32_t(pins_.yp), uint32_t(pins_.ym), 12, 3};
     for (unsigned index = 0; index < sizeof(words) / sizeof(words[0]); ++index)
       for (unsigned shift = 0; shift < 32; shift += 8) {
         hash ^= (words[index] >> shift) & 255U; hash *= 16777619UL;
@@ -138,7 +140,6 @@ class TouchHardware {
     if (pads) ok = mode(pads, GPIO_MODE_OUTPUT) && ok;
     ok = output(TFT_DC, 1) && ok;
     ok = output(TFT_WR, 1) && ok;
-    ok = output(TFT_RST, 1) && ok;
     if (!ok) { ready_ = false; error_ = "Resistive touch could not restore LCD GPIO"; }
     return ok;
   }
@@ -154,21 +155,14 @@ class TouchHardware {
     }
     return true;
   }
-  bool chooseSense(int first, int second, Sense& result) {
-    // Either end of a resistive layer senses the other layer's voltage. Prefer
-    // ADC1 (independent of Wi-Fi), then the data-side pad to keep CS digital.
-    const int candidates[] = {dataPin(first) ? first : second, dataPin(first) ? second : first};
-    for (unsigned preferred = 0; preferred < 2; ++preferred)
-      for (unsigned index = 0; index < 2; ++index) {
-        Sense candidate;
-        candidate.pin = candidates[index];
-        if (adc_oneshot_io_to_channel(candidate.pin, &candidate.unit, &candidate.channel) == ESP_OK &&
-            candidate.unit == (preferred == 0 ? ADC_UNIT_1 : ADC_UNIT_2)) {
-          if (!allocate(candidate)) return false;
-          result = candidate; return true;
-        }
-      }
-    return false;
+  bool chooseSense(int pin, Sense& result) {
+    Sense candidate;
+    candidate.pin = pin;
+    if (adc_oneshot_io_to_channel(pin, &candidate.unit, &candidate.channel) != ESP_OK ||
+        (candidate.unit != ADC_UNIT_1 && candidate.unit != ADC_UNIT_2) || !allocate(candidate))
+      return false;
+    result = candidate;
+    return true;
   }
   bool configure(const Sense& sense) {
     adc_oneshot_chan_cfg_t config{};
@@ -199,9 +193,11 @@ class TouchHardware {
 
   bool neutral() {
     if (!output(TFT_CS, 1) || !output(TFT_RD, 1)) return fail("Touch LCD deselect failed");
-    // With CS as an electrode, hold WR low before permitting CS to vary, then
-    // restore CS high before returning WR high. No write edge reaches the LCD.
-    if (shares(TFT_CS) && !output(TFT_WR, 0)) return fail("Touch LCD write guard failed");
+    // The verified shield shares CS, but not WR. Keep the write strobe inactive
+    // throughout every contact/ADC phase, even while CS is floating or analog.
+    // For a WR-sharing variant CS remains driven high instead. Never assert
+    // WR just to park the bus while changing CS/DC and the electrode voltages.
+    if (!shares(TFT_WR) && !output(TFT_WR, 1)) return fail("Touch LCD write guard failed");
     if (!mode(touchMask(), GPIO_MODE_INPUT)) return fail("Touch electrode GPIO failed");
     return true;
   }

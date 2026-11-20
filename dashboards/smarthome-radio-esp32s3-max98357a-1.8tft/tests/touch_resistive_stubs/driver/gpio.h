@@ -17,17 +17,24 @@ struct gpio_config_t {
 inline esp_err_t gpio_config(const gpio_config_t* config) {
   auto& s = FakeResistive::state();
   if (++s.gpioCalls == s.gpioFailAt) return ESP_FAIL;
-  const bool wr = FakeResistive::digitalLine(7);
   for (int pin = 0; pin < 49; ++pin) if (config->pin_bit_mask & (uint64_t(1) << pin)) {
     FakeResistive::checkPin(pin);
-    auto& p = s.pins[pin]; p.mode = config->mode; p.pullup = config->pull_up_en != 0;
+    auto& p = s.pins[pin];
+    // GPIO configuration changes pins individually. Observe the mode and pull
+    // updates separately so an unsafe control state cannot hide in one call.
+    const bool wrBeforeMode = FakeResistive::digitalLine(7);
+    p.mode = config->mode;
+    FakeResistive::checkWriteEdge(wrBeforeMode);
+    const bool wrBeforePull = FakeResistive::digitalLine(7);
+    p.pullup = config->pull_up_en != 0;
+    FakeResistive::checkWriteEdge(wrBeforePull);
   }
-  FakeResistive::checkWriteEdge(wr);
   return ESP_OK;
 }
 inline esp_err_t gpio_set_level(gpio_num_t pin, unsigned value) {
   auto& s = FakeResistive::state(); FakeResistive::checkPin(pin);
   const bool wr = FakeResistive::digitalLine(7);
+  if (pin == 7 && value == 0) ++s.writeLowCommands;
   s.pins[pin].level = value != 0;
   FakeResistive::checkWriteEdge(wr);
   return ESP_OK;

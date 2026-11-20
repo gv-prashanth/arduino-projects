@@ -17,6 +17,7 @@ struct State {
   unsigned gpioCalls = 0, gpioFailAt = 0, configureCalls = 0, configureFailAt = 0;
   unsigned readCalls = 0, readFailAt = 0, newCalls[2] = {}, delCalls[2] = {};
   unsigned delayTotal = 0, contactReads = 0, writeEdges = 0;
+  unsigned writeLowCommands = 0, writeLowStates = 0;
   unsigned digitalReadFailAt = 0, liftAtAdcRead = 0;
   int noiseAmplitude = 0;
   std::deque<int> samples;
@@ -45,9 +46,19 @@ inline bool digitalLine(int pin) {
   const auto& p = state().pins[pin];
   return p.mode == Output ? p.level != 0 : p.pullup;
 }
+inline double voltage(int pin);
+inline bool writeIsElectrode() {
+  const auto& s = state();
+  for (const auto& plate : s.plates)
+    if (plate.first == 7 || plate.second == 7) return true;
+  return false;
+}
 inline void checkWriteEdge(bool before) {
   auto& s = state();
-  if (s.displayActive && !before && digitalLine(7) && !digitalLine(16)) ++s.writeEdges;
+  if (!digitalLine(7)) ++s.writeLowStates;
+  // CS can be an analog panel voltage while its GPIO is an input. Use the
+  // resistor network here instead of equating an unpulled input with LOW.
+  if (s.displayActive && !before && digitalLine(7) && voltage(16) < 0.5) ++s.writeEdges;
 }
 
 // A passive electrical model, rather than canned readings for expected GPIO

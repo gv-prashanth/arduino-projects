@@ -20,6 +20,9 @@ static void restored() {
   }
   for (int pin : {7, 15, 16, 17, 21}) assert(s.pins[pin].level == 1);
   assert(s.writeEdges == 0); // No command/data write may occur during touch sampling.
+  if (!FakeResistive::writeIsElectrode()) {
+    assert(s.writeLowCommands == 0 && s.writeLowStates == 0);
+  }
   for (int pin : s.changedPins) assert(FakeResistive::allowed(pin));
 }
 
@@ -43,21 +46,24 @@ static void verifiedDefaultMappingAndCalibratableCoordinates() {
     s.positions[0] = 0.7; s.positions[1] = 0.2;
     assert(panel.read(point, pressed) && pressed); restored();
     assert(std::abs(point.x - first.x) > 500 && std::abs(point.y - first.y) > 500);
-    bool adc1 = false, adc2 = false;
-    for (int pin : s.sampledPins) { adc1 |= pin <= 10; adc2 |= pin > 10; }
-    assert(adc1 && adc2); // Verified CS/D1 axis needs ADC2; no ADC1-only assumption.
-    assert(s.newCalls[0] == 1 && s.newCalls[1] == 1);
+    // Follow the working TouchScreen API's exact sensing endpoints: YP/CS
+    // and XM/DC. LCD data pins D0/D1 must never enter analog mode.
+    assert(!s.sampledPins.empty() && s.configuredPins.size() >= 2);
+    for (int pin : s.sampledPins) assert(pin == 15 || pin == 16);
+    for (int pin : s.configuredPins) assert(pin == 15 || pin == 16);
+    assert(s.configuredPins[0] == 16 && s.configuredPins[1] == 15);
+    assert(s.newCalls[0] == 0 && s.newCalls[1] == 1);
     s.down = false;
     const RawPoint previous = point;
     assert(panel.read(point, pressed) && !pressed && point.x == previous.x && point.y == previous.y); restored();
-    assert(panel.signature() != 0 && panel.signature() != 0xC63E4A7FUL);
+    assert(panel.signature() != 0 && panel.signature() != 0xC63E4A7FUL && panel.signature() != 0xC34558DDUL);
     TouchHardware reversed(TouchHardware::Pins(15, 8, 16, 18));
     assert(reversed.signature() != panel.signature());
   }
-  assert(FakeResistive::state().delCalls[0] == 1 && FakeResistive::state().delCalls[1] == 1);
+  assert(FakeResistive::state().delCalls[0] == 0 && FakeResistive::state().delCalls[1] == 1);
 }
 
-static void alternativeWriteSharedMappingUsesAdc1WhenAvailable() {
+static void alternativeWriteSharedMappingKeepsControlSensingEndpoints() {
   FakeResistive::reset();
   {
     auto& s = FakeResistive::state();
@@ -67,8 +73,9 @@ static void alternativeWriteSharedMappingUsesAdc1WhenAvailable() {
     RawPoint point{0, 0}; bool pressed = false;
     assert(panel.read(point, pressed) && pressed); restored();
     assert(!s.sampledPins.empty());
-    for (int pin : s.sampledPins) assert(pin <= 10);
-    assert(s.newCalls[1] == 0);
+    for (int pin : s.sampledPins) assert(pin == 7 || pin == 15);
+    for (int pin : s.configuredPins) assert(pin == 7 || pin == 15);
+    assert(s.newCalls[0] == 1 && s.newCalls[1] == 1);
   }
 }
 
@@ -89,8 +96,14 @@ static void invalidConfigurationDoesNotTouchUnrelatedPins() {
   for (int unit = 0; unit < 2; ++unit) {
     FakeResistive::reset();
     {
-      FakeResistive::state().denyUnit[unit] = true;
-      TouchHardware panel;
+      auto& s = FakeResistive::state();
+      s.denyUnit[unit] = true;
+      // Default control endpoints both need ADC2. An alternative WR/DC layout
+      // also needs ADC1; denying either required unit must fail cleanly.
+      if (unit == 0) {
+        s.plates[0] = {10, 15, 300.0}; s.plates[1] = {7, 9, 500.0};
+      }
+      TouchHardware panel(unit == 0 ? TouchHardware::Pins(10, 15, 7, 9) : TouchHardware::Pins());
       assert(!panel.begin() && panel.error()[0]);
       RawPoint point{3, 4}; bool pressed = false;
       assert(!panel.read(point, pressed) && !pressed && point.x == 3 && point.y == 4);
@@ -98,6 +111,16 @@ static void invalidConfigurationDoesNotTouchUnrelatedPins() {
     for (int allocated = 0; allocated < 2; ++allocated)
       assert(FakeResistive::state().delCalls[allocated] <= FakeResistive::state().newCalls[allocated]);
   }
+}
+
+static void unusedAdc1DoesNotBlockDefaultReader() {
+  FakeResistive::reset();
+  FakeResistive::state().denyUnit[0] = true;
+  TouchHardware panel; assert(panel.begin());
+  auto& s = FakeResistive::state(); s.down = true; s.displayActive = true;
+  RawPoint point{0, 0}; bool pressed = false;
+  assert(panel.read(point, pressed) && pressed); restored();
+  assert(s.newCalls[0] == 0 && s.newCalls[1] == 1);
 }
 
 static unsigned successfulReadCount() {
@@ -123,7 +146,7 @@ static void adcTimeoutsNeverFabricateReleaseAndAlwaysRestorePads() {
     assert(panel.error()[0]); restored();
     s.readFailAt = 0;
     assert(panel.read(point, pressed) && pressed); restored();
-    assert(s.newCalls[0] == 1 && s.newCalls[1] == 1);
+    assert(s.newCalls[0] == 0 && s.newCalls[1] == 1);
   }
 }
 
@@ -194,8 +217,9 @@ static void contactMismatchNoiseAndLiftAreNotTaps() {
 
 int main() {
   verifiedDefaultMappingAndCalibratableCoordinates();
-  alternativeWriteSharedMappingUsesAdc1WhenAvailable();
+  alternativeWriteSharedMappingKeepsControlSensingEndpoints();
   invalidConfigurationDoesNotTouchUnrelatedPins();
+  unusedAdc1DoesNotBlockDefaultReader();
   adcTimeoutsNeverFabricateReleaseAndAlwaysRestorePads();
   failedMuxConfigurationAndInvalidConversionsAreCancelled();
   gpioFailuresRestoreSharedPadsBeforeDisplayCanWrite();
