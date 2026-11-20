@@ -219,6 +219,107 @@ void invalid_mapped_contact_is_cancelled_until_real_release() {
   assert(session.sample(false, nowhere, now, event) && event.type == Type::Tap);
 }
 
+void debounced_down_uses_settled_point_and_moves_do_not_repeat_actions() {
+  Gesture gesture;
+  Event event;
+  assert(!gesture.sample(true, 30, 40, 0, event));
+  assert(!gesture.sample(true, 98, 100, 19, event));
+  assert(gesture.sample(true, 100, 100, 20, event) && event.type == Type::Down);
+  assert(event.x == 100 && event.y == 100);
+  // Initial pressure settling must not count as movement after Down.
+  assert(gesture.sample(true, 104, 102, 40, event) && event.type == Type::Move);
+  assert(event.x == 104 && event.y == 102);
+  assert(gesture.sample(true, 104, 102, 5000, event) && event.type == Type::Move);
+  assert(!gesture.sample(false, 0, 0, 5010, event));
+  assert(gesture.sample(false, 0, 0, 5030, event) && event.type == Type::Tap);
+  assert(event.x == 104 && event.y == 102);
+  assert(!gesture.sample(false, 0, 0, 5050, event));
+}
+
+void movement_emits_release_candidate_while_real_cancellation_stays_blocked() {
+  Gesture gesture;
+  Event event;
+  assert(!gesture.sample(true, 80, 220, 0, event));
+  assert(gesture.sample(true, 80, 220, 20, event) && event.type == Type::Down);
+  assert(gesture.sample(true, 94, 220, 40, event) && event.type == Type::Move);
+  assert(gesture.sample(true, 80, 220, 60, event) && event.type == Type::Move);
+  assert(!gesture.sample(false, 0, 0, 80, event));
+  // The application can accept movement wholly within one button, or reject
+  // leaving/re-entering it based on the Move samples. It is not a hard Cancel.
+  assert(gesture.sample(false, 0, 0, 100, event) && event.type == Type::Release);
+  assert(event.x == 80 && event.y == 220);
+
+  assert(!gesture.sample(true, 80, 220, 200, event));
+  assert(gesture.sample(true, 80, 220, 220, event) && event.type == Type::Down);
+  gesture.cancel();
+  assert(!gesture.sample(true, 94, 220, 240, event));
+  assert(!gesture.sample(false, 0, 0, 260, event));
+  assert(gesture.sample(false, 0, 0, 280, event) && event.type == Type::Cancel);
+}
+
+void vertical_swipes_keep_their_threshold_and_do_not_become_taps() {
+  const int directions[] = {-1, 1};
+  for (int direction : directions) {
+    Gesture gesture;
+    Event event;
+    assert(!gesture.sample(true, 100, 100, 0, event));
+    assert(gesture.sample(true, 100, 100, 20, event) && event.type == Type::Down);
+    assert(gesture.sample(true, 102, int16_t(100 + direction * 23), 40, event) && event.type == Type::Move);
+    assert(gesture.sample(true, 102, int16_t(100 + direction * 24), 60, event) && event.type == Type::Move);
+    assert(!gesture.sample(false, 0, 0, 80, event));
+    assert(gesture.sample(false, 0, 0, 100, event));
+    assert(event.type == (direction < 0 ? Type::SwipeUp : Type::SwipeDown));
+    assert(event.x == 100 && event.y == 100); // Preserve the list contact origin.
+  }
+  Gesture gesture;
+  Event event;
+  assert(!gesture.sample(true, 100, 100, 0, event));
+  assert(gesture.sample(true, 100, 100, 20, event) && event.type == Type::Down);
+  assert(gesture.sample(true, 100, 123, 40, event) && event.type == Type::Move);
+  assert(!gesture.sample(false, 0, 0, 60, event));
+  assert(gesture.sample(false, 0, 0, 80, event) && event.type == Type::Release);
+}
+
+void calibrated_session_exposes_button_sized_motion_and_cancels_transport_interruptions() {
+  const Calibration saved = knownCalibration();
+  const Mapping mapping = {false, false, false};
+  Session session;
+  session.begin(signature, 320, 240, &saved);
+  uint32_t now = 100;
+  releaseGate(session, now);
+  Event event;
+  const RawPoint start = mapping.raw(ScreenPoint{80, 220});
+  const RawPoint rolled = mapping.raw(ScreenPoint{94, 220});
+  assert(!session.sample(true, start, now, event));
+  now += 20;
+  assert(session.sample(true, start, now, event) && event.type == Type::Down);
+  now += 20;
+  assert(session.sample(true, rolled, now, event) && event.type == Type::Move);
+  assert(event.x >= 93 && event.x <= 94 && event.y >= 219 && event.y <= 220);
+  now += 20;
+  assert(!session.sample(false, nowhere, now, event));
+  now += 20;
+  assert(session.sample(false, nowhere, now, event) && event.type == Type::Release);
+
+  now += 20;
+  assert(!session.sample(true, start, now, event));
+  now += 20;
+  assert(session.sample(true, start, now, event) && event.type == Type::Down);
+  session.cancelContact(); // A failed hardware read cannot become a release.
+  now += 20;
+  assert(!session.sample(true, rolled, now, event));
+  now += 500;
+  assert(!session.sample(true, rolled, now, event));
+  releaseGate(session, now);
+  assert(!session.sample(true, start, now, event));
+  now += 20;
+  assert(session.sample(true, start, now, event) && event.type == Type::Down);
+  now += 20;
+  assert(!session.sample(false, nowhere, now, event));
+  now += 20;
+  assert(session.sample(false, nowhere, now, event) && event.type == Type::Tap);
+}
+
 void timing_survives_millis_rollover() {
   Session session;
   session.begin(signature, 320, 240);
@@ -237,6 +338,10 @@ int main() {
   invalid_geometry_retries_and_cancel_preserves_saved_calibration();
   missing_or_wrong_hardware_calibration_starts_setup_and_can_skip();
   invalid_mapped_contact_is_cancelled_until_real_release();
+  debounced_down_uses_settled_point_and_moves_do_not_repeat_actions();
+  movement_emits_release_candidate_while_real_cancellation_stays_blocked();
+  vertical_swipes_keep_their_threshold_and_do_not_become_taps();
+  calibrated_session_exposes_button_sized_motion_and_cancels_transport_interruptions();
   timing_survives_millis_rollover();
   std::puts("Touch calibration session tests passed");
 }

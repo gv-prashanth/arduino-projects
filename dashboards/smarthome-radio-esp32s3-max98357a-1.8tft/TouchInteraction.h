@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 namespace RadioTouch {
-enum class Type : uint8_t { Down, Tap, SwipeUp, SwipeDown, Cancel };
+enum class Type : uint8_t { Down, Tap, SwipeUp, SwipeDown, Cancel, Move, Release };
 struct Event {
   Type type;
   int16_t x, y;
@@ -13,7 +13,9 @@ struct Event {
 };
 
 // Feed calibrated screen coordinates at a regular, nonblocking cadence. A
-// contact emits one Down and one release event; holding never auto-repeats.
+// contact emits one Down, its subsequent Move samples and one release event.
+// Moves let the UI retain a button-sized target rather than an 8-pixel circle.
+// Holding never emits another Down or a release action until the finger lifts.
 class Gesture {
  public:
   static constexpr uint32_t DebounceMs = 20;
@@ -41,8 +43,13 @@ class Gesture {
       }
       releasing_ = false;
       if (!down_ && !blocked_ && uint32_t(now - startedAt_) >= DebounceMs) {
-        down_ = true; out = Event(Type::Down, firstX_, firstY_); return true;
+        // Initial pressure can settle after the first raw contact. Anchor the
+        // debounced gesture at its current point, not that transient sample.
+        firstX_ = lastX_ = x; firstY_ = lastY_ = y;
+        farthestSquared_ = 0;
+        down_ = true; out = Event(Type::Down, x, y); return true;
       }
+      if (down_ && !blocked_) { out = Event(Type::Move, x, y); return true; }
       return false;
     }
     if (!contact_) return false;
@@ -58,7 +65,7 @@ class Gesture {
       if (vertical >= SwipeDistance && vertical > horizontal) {
         type = dy < 0 ? Type::SwipeUp : Type::SwipeDown;
         eventX = firstX_; eventY = firstY_;
-      } else if (farthestSquared_ <= uint64_t(TapSlop * TapSlop)) type = Type::Tap;
+      } else type = farthestSquared_ <= uint64_t(TapSlop * TapSlop) ? Type::Tap : Type::Release;
     }
     reset(); out = Event(type, eventX, eventY); return true;
   }

@@ -83,7 +83,7 @@ On the first boot, press each of the **five calibration crosses**, hold briefly,
 | Settings | Tap Wi-Fi setup, Retry audio, Mute/Unmute, or Back |
 | Loading / failed directory | Back remains available; failed requests also offer Retry and Filters |
 
-Volume remains on the knob. Its Click, Hold and rotation actions retain the existing workflow. Taps activate once on release; holding a finger does not repeat an action. Moving away from a tap, changing pages, a directory response, or using the knob during a touch cancels that contact. Calibration is a temporary overlay: audio/network service continues, and calibration touches do not reach the underlying screen.
+Volume remains on the knob. Its Click, Hold and rotation actions retain the existing workflow. Taps activate once on release; holding a finger does not repeat an action. Finger movement within the same button, text action or station row stays eligible for a tap rather than being restricted to an eight-pixel circle. Leaving the original control cancels the tap even if the finger returns; dragging never selects a neighbouring action. Station-list vertical swipes still scroll. Changing pages, a directory response, using the knob, or an invalid hardware read also cancels the contact. Calibration is a temporary overlay: audio/network service continues, and calibration touches do not reach the underlying screen.
 
 `TouchConfig.h` contains the enable switch, backend selection and four electrode GPIO definitions. Set `RADIO_TOUCH_ENABLED` to `0` to use only the knob. The ST7735 profile disables touch and initializes neither touch ADC nor touch SPI hardware. The ILI9341 display setting remains the one already proven on this hardware.
 

@@ -834,7 +834,7 @@ inline bool operator==(const TouchTarget& a, const TouchTarget& b) {
   return a.action == b.action && a.index == b.index;
 }
 struct TouchContact {
-  bool active = false, pending = false, failed = false;
+  bool active = false, pending = false, failed = false, tapEligible = false;
   RadioNavigation::State state;
   uint32_t inputRevision = 0, viewRevision = 0, searchGeneration = 0, catalogGeneration = 0;
   const RadioCatalog::Result* page = nullptr;
@@ -920,16 +920,27 @@ inline void handleTouchEvent(const RadioTouch::Event& event) {
     touchContact.firstStation = firstVisibleStation(ui.mode != FilterMode::Browse, stationAction());
     touchContact.x = event.x; touchContact.y = event.y;
     touchContact.target = touchTargetAt(event.x, event.y);
+    touchContact.tapEligible = touchContact.target.action != TouchAction::None;
+    return;
+  }
+  if (event.type == Type::Move) {
+    if (!sameTouchContext()) { touchContact.active = false; return; }
+    // Use the whole control as the movement allowance. A resistive-panel tap
+    // may roll more than eight pixels while remaining on the same button.
+    // Once it leaves, returning cannot revive a tap or select a neighbouring
+    // action. Keep the contact alive so a station-list drag can still swipe.
+    if (!(touchContact.target == touchTargetAt(event.x, event.y))) touchContact.tapEligible = false;
     return;
   }
   const bool valid = sameTouchContext();
   const TouchTarget target = touchContact.target;
+  const bool tapEligible = touchContact.tapEligible;
   const bool listContact = touchInStationList(touchContact.x, touchContact.y);
   touchContact.active = false;
   if (!valid) return;
-  if (event.type == Type::SwipeUp || event.type == Type::SwipeDown) {
-    if (view != View::Stations || ui.mode != FilterMode::Browse || search.pending || search.failed ||
-        !listContact || !catalog || catalog->count <= RadioDisplay::VisibleStationRows) return;
+  const bool swipe = event.type == Type::SwipeUp || event.type == Type::SwipeDown;
+  if (swipe && view == View::Stations && ui.mode == FilterMode::Browse && listContact) {
+    if (search.pending || search.failed || !catalog || catalog->count <= RadioDisplay::VisibleStationRows) return;
     const int selected = stationAction() == Action::Station ? stationCursor - 1 : ui.lastStation;
     const int next = constrain(selected + (event.type == Type::SwipeUp ? 1 : -1) * RadioDisplay::VisibleStationRows,
                                0, catalog->count - 1);
@@ -937,7 +948,11 @@ inline void handleTouchEvent(const RadioTouch::Event& event) {
     lastActionAt = millis(); dirty = true;
     return;
   }
-  if (event.type != Type::Tap || !(target == touchTargetAt(event.x, event.y)) || target.action == TouchAction::None) return;
+  // Vertical movement over a button is still a button release, not a list
+  // gesture. Only an eligible contact that stayed on its original action can
+  // activate; genuine cancellation events never reach this path.
+  if ((!swipe && event.type != Type::Tap && event.type != Type::Release) || !tapEligible ||
+      !(target == touchTargetAt(event.x, event.y)) || target.action == TouchAction::None) return;
   lastActionAt = millis(); dirty = true;
   switch (target.action) {
     case TouchAction::Stations: showStations(); break;

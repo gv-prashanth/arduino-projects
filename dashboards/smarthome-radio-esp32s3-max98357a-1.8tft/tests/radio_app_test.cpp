@@ -4,6 +4,7 @@
 #include <cassert>
 #include <cstdio>
 #include <string>
+#include <utility>
 
 namespace {
 using namespace RadioApp;
@@ -362,7 +363,7 @@ void testTouchGestureDebounceAndRelease() {
   assert(!gesture.sample(true, 100, 80, 0, result));
   assert(!gesture.sample(true, 100, 80, 19, result));
   assert(gesture.sample(true, 100, 80, 20, result) && result.type == RadioTouch::Type::Down);
-  assert(!gesture.sample(true, 100, 80, 5000, result)); // No repeat while held.
+  assert(gesture.sample(true, 100, 80, 5000, result) && result.type == RadioTouch::Type::Move); // No repeated Down/action.
   assert(!gesture.sample(false, 0, 0, 5010, result));
   assert(!gesture.sample(false, 0, 0, 5029, result));
   assert(gesture.sample(false, 0, 0, 5030, result) && result.type == RadioTouch::Type::Tap);
@@ -371,17 +372,17 @@ void testTouchGestureDebounceAndRelease() {
 
   assert(!gesture.sample(true, 100, 100, 6000, result));
   assert(gesture.sample(true, 100, 100, 6020, result));
-  assert(!gesture.sample(true, 101, 60, 6040, result));
+  assert(gesture.sample(true, 101, 60, 6040, result) && result.type == RadioTouch::Type::Move);
   assert(!gesture.sample(false, 0, 0, 6060, result));
   assert(gesture.sample(false, 0, 0, 6080, result) && result.type == RadioTouch::Type::SwipeUp);
   assert(result.x == 100 && result.y == 100); // Swipes retain the contact origin.
 
   assert(!gesture.sample(true, 100, 100, 7000, result));
   assert(gesture.sample(true, 100, 100, 7020, result));
-  assert(!gesture.sample(true, 120, 100, 7040, result));
-  assert(!gesture.sample(true, 100, 100, 7060, result)); // Leaving and returning is not a tap.
+  assert(gesture.sample(true, 120, 100, 7040, result) && result.type == RadioTouch::Type::Move);
+  assert(gesture.sample(true, 100, 100, 7060, result) && result.type == RadioTouch::Type::Move);
   assert(!gesture.sample(false, 0, 0, 7080, result));
-  assert(gesture.sample(false, 0, 0, 7100, result) && result.type == RadioTouch::Type::Cancel);
+  assert(gesture.sample(false, 0, 0, 7100, result) && result.type == RadioTouch::Type::Release); // App owns target boundaries.
 
   assert(!gesture.sample(true, 10, 10, UINT32_MAX - 10, result));
   assert(gesture.sample(true, 10, 10, 9, result) && result.type == RadioTouch::Type::Down);
@@ -418,6 +419,135 @@ void testTouchPlayerSettingsAndGates() {
   hold(); assert(view == View::Listening);
   RadioModel::copyText(initializationError, "Startup failed");
   touchTap(250, 225); assert(view == View::Listening);
+}
+
+void assertTouchRectangle(const TouchTarget& expected, int x, int y, int width, int height) {
+  for (int py = y; py < y + height; ++py) for (int px = x; px < x + width; ++px)
+    assert(touchTargetAt(px, py) == expected);
+}
+void assertPaintedTouchCoverage(const TouchTarget& expected, int x, int y, int width, int height) {
+  unsigned painted = 0;
+  for (int py = y; py < y + height; ++py) for (int px = x; px < x + width; ++px) {
+    const uint16_t pixel = canvas.at(px, py);
+    if (pixel == RadioDisplay::Black || pixel == RadioDisplay::RuleColor) continue;
+    ++painted;
+    assert(touchTargetAt(px, py) == expected);
+  }
+  assert(painted); // Exercise real rendered icons/text, not only empty coordinates.
+}
+void assertFocusedTouchCoverage(const TouchTarget& expected) {
+  int left = RadioDisplay::ScreenWidth, top = RadioDisplay::ScreenHeight, right = -1, bottom = -1;
+  for (int y = 0; y < RadioDisplay::ScreenHeight; ++y)
+    for (int x = 0; x < RadioDisplay::ScreenWidth; ++x)
+      if (canvas.at(x, y) == RadioDisplay::FocusBackground) {
+        left = min(left, x); right = max(right, x); top = min(top, y); bottom = max(bottom, y);
+      }
+  assert(right >= left && bottom >= top);
+  // Derive these bounds from the actual focus rectangle, independently of the
+  // hit-test implementation. Include glyph holes and blank button padding.
+  assertTouchRectangle(expected, left, top, right - left + 1, bottom - top + 1);
+}
+void testTouchCoversPaintedControls() {
+  if (!RadioDisplay::LargeDisplay) return;
+  using namespace RadioDisplay;
+  const int footerHeight = ScreenHeight - FooterTop;
+  const auto twoActionFooter = [&](TouchAction left, TouchAction right) {
+    assertTouchRectangle(TouchTarget(left), 0, FooterTop, ScreenWidth / 2, footerHeight);
+    assertTouchRectangle(TouchTarget(right), ScreenWidth / 2, FooterTop, ScreenWidth / 2, footerHeight);
+    assertPaintedTouchCoverage(TouchTarget(left), 0, FooterTop, ScreenWidth / 2, footerHeight);
+    assertPaintedTouchCoverage(TouchTarget(right), ScreenWidth / 2, FooterTop, ScreenWidth / 2, footerHeight);
+  };
+
+  reset(); touchReady = true; installPage(); playing(catalog->stations[0]); render();
+  twoActionFooter(TouchAction::Stations, TouchAction::Settings);
+  assert(touchTargetAt(20, FooterTop - 1).action == TouchAction::None);
+
+  enter(View::Settings);
+  for (int row = 0; row < 3; ++row) {
+    ui.setting = row; render();
+    const TouchTarget expected(TouchAction::SettingRow, row);
+    assertFocusedTouchCoverage(expected);
+    // The focused row is 34px tall, including its icon, text and six pixels of
+    // top padding; sweep the full background, not just a label's centre.
+    const int rowTop = 56 + row * 40 - 6;
+    assertTouchRectangle(expected, 8, rowTop, ScreenWidth - 16, 34);
+    assertPaintedTouchCoverage(expected, 0, rowTop, ScreenWidth, 34);
+    assert(touchTargetAt(80, rowTop - 1).action == TouchAction::None);
+    assert(touchTargetAt(80, rowTop + 34).action == TouchAction::None);
+  }
+  twoActionFooter(TouchAction::SelectSetting, TouchAction::Back);
+
+  enter(View::Wifi); wifi.portal = true; render();
+  assertTouchRectangle(TouchTarget(TouchAction::Back), 0, FooterTop, ScreenWidth, footerHeight);
+  assertPaintedTouchCoverage(TouchTarget(TouchAction::Back), 0, FooterTop, ScreenWidth, footerHeight);
+
+  reset(); touchReady = true; installPage(20, true, RadioModel::kPageSize); enter(View::Stations);
+  for (int selected : {1, 9, 20}) {
+    stationCursor = selected; ui.lastStation = selected - 1; render();
+    const int first = firstVisibleStation(false, stationAction());
+    for (int row = 0; row < VisibleStationRows; ++row) {
+      const TouchTarget expected(TouchAction::Station, first + row);
+      const int rowTop = FirstStationTop - 2 + row * StationRowHeight;
+      assertTouchRectangle(expected, 8, rowTop, ScreenWidth - 16, StationRowHeight);
+      assertPaintedTouchCoverage(expected, 0, rowTop, ScreenWidth - 8, StationRowHeight);
+      // Adjacent rows meet at one boundary; neither may steal the other's last
+      // pixel when the viewport has scrolled to the middle or end of a page.
+      if (row + 1 < VisibleStationRows)
+        assert(touchTargetAt(100, rowTop + StationRowHeight) ==
+               TouchTarget(TouchAction::Station, first + row + 1));
+    }
+    assertFocusedTouchCoverage(TouchTarget(TouchAction::Station, selected - 1));
+  }
+  for (Action action : {Action::Previous, Action::Next}) {
+    stationCursor = RadioNavigation::cursorFor(action, catalog); render();
+    assertFocusedTouchCoverage(TouchTarget(action == Action::Previous ?
+                                           TouchAction::PreviousPage : TouchAction::NextPage));
+  }
+  assertTouchRectangle(TouchTarget(TouchAction::PreviousPage), 8, FooterControlTop, 84, FooterControlHeight);
+  assertTouchRectangle(TouchTarget(TouchAction::NextPage), ScreenWidth - 92, FooterControlTop, 84, FooterControlHeight);
+  assertPaintedTouchCoverage(TouchTarget(TouchAction::PreviousPage), 0, FooterTop, 96, footerHeight);
+  assertPaintedTouchCoverage(TouchTarget(TouchAction::Back), 96, FooterTop, 128, footerHeight);
+  assertPaintedTouchCoverage(TouchTarget(TouchAction::NextPage), 224, FooterTop, 96, footerHeight);
+  assertTouchRectangle(TouchTarget(TouchAction::Back), 96, FooterControlTop, 128, FooterControlHeight);
+  assertTouchRectangle(TouchTarget(TouchAction::Filters), ContentLeft, FilterFocusTop,
+                       ContentWidth, FilterHeight);
+  assertPaintedTouchCoverage(TouchTarget(TouchAction::Filters), 0, FilterFocusTop, ScreenWidth, FilterHeight);
+
+  beginFields(); render();
+  const auto filterControls = [&](TouchAction previous, TouchAction centre, TouchAction next) {
+    for (const auto& column : {std::pair<int, int>{ContentLeft, 48}, {48, 272}, {272, ScreenWidth - ContentLeft}}) {
+      const TouchAction action = column.first == ContentLeft ? previous : column.first == 48 ? centre : next;
+      assertTouchRectangle(TouchTarget(action), column.first, FilterFocusTop,
+                           column.second - column.first, FilterHeight);
+      assertPaintedTouchCoverage(TouchTarget(action), column.first, FilterFocusTop,
+                                column.second - column.first, FilterHeight);
+    }
+  };
+  filterControls(TouchAction::FieldPrevious, TouchAction::EditField, TouchAction::FieldNext);
+  assertPaintedTouchCoverage(TouchTarget(TouchAction::Back), 0, FooterTop, 96, footerHeight);
+  assertPaintedTouchCoverage(TouchTarget(TouchAction::Back), 96, FooterTop, 128, footerHeight);
+  assertTouchRectangle(TouchTarget(), 228, FooterControlTop, 84, FooterControlHeight); // Disabled Next.
+  beginEdit(Field::Source); render();
+  filterControls(TouchAction::ValuePrevious, TouchAction::SetValue, TouchAction::ValueNext);
+  assertTouchRectangle(TouchTarget(TouchAction::SetValue), 96, FooterControlTop, 128, FooterControlHeight);
+  assertPaintedTouchCoverage(TouchTarget(TouchAction::SetValue), 96, FooterTop, 128, footerHeight);
+
+  reset(); touchReady = true; installPage(20, false); enter(View::Stations); render();
+  for (int left : {8, ScreenWidth - 92}) {
+    assertTouchRectangle(TouchTarget(), left, FooterControlTop, 84, FooterControlHeight);
+    assertPaintedTouchCoverage(TouchTarget(), left, FooterTop, 84, footerHeight);
+  }
+  requestDirectory(catalog->request.filter, RadioModel::kPageSize, false, Purpose::Page); render();
+  assertTouchRectangle(TouchTarget(TouchAction::Back), 0, FooterTop, ScreenWidth, footerHeight);
+  assertPaintedTouchCoverage(TouchTarget(TouchAction::Back), 0, FooterTop, ScreenWidth, footerHeight);
+  assertTouchRectangle(TouchTarget(), ContentLeft, FilterFocusTop, ContentWidth, FilterHeight);
+  assertTouchRectangle(TouchTarget(), 8, FirstStationTop - 2, ScreenWidth - 16,
+                       VisibleStationRows * StationRowHeight);
+  fail(); stationCursor = RadioNavigation::cursorFor(Action::Retry, catalog, true); render();
+  twoActionFooter(TouchAction::Retry, TouchAction::Back);
+  assertTouchRectangle(TouchTarget(TouchAction::Filters), ContentLeft, FilterFocusTop, ContentWidth, FilterHeight);
+  stationCursor = RadioNavigation::cursorFor(Action::Filters, catalog, true); render();
+  twoActionFooter(TouchAction::Filters, TouchAction::Back);
 }
 void testTouchStationViewportAndBoundaries() {
   if (!RadioDisplay::LargeDisplay) return;
@@ -505,7 +635,9 @@ void testTouchSwipesStayWithinCurrentPage() {
   stationCursor = 20; ui.lastStation = 19;
   touchDown(100, 80); handleTouchEvent({RadioTouch::Type::SwipeUp, 100, 80});
   assert(stationCursor == 20 && directory.requests.empty()); // No wrap to Next/Filters.
-  touchDown(100, 50); handleTouchEvent({RadioTouch::Type::SwipeDown, 100, 50});
+  touchDown(100, 50);
+  handleTouchEvent({RadioTouch::Type::Move, 100, 80}); // Real swipe crosses out of the filter control first.
+  handleTouchEvent({RadioTouch::Type::SwipeDown, 100, 50});
   assert(stationCursor == 20); // Swipes must begin within the station list.
   render();
 }
@@ -583,6 +715,99 @@ void testTouchHardwareSessionStorageAndLoop() {
   assert(!touchHardwareReady && !touchReady && !calibratingTouch());
   hold(); assert(view == View::Settings);
 }
+// Exercise physical polling, mapping, gesture recognition and action dispatch
+// together; direct Down/Tap injections cannot catch movement-related failures.
+void prepareCalibratedControls() {
+  reset();
+  RadioTouch::RawPoint raw[5];
+  for (unsigned index = 0; index < 5; ++index) {
+    const auto target = RadioTouch::calibrationTarget(index, 320, 240);
+    raw[index] = rawTouchAt(target.x, target.y);
+  }
+  assert(RadioTouch::fitCalibration(raw, touchPanel.signature(), 320, 240, touchStore.saved));
+  touchStore.hasSaved = true;
+  beginTouch(); assert(touchReady && !calibratingTouch());
+  releaseTouch();
+  installPage(20); playing(catalog->stations[0]);
+}
+void beginControlTouch(int x, int y) {
+  sampleTouch(true, rawTouchAt(x, y));
+  sampleTouch(true, rawTouchAt(x, y));
+}
+void testWholeControlTapsThroughRawPolling() {
+  if (!RadioDisplay::LargeDisplay) return;
+  // Tap from the icon end, middle and text end of both wide footer actions.
+  for (int x : {14, 70, 138, 176, 235, 294}) {
+    prepareCalibratedControls();
+    beginControlTouch(x, 225);
+    sampleTouch(true, rawTouchAt(x + 14, 225));
+    assert(view == View::Listening && audio.startCalls == 0);
+    releaseTouch();
+    assert(view == (x < 160 ? View::Stations : View::Settings));
+  }
+  // A finger can roll vertically inside the same short footer button, too.
+  prepareCalibratedControls(); beginControlTouch(250, 215);
+  sampleTouch(true, rawTouchAt(250, 235)); releaseTouch();
+  assert(view == View::Settings);
+  // Settings rows are controls across their full width, without autorepeat.
+  prepareCalibratedControls(); openSettings(); beginControlTouch(16, 145);
+  sampleTouch(true, rawTouchAt(150, 145));
+  sampleTouch(true, rawTouchAt(300, 145));
+  assert(!settings.muted);
+  releaseTouch(); assert(settings.muted);
+  releaseTouch(); assert(settings.muted);
+  prepareCalibratedControls(); openSettings(); beginControlTouch(100, 132);
+  sampleTouch(true, rawTouchAt(100, 160)); releaseTouch();
+  assert(view == View::Settings && settings.muted); // Vertical roll stays in one row, not a list swipe.
+  // Small finger movement on any of the five station rows plays that row.
+  for (int row = 0; row < 5; ++row) {
+    prepareCalibratedControls(); enter(View::Stations);
+    const int y = RadioDisplay::FirstStationTop + row * RadioDisplay::StationRowHeight + 8;
+    const Station expected = catalog->stations[row];
+    beginControlTouch(50, y); sampleTouch(true, rawTouchAt(68, y + 3));
+    releaseTouch();
+    assert(audio.startCalls == 1 && !std::strcmp(audio.lastStation.id, expected.id));
+    assert(view == View::Listening);
+  }
+  // Arrow labels/icons and wide filter text use the same target rule.
+  prepareCalibratedControls(); enter(View::Stations); beginFields();
+  beginControlTouch(290, 50); sampleTouch(true, rawTouchAt(305, 50)); releaseTouch();
+  assert(ui.fieldCursor == 1 && ui.mode == FilterMode::Fields);
+  beginControlTouch(60, 50); sampleTouch(true, rawTouchAt(250, 50)); releaseTouch();
+  assert(ui.mode == FilterMode::Value);
+}
+void testDraggedContactsDoNotRetargetActions() {
+  if (!RadioDisplay::LargeDisplay) return;
+  for (bool returnToStart : {false, true}) {
+    prepareCalibratedControls(); beginControlTouch(140, 225);
+    sampleTouch(true, rawTouchAt(180, 225));
+    if (returnToStart) sampleTouch(true, rawTouchAt(140, 225));
+    releaseTouch();
+    assert(view == View::Listening && !touchContact.active);
+  }
+  prepareCalibratedControls(); enter(View::Stations); beginControlTouch(60, 82);
+  sampleTouch(true, rawTouchAt(60, 112));
+  sampleTouch(true, rawTouchAt(60, 82)); releaseTouch();
+  assert(view == View::Stations && audio.startCalls == 0);
+  // A real vertical list swipe still scrolls instead of playing a row.
+  beginControlTouch(100, 185); sampleTouch(true, rawTouchAt(100, 145));
+  sampleTouch(true, rawTouchAt(100, 110)); releaseTouch();
+  assert(stationCursor == 6 && audio.startCalls == 0 && directory.requests.empty());
+  // The knob still cancels a touch in progress even if all points stay inside.
+  prepareCalibratedControls(); beginControlTouch(240, 225);
+  sampleTouch(true, rawTouchAt(255, 225)); event(EventType::Rotate, 1);
+  sampleTouch(true, rawTouchAt(265, 225)); releaseTouch();
+  assert(view == View::Listening && settings.volume == 11);
+  // A transport failure remains a cancellation, never a release candidate.
+  prepareCalibratedControls(); beginControlTouch(240, 225);
+  sampleTouch(true, rawTouchAt(255, 225));
+  sampleTouch(true, rawTouchAt(260, 225), false); releaseTouch();
+  assert(view == View::Listening && !touchContact.active);
+  // Ignore initial pressure settling before the debounced Down is emitted.
+  prepareCalibratedControls(); sampleTouch(true, rawTouchAt(150, 225));
+  sampleTouch(true, rawTouchAt(180, 225)); sampleTouch(true, rawTouchAt(194, 225));
+  releaseTouch(); assert(view == View::Settings);
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -601,11 +826,14 @@ int main(int argc, char** argv) {
   testAudioDiagnosticsDoNotRepaintUnchangedScreen();
   testTouchGestureDebounceAndRelease();
   testTouchPlayerSettingsAndGates();
+  testTouchCoversPaintedControls();
   testTouchStationViewportAndBoundaries();
   testTouchFilterDraftAndCancellation();
   testTouchLoadingRetryAndContextChanges();
   testTouchSwipesStayWithinCurrentPage();
   testTouchHardwareSessionStorageAndLoop();
+  testWholeControlTapsThroughRawPolling();
+  testDraggedContactsDoNotRetargetActions();
   reset();
   std::puts("RadioApp integration and pixel tests passed");
 }
